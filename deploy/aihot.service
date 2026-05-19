@@ -1,0 +1,16 @@
+[Unit]
+Description=AIHOT fullstack service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/aihot
+Environment=NODE_ENV=production
+Environment=PORT=8080
+Environment=ADMIN_TOKEN=change-me-before-deploy
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
