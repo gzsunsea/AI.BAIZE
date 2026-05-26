@@ -1,5 +1,5 @@
 const { readState, writeState } = require("../lib/store");
-const { isQualityCandidate } = require("../lib/scoring");
+const { isSelectedQualityCandidate } = require("../lib/scoring");
 
 const SOURCE_KIND_CAPS = {
   hn: 80,
@@ -13,7 +13,7 @@ function cleanupQuality() {
   const before = state.items.length;
   const sourceKindCounts = new Map();
   state.items = state.items
-    .filter((item) => item.pinned || isQualityCandidate(item))
+    .filter((item) => item.pinned || isSelectedQualityCandidate(item))
     .sort((a, b) => new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime())
     .filter((item) => {
       const cap = SOURCE_KIND_CAPS[item.sourceKind];

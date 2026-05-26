@@ -5,7 +5,7 @@ const { readState, writeState } = require("./lib/store");
 const { refreshAll } = require("./jobs/refresh");
 const { attachRelated, categoryLabel, enrichItem, itemCategory, sourceChannel } = require("./lib/editorial");
 const { enhanceRecentItems } = require("./lib/llmEnhancer");
-const { isQualityCandidate, makeId } = require("./lib/scoring");
+const { isQualityCandidate, isSelectedQualityCandidate, makeId } = require("./lib/scoring");
 
 const PORT = Number(process.env.PORT || 8080);
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "aihot-admin";
@@ -263,7 +263,7 @@ function visibleItems(query) {
   const filtered = state.items
     .filter((item) => !item.hidden)
     .filter((item) => {
-      if (mode === "selected") return (item.pinned || item.score >= threshold) && isQualityCandidate(item);
+      if (mode === "selected") return (item.pinned || item.score >= threshold) && isSelectedQualityCandidate(item);
       if (mode === "mp") return isChineseMedia(item) && isQualityCandidate(item);
       return isQualityCandidate(item);
     })
@@ -342,7 +342,7 @@ function buildDailyDigest(state, query = {}, options = {}) {
   const until = Number(options.until || 0);
   const pool = state.items
     .filter((item) => !item.hidden)
-    .filter((item) => isQualityCandidate(item))
+    .filter((item) => isSelectedQualityCandidate(item))
     .filter((item) => {
       const published = new Date(item.publishedAt || 0).getTime();
       if (since && published < since) return false;
@@ -356,7 +356,9 @@ function buildDailyDigest(state, query = {}, options = {}) {
     .sort((a, b) => {
       const aRecent = since ? new Date(a.publishedAt || 0).getTime() >= since ? 1 : 0 : 0;
       const bRecent = since ? new Date(b.publishedAt || 0).getTime() >= since ? 1 : 0 : 0;
-      return bRecent - aRecent || b.score - a.score || new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+      const aCommunity = a.priorityTier === "community_fallback" || ["hn", "github", "arxiv", "devto"].includes(a.sourceKind) ? 1 : 0;
+      const bCommunity = b.priorityTier === "community_fallback" || ["hn", "github", "arxiv", "devto"].includes(b.sourceKind) ? 1 : 0;
+      return bRecent - aRecent || aCommunity - bCommunity || b.score - a.score || new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
     });
   const dailyCommunityCaps = { hn: 8, github: 8, arxiv: 8, devto: 0 };
   const dailyCommunityCounts = new Map();
@@ -515,7 +517,7 @@ app.get("/api/stats", (_req, res) => {
   }
   res.json({
     total: items.length,
-    selected: items.filter((item) => (item.pinned || item.score >= threshold) && isQualityCandidate(item)).length,
+    selected: items.filter((item) => (item.pinned || item.score >= threshold) && isSelectedQualityCandidate(item)).length,
     sources: state.sources.length,
     refreshedAt: state.settings.refreshedAt,
     tags: [...tags.entries()].sort((a, b) => b[1] - a[1]).map(([tag, count]) => ({ tag, count })),

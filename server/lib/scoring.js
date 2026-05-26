@@ -39,14 +39,20 @@ const AI_KEYWORDS = [
   "social signal",
 ];
 
-const STRONG_AI_RE = /(?:^|[^A-Za-z])AI(?:$|[^A-Za-z])|AIGC|AGI|artificial intelligence|machine learning|LLM|large language model|agent|OpenAI|ChatGPT|GPT-|Anthropic|Claude|Claude Code|Gemini|DeepMind|Mistral|Llama|xAI|Grok|Hugging Face|Copilot|Codex|Cursor|OpenRouter|diffusion|multimodal|inference|benchmark|eval|RAG|大模型|人工智能|智能体|多模态|推理|训练|模型|开源模型|生成式|文生图|文生视频|机器人/i;
-const CORE_AI_RE = /AIGC|AGI|artificial intelligence|machine learning|LLM|large language model|agent|OpenAI|ChatGPT|GPT-|Anthropic|Claude|Claude Code|Gemini|DeepMind|Mistral|Llama|xAI|Grok|Hugging Face|Copilot|Codex|Cursor|OpenRouter|diffusion|multimodal|inference|benchmark|eval|RAG|大模型|人工智能|智能体|多模态|推理|训练|模型|开源模型|生成式|文生图|文生视频|机器人|AI\s*芯片|AI\s*编程|AI\s*应用|AI\s*模型|AI\s*算力/i;
-const EDUCATION_CULTURE_RE = /education|edtech|learning|teaching|student|teacher|classroom|tutor|culture|creative|art|music|film|movie|game|copyright|publishing|museum|教育|教学|课堂|学生|教师|课程|学习|辅导|文化|艺术|创意|音乐|影视|电影|游戏|版权|出版|博物馆/i;
-const CN_NOISE_RE = /汽车|车型|新车|纯电|增程|电池|手机|平板|耳机|显卡|主板|路由器|消费电子|相机|镜头|家电|财报|净利润|营收|股票|芯片股|半导体设备|光模块|光纤|商务部|会见|法拉第未来|贾跃亭|预售|续航/i;
+const CORE_AI_RE = /AIGC|AGI|artificial intelligence|machine learning|deep learning|neural network|\bLLMs?\b|large language model|generative AI|foundation model|frontier model|AI[-\s]?(?:agent|agents|model|models|tool|tools|app|apps|coding|developer|search|assistant|video|image|music|education|safety|alignment|workflow|inference|training|chip|compute|assisted|powered|generated|native|driven|mediated|enabled)|agentic|Claude Code|OpenAI|ChatGPT|GPT-\d|Anthropic|Claude|Gemini|DeepMind|Mistral|Llama|xAI|Grok|Hugging Face|Copilot|Codex|Cursor|OpenRouter|diffusion|stable diffusion|multimodal|inference|fine-?tuning|benchmark|eval|RAG|RLHF|transformer|embedding|vector database|大模型|基础模型|前沿模型|人工智能|智能体|智能代理|多模态|推理|训练|微调|评测|基准|向量数据库|检索增强|模型发布|开源模型|生成式\s*AI|生成式人工智能|文生图|文生视频|AI\s*编程|AI\s*应用|AI\s*模型|AI\s*工具|AI\s*助手|AI\s*搜索|AI\s*教育|AI\s*安全|AI\s*芯片|AI\s*算力|端到端自动驾驶|Robotaxi|FSD/i;
+const AI_ENTITY_RE = /OpenAI|Anthropic|Claude|DeepMind|Google AI|Gemini|xAI|Grok|Mistral|Llama|Hugging Face|OpenRouter|Cursor|Copilot|Codex|Runway|Midjourney|Stability AI|Perplexity|DeepSeek|智谱|月之暗面|MiniMax|百川|通义|千问|豆包|讯飞星火|腾讯元宝|元宝|Kimi|商汤|阶跃星辰/i;
+const AI_INFRA_RE = /GPU|NPU|TPU|CUDA|ROCm|算力|AI\s*芯片|accelerator|inference|推理|训练|集群|数据中心|Stargate|星际之门|cloud|云平台|serverless|edge|边缘/i;
+const AI_INFRA_CONTEXT_RE = /LLM|大模型|AI\s*模型|foundation model|frontier model|agent|智能体|推理|训练|inference|training|fine-?tuning|serving|部署|GPU\s*memory|模型服务|AI\s*应用|AI\s*产品/i;
+const EDUCATION_CULTURE_RE = /AI\s*(education|tutor|learning|classroom|art|music|film|movie|game|copyright|creator)|generative\s*(art|music|video|film)|education|edtech|tutor|culture|creative|copyright|publishing|AI\s*教育|AI\s*教学|AI\s*课堂|AI\s*辅导|AI\s*艺术|AI\s*音乐|AI\s*影视|AI\s*游戏|AI\s*版权|生成式艺术|生成式音乐|生成式视频|生成式动画|文生图|文生视频/i;
+const WEAK_INDUSTRY_RE = /融资|募资|估值|IPO|上市辅导|股价|市值|财报|营收|利润|净利润|裁员|岗位|就业|招聘|薪资|人事|任命|离职|退休|CEO|高管|董事长|总裁|创始人|黄仁勋|董事会|诉讼|起诉|庭审|判决|收购|投资|控股|股东|代言|官宣|出口管制|监管|政策|补贴|研发中心|基地启用|训练场|设立|合作伙伴|数据中心建设阻力|community engagement|valuation|funding|fundraise|IPO|layoff|job losses|hiring|lawsuit|trial|CEO|executive|board|stock|revenue|profit|acquisition|partnership|compute deal/i;
+const CN_NOISE_RE = /汽车|车型|新车|纯电|增程|电池|手机|平板|耳机|显卡|主板|路由器|消费电子|相机|镜头|家电|财报|净利润|营收|股票|芯片股|半导体设备|光模块|光纤|商务部|会见|法拉第未来|贾跃亭|预售|续航|跑步官|代言|鸿蒙版|Switch|直板旗舰/i;
 const CN_PROMO_NOISE_RE = /京东|淘宝|天猫|拼多多|红包|优惠券|消费券|折扣|补贴|PLUS|88VIP|领券|凑单|好价|直达链接|会员专享|大促|618|超级\s*18|全品类|家电|制冰机|洗衣机|电动车|电动摩托|耳机|AirPods/i;
-const HARD_LOW_VALUE_RE = /含能材料|火炸药|燃烧实验|单颗粒|悬浮燃烧|炸药|烟火剂|枪炮弹丸|会员专享|无门槛红包|至高\s*\d+\s*元|打开京东APP|政府补贴|以旧换新/i;
+const HARD_LOW_VALUE_RE = /含能材料|火炸药|燃烧实验|单颗粒|悬浮燃烧|炸药|烟火剂|枪炮弹丸|会员专享|无门槛红包|至高\s*\d+\s*元|打开京东APP|政府补贴|以旧换新|首席跑步官|多行星物种/i;
 const CN_AUTO_PROMO_RE = /汽车|车型|新车|SUV|轿车|纯电|增程|混动|电池|续航|CLTC|售价|万元|上市|预售|闪充|座舱|智驾/i;
 const CN_AUTO_CORE_AI_TITLE_RE = /Robotaxi|FSD|自动驾驶|无人驾驶|端到端|智能驾驶|辅助驾驶系统|智驾系统|自动泊车/i;
+const CN_DEVICE_PROMO_RE = /新机|机型|预装|无需更新系统|AIOS|努比亚|HMD|豆包手机|华为\s*Mate|iPhone|App\s*获|鸿蒙版|官方降价|国行\s*Switch/i;
+const DIGEST_OR_ROUNDUP_RE = /早报|晚报|日报|周报|一图看懂|汇总|合集|盘点|要闻|morning brief|daily brief|weekly roundup/i;
+const WEAK_GITHUB_RE = /awesome[-_\s]|curated list|course list|summer ?school|books?|lectures?|papers?\.?$|pack(?:s|ing)? your entire repository|AI-friendly file|WhatsApp Web|customer service|use your imagination|OSINT|intelligence gathering|situational analysis/i;
 const BROAD_OFFICIAL_RE = /GitHub Changelog|GitHub Blog|Cloudflare|Apple Machine Learning Research|NVIDIA AI Blog/i;
 
 const tagRules = [
@@ -126,22 +132,100 @@ function topicHints(text = "") {
   return hints.slice(0, 3);
 }
 
+function itemText(item = {}) {
+  return `${item.title || ""} ${item.summary || ""} ${(item.tags || []).join(" ")}`;
+}
+
+function itemSourceText(item = {}) {
+  return `${item.sourceName || ""} ${item.sourceKind || ""} ${item.priorityTier || ""} ${item.sourceTier || ""}`;
+}
+
+function isCommunitySource(item = {}) {
+  return item.priorityTier === "community_fallback" || ["hn", "github", "devto", "arxiv"].includes(item.sourceKind);
+}
+
+function isChineseMediaSource(item = {}) {
+  return item.priorityTier === "cn_media" || /IT之家|爱范儿|极客公园|量子位|机器之心|新智元/i.test(itemSourceText(item));
+}
+
+function isBroadOfficialSource(item = {}) {
+  return item.priorityTier === "official_first_party" && BROAD_OFFICIAL_RE.test(itemSourceText(item));
+}
+
+function isAiInfraCandidate(item = {}) {
+  const text = itemText(item);
+  return AI_INFRA_RE.test(text) && AI_INFRA_CONTEXT_RE.test(text);
+}
+
+function isCoreAiCandidate(item = {}) {
+  const text = itemText(item);
+  if (!text.trim()) return false;
+  if (CORE_AI_RE.test(text)) return true;
+  if (EDUCATION_CULTURE_RE.test(text)) return true;
+  if (CN_AUTO_CORE_AI_TITLE_RE.test(item.title || "")) return true;
+  return isAiInfraCandidate(item);
+}
+
+function isWeakIndustryCandidate(item = {}) {
+  const text = itemText(item);
+  const title = item.title || "";
+  if (!WEAK_INDUSTRY_RE.test(text)) return false;
+  if (/CEO|高管|董事长|总裁|黄仁勋|创始人/i.test(title) && !/发布|推出|开源|更新|接入|支持|可用|release|launch|模型发布/i.test(title)) return true;
+  const coreActionInTitle = /发布|推出|上线|开源|更新|接入|支持|可用|preview|available|release|launch|模型发布|API|SDK|工具|平台|论文|研究|benchmark|eval|inference|training|训练|推理|Agent|智能体|Copilot|Codex|Claude Code|Grok/i.test(title);
+  if (WEAK_INDUSTRY_RE.test(title) && !coreActionInTitle) return true;
+  return !coreActionInTitle && !isAiInfraCandidate(item);
+}
+
+function isNoiseCandidate(item = {}) {
+  const text = itemText(item);
+  const sourceText = itemSourceText(item);
+  if (item.sourceKind === "devto") return true;
+  if (HARD_LOW_VALUE_RE.test(text)) return true;
+  if (CN_PROMO_NOISE_RE.test(text)) return true;
+  if (DIGEST_OR_ROUNDUP_RE.test(item.title || "")) return true;
+  if (item.sourceKind === "github" && WEAK_GITHUB_RE.test(text)) return true;
+  if (isChineseMediaSource(item) && CN_DEVICE_PROMO_RE.test(text)) return true;
+  if (isChineseMediaSource(item) && CN_AUTO_PROMO_RE.test(text) && !CN_AUTO_CORE_AI_TITLE_RE.test(item.title || "")) return true;
+  if (isChineseMediaSource(item) && CN_NOISE_RE.test(text) && !isCoreAiCandidate(item)) return true;
+  if (/Hacker News 热门|buzzing\.cc/i.test(sourceText) && !isCoreAiCandidate(item)) return true;
+  return false;
+}
+
+function qualityClass(item = {}) {
+  if (isNoiseCandidate(item)) return "noise";
+  if (isWeakIndustryCandidate(item) || (AI_ENTITY_RE.test(itemText(item)) && WEAK_INDUSTRY_RE.test(itemText(item)))) return "industry_weak";
+  if (isCoreAiCandidate(item)) return isAiInfraCandidate(item) && !CORE_AI_RE.test(itemText(item)) ? "ai_infra" : "core_ai";
+  return "noise";
+}
+
+function isSelectedQualityCandidate(item = {}) {
+  if (item.pinned) return true;
+  if (!isQualityCandidate(item)) return false;
+  if (qualityClass(item) === "industry_weak") return false;
+  if (!isCoreAiCandidate(item)) return false;
+  if (isCommunitySource(item) && !isCoreAiCandidate(item)) return false;
+  if (isChineseMediaSource(item) && !isCoreAiCandidate(item)) return false;
+  return true;
+}
+
 function sourcePriorityScore(raw = {}) {
   const tier = raw.priorityTier || raw.sourceTier || raw.tier || "";
   const base = {
     preferred_x: 24,
     official_first_party: 24,
     expert_rss: 18,
-    reference: 16,
-    cn_media: 8,
-    community_fallback: -10,
+    reference: 10,
+    cn_media: 4,
+    community_fallback: -14,
   }[tier] || 0;
   const preferred = raw.preferred ? 8 : 0;
   const penalty = Number(raw.noisePenalty || 0);
   const boosts = raw.topicBoosts || {};
   const hints = topicHints(`${raw.title || ""} ${raw.summary || ""} ${raw.description || ""}`).join(" ").toLowerCase();
   const topicBoost = Object.entries(boosts).reduce((sum, [topic, value]) => (hints.includes(topic) ? sum + Number(value || 0) : sum), 0);
-  return Math.round(base + preferred + topicBoost - penalty);
+  const sample = { title: raw.title, summary: raw.summary || raw.description, tags: raw.tags || [], priorityTier: tier };
+  const qualityBoost = isCoreAiCandidate(sample) ? 8 : isWeakIndustryCandidate(sample) ? -16 : -8;
+  return Math.round(base + preferred + topicBoost + qualityBoost - penalty);
 }
 
 function enrichSummary(title = "", summary = "", sourceName = "") {
@@ -171,7 +255,9 @@ function scoreItem({ title = "", summary = "", sourceKind = "", publishedAt, sta
   const authority = sourceKind === "aihot" ? 25 : sourceKind === "x" ? 20 : sourceKind === "arxiv" ? 12 : sourceKind === "github" ? 6 : sourceKind === "hn" || sourceKind === "devto" ? 2 : 10;
   const social = Math.min(20, Math.log10(Math.max(1, stars + comments + 1)) * 8);
   const sourceScore = sourcePriorityScore({ title, summary, priorityTier, preferred, noisePenalty, topicBoosts });
-  return Math.max(1, Math.min(99, Math.round(28 + keywordScore + freshness + authority + social + sourceScore)));
+  const sample = { title, summary, sourceKind, priorityTier };
+  const qualityScore = isCoreAiCandidate(sample) ? 14 : isWeakIndustryCandidate(sample) ? -24 : -18;
+  return Math.max(1, Math.min(99, Math.round(24 + keywordScore + freshness + authority + social + sourceScore + qualityScore)));
 }
 
 function reasonFor(item) {
@@ -184,23 +270,14 @@ function reasonFor(item) {
 }
 
 function isQualityCandidate(item) {
-  const sourceText = `${item.sourceName || ""} ${item.sourceKind || ""}`;
-  const bodyText = `${item.title || ""} ${item.summary || ""}`;
-  const contentText = `${bodyText} ${(item.tags || []).join(" ")}`;
-  if (item.sourceKind === "devto") return false;
-  const isCommunity = item.priorityTier === "community_fallback" || ["hn", "github", "devto"].includes(item.sourceKind);
-  const hasStrongAi = STRONG_AI_RE.test(bodyText);
-  const hasCoreAi = CORE_AI_RE.test(bodyText);
-  const hasEducationCulture = EDUCATION_CULTURE_RE.test(bodyText) && hasStrongAi;
-  if (HARD_LOW_VALUE_RE.test(contentText) && !hasStrongAi) return false;
-  if (isCommunity && !hasStrongAi) return false;
-  const isCnMedia = item.priorityTier === "cn_media" || /IT之家|爱范儿|极客公园|量子位|机器之心|新智元/i.test(sourceText);
-  if (isCnMedia && CN_AUTO_PROMO_RE.test(contentText) && !CN_AUTO_CORE_AI_TITLE_RE.test(item.title || "")) return false;
-  if (isCnMedia && (CN_NOISE_RE.test(contentText) || CN_PROMO_NOISE_RE.test(contentText)) && !hasCoreAi && !hasEducationCulture) return false;
-  if (isCnMedia && !hasStrongAi && !hasEducationCulture) return false;
-  const isBroadOfficial = item.priorityTier === "official_first_party" && BROAD_OFFICIAL_RE.test(sourceText);
-  if (isBroadOfficial && !hasStrongAi) return false;
-  return true;
+  if (!item || isNoiseCandidate(item)) return false;
+  if (isWeakIndustryCandidate(item)) return false;
+  const hasCoreAi = isCoreAiCandidate(item);
+  if (isCommunitySource(item) && !hasCoreAi) return false;
+  if (isChineseMediaSource(item) && !hasCoreAi) return false;
+  if (isBroadOfficialSource(item) && !hasCoreAi) return false;
+  if (hasCoreAi) return true;
+  return AI_ENTITY_RE.test(itemText(item)) && !isWeakIndustryCandidate(item);
 }
 
 function normalizeItem(raw) {
@@ -230,6 +307,7 @@ function normalizeItem(raw) {
     preferred,
     noisePenalty,
     sourcePriorityScore: sourcePriorityScore({ title, summary, priorityTier, preferred, noisePenalty, topicBoosts }),
+    qualityClass: qualityClass({ title, summary, tags, sourceName, sourceKind, priorityTier, sourceTier: raw.sourceTier || raw.source?.tier || raw.tier || null }),
     author: raw.author || null,
     publishedAt,
     score,
@@ -244,9 +322,14 @@ function normalizeItem(raw) {
 
 module.exports = {
   inferTags,
+  isCoreAiCandidate,
+  isNoiseCandidate,
   isQualityCandidate,
+  isSelectedQualityCandidate,
+  isWeakIndustryCandidate,
   makeId,
   normalizeItem,
+  qualityClass,
   scoreItem,
   stripHtml,
   summarize,
