@@ -229,10 +229,13 @@ async function scrapeAihot(source) {
     .toArray()
     .map((node) => {
       const card = $(node);
+      const bodyText = card.find(".timeline-title").text() || card.find(".uc-body, .uc-body-p").text() || card.find(".timeline-summary").text();
+      const title = bodyText.replace(/\s+/g, " ").trim();
+      const summary = card.find(".timeline-summary").text() || card.find(".uc-quoted").text() || title;
       return normalizeItem({
-        url: card.find(".timeline-title").attr("href"),
-        title: card.find(".timeline-title").text(),
-        summary: card.find(".timeline-summary").text(),
+        url: card.find(".timeline-title").attr("href") || card.find("a[href]").first().attr("href"),
+        title: title.length > 96 ? `${title.slice(0, 96)}...` : title,
+        summary,
         sourceName: card.find(".timeline-source").text() || source.name,
         sourceKind: "aihot",
         ...sourceMeta(source),
@@ -358,27 +361,61 @@ function feedEntriesFromXml(xml) {
   return (Array.isArray(entries) ? entries : [entries]).filter(Boolean);
 }
 
+function entryText(value = "") {
+  if (!value) return "";
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (Array.isArray(value)) return value.map(entryText).filter(Boolean).join(" ");
+  if (typeof value === "object") {
+    return entryText(value["#text"] || value.__cdata || value._ || value.text || value.title || value.name || "");
+  }
+  return "";
+}
+
+function entryLink(entry = {}, sourceUrl = "") {
+  const raw = Array.isArray(entry.link) ? entry.link.find((item) => item?.["@_href"] || item?.href) : entry.link;
+  return raw?.["@_href"] || raw?.href || raw || entry.guid?.["#text"] || entry.guid || sourceUrl;
+}
+
+function releaseTitleFromSummary(title = "", summary = "", sourceName = "") {
+  const cleanTitle = stripHtml(entryText(title)).trim();
+  const cleanSummary = stripHtml(entryText(summary)).trim();
+  const versionOnly = /^v?\d+(?:\.\d+){1,4}(?:[-+][\w.-]+)?$/i.test(cleanTitle);
+  if (!versionOnly) return cleanTitle;
+  const bullets = cleanSummary
+    .replace(/^what'?s changed[:：]?\s*/i, "")
+    .split(/(?:\n|•|。|；|;|\s-\s)+/)
+    .map((item) => stripHtml(item).replace(/\s+/g, " ").trim())
+    .filter((item) => item.length >= 18 && !/^what'?s changed$/i.test(item));
+  const lead = bullets[0] || cleanSummary;
+  if (!lead) return cleanTitle;
+  const compact = lead.length > 58 ? `${lead.slice(0, 58)}...` : lead;
+  return `${sourceName || "Release"} ${cleanTitle}：${compact}`;
+}
+
 function rssEntriesToItems(xml, source, extra = {}) {
-  return feedEntriesFromXml(xml).slice(0, source.limit || 40).map((entry) =>
-    normalizeItem({
-      url: entry.link?.["@_href"] || entry.link || entry.guid?.["#text"] || entry.guid,
-      title: entry.title?.["#text"] || entry.title,
-      summary: stripHtml(entry.description || entry.summary || entry.content || ""),
+  return feedEntriesFromXml(xml).slice(0, source.limit || 40).map((entry) => {
+    const url = entryLink(entry, source.url);
+    const summary = stripHtml(entryText(entry.description || entry.summary || entry.content || ""));
+    const title = releaseTitleFromSummary(entry.title, summary, extra.sourceName || source.name);
+    return normalizeItem({
+      url,
+      title,
+      summary,
       sourceName: extra.sourceName || source.name,
       sourceKind: extra.sourceKind || "rss",
       ...sourceMeta(source),
       publishedAt: entry.pubDate || entry.published || entry.updated || new Date().toISOString(),
-      author: entry.creator || entry.author?.name || entry.author,
+      author: entryText(entry.creator || entry.author?.name || entry.author),
       tags: extra.tags,
       media: compactMedia([
-        ...mediaFromHtmlFragment(`${entry["content:encoded"] || ""} ${entry.content || ""} ${entry.summary || ""} ${entry.description || ""}`, entry.link?.["@_href"] || entry.link || source.url),
+        ...mediaFromHtmlFragment(`${entryText(entry["content:encoded"])} ${entryText(entry.content)} ${entryText(entry.summary)} ${entryText(entry.description)}`, url),
         ...(Array.isArray(entry.enclosure) ? entry.enclosure : entry.enclosure ? [entry.enclosure] : []).map((item) => ({ url: item["@_url"] || item.url, type: item["@_type"] || item.type || "image" })),
         ...(Array.isArray(entry["media:content"]) ? entry["media:content"] : entry["media:content"] ? [entry["media:content"]] : []).map((item) => ({ url: item["@_url"] || item.url, type: item["@_medium"] || item["@_type"] || "image" })),
         ...(Array.isArray(entry["media:thumbnail"]) ? entry["media:thumbnail"] : entry["media:thumbnail"] ? [entry["media:thumbnail"]] : []).map((item) => ({ url: item["@_url"] || item.url, type: "image" })),
         { url: entry.image?.url || entry.image, type: "image" },
       ]),
-    }),
-  );
+    });
+  });
 }
 
 function isHighValueXText(text = "") {
