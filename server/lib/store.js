@@ -21,6 +21,10 @@ const defaultState = {
     rules: {
       selectedThreshold: 72,
       selectedCommunityLimit: 6,
+      selectedFeedLimit: 60,
+      selectedSourceShare: 0.2,
+      selectedPreferredShare: 0.6,
+      selectedCnMediaLimit: 18,
       maxItems: 2000,
       rssLimit: 40,
     },

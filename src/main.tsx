@@ -2,24 +2,33 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowUpRight,
+  Archive,
   Bookmark,
+  BookOpen,
   Check,
+  CheckCircle2,
+  ChevronDown,
   Clock3,
+  Copy,
   Database,
+  Download,
   Eye,
   EyeOff,
   Flame,
   GraduationCap,
   Heart,
   ListFilter,
+  List,
   Loader2,
   Lock,
   Menu,
   Monitor,
   MessageCircle,
+  MessageSquareText,
   Moon,
   Palette,
   RefreshCw,
+  Rows3,
   Search,
   Settings,
   Share2,
@@ -124,11 +133,16 @@ type MpArticle = {
 type DailyDigest = {
   id?: string;
   generatedAt: string;
+  issueKey?: string;
+  issueLabel?: string;
+  issueTime?: string;
   headline: string;
   summary: string;
   items: Item[];
   sections: { key: string; title: string; items: Item[] }[];
+  excludedFromEarlierToday?: number;
   fromSnapshot?: boolean;
+  virtual?: boolean;
 };
 
 type MpDigest = {
@@ -140,9 +154,22 @@ type MpDigest = {
   refreshedAt?: string | null;
 };
 
+type AskResult = {
+  command: string;
+  answer: string;
+  grounded: boolean;
+  citations: { id: string; index: number; title: string; sourceName: string; sourceType: string; publishedAt: string; url: string }[];
+};
+
+type SavedEntry = {
+  item: Item;
+  savedAt: string;
+};
+
 const nav = [
   { key: "selected", label: "精选" },
   { key: "all", label: "全部 AI 动态" },
+  { key: "reading", label: "稍后读" },
   { key: "education", label: "AI 教育" },
   { key: "culture", label: "AI 文化" },
   { key: "daily", label: "AI 日报" },
@@ -154,6 +181,9 @@ const nav = [
 
 const adminTokenKey = "aihot-admin-token";
 const canonicalSiteUrl = "https://www.aibaize.cc";
+const readItemsKey = "aibaize-read-items";
+const savedItemsKey = "aibaize-saved-items";
+const processedItemsKey = "aibaize-processed-items";
 
 const channelTabs = [
   { key: "", label: "全部" },
@@ -195,6 +225,8 @@ function App() {
   const [query, setQuery] = useState("");
   const [activeTag, setActiveTag] = useState("");
   const [activeChannel, setActiveChannel] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [density, setDensity] = useState(localStorage.getItem("aibaize-density") || "comfortable");
   const [items, setItems] = useState<Item[]>([]);
   const [feedPage, setFeedPage] = useState(1);
   const [feedTotal, setFeedTotal] = useState(0);
@@ -208,6 +240,30 @@ function App() {
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [showBookmarkGuide, setShowBookmarkGuide] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [activeItem, setActiveItem] = useState<Item | null>(null);
+  const [askOpen, setAskOpen] = useState(false);
+  const [panelTab, setPanelTab] = useState<"reader" | "ask">("reader");
+  const [readItems, setReadItems] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(readItemsKey) || "[]"));
+    } catch {
+      return new Set();
+    }
+  });
+  const [savedEntries, setSavedEntries] = useState<SavedEntry[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(savedItemsKey) || "[]");
+    } catch {
+      return [];
+    }
+  });
+  const [processedItems, setProcessedItems] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(processedItemsKey) || "[]"));
+    } catch {
+      return new Set();
+    }
+  });
 
   const load = async (page = 1, append = false) => {
     setLoading(true);
@@ -230,12 +286,15 @@ function App() {
       } else if (mode === "mp") {
         nextMp = await api<MpDigest>(`/api/mp?q=${encodeURIComponent(query)}`);
         nextItems = nextMp.items;
+      } else if (mode === "reading") {
+        nextItems = savedEntries.map((entry) => entry.item);
+        nextFeedTotal = nextItems.length;
       } else {
         const categoryMode = mode === "education" ? "education" : mode === "culture" ? "culture" : "";
         const apiMode = mode === "all" || categoryMode ? "all" : "selected";
         const pageSize = apiMode === "all" ? 120 : 80;
         const feed = await api<{ items: Item[]; total: number; page: number; pageSize: number }>(
-          `/api/items?mode=${apiMode}&q=${encodeURIComponent(query)}&tag=${encodeURIComponent(activeTag)}&channel=${encodeURIComponent(mode === "all" ? activeChannel : "")}&category=${encodeURIComponent(categoryMode)}&page=${page}&pageSize=${pageSize}`,
+          `/api/items?mode=${apiMode}&q=${encodeURIComponent(query)}&tag=${encodeURIComponent(activeTag)}&channel=${encodeURIComponent(mode === "all" || mode === "selected" ? activeChannel : "")}&category=${encodeURIComponent(categoryMode)}&page=${page}&pageSize=${pageSize}`,
         );
         nextItems = feed.items;
         nextFeedTotal = feed.total;
@@ -257,6 +316,13 @@ function App() {
   useEffect(() => {
     load(1, false);
   }, [mode, activeTag, activeChannel]);
+
+  useEffect(() => {
+    if (mode === "reading") {
+      setItems(savedEntries.map((entry) => entry.item));
+      setFeedTotal(savedEntries.length);
+    }
+  }, [savedEntries, mode]);
 
   useEffect(() => {
     const apply = () => {
@@ -284,6 +350,133 @@ function App() {
   }, []);
 
   const visibleTags = useMemo(() => stats?.tags.slice(0, 12) || [], [stats]);
+  const hotItems = useMemo(() => buildHotItems(items), [items]);
+  const savedIds = useMemo(() => new Set(savedEntries.map((entry) => entry.item.id)), [savedEntries]);
+  const visibleItems = useMemo(() => items.filter((item) => {
+    if (mode === "reading" && query.trim()) {
+      const haystack = `${item.title} ${item.summary} ${item.sourceName} ${(item.tags || []).join(" ")}`.toLowerCase();
+      if (!haystack.includes(query.trim().toLowerCase())) return false;
+    }
+    if (statusFilter === "unread") return !readItems.has(item.id);
+    if (statusFilter === "saved") return savedIds.has(item.id);
+    if (statusFilter === "processed") return processedItems.has(item.id);
+    return true;
+  }), [items, mode, query, statusFilter, readItems, savedIds, processedItems]);
+
+  const saveReadItems = (next: Set<string>) => {
+    const compact = [...next].slice(-500);
+    localStorage.setItem(readItemsKey, JSON.stringify(compact));
+    setReadItems(new Set(compact));
+  };
+
+  const markRead = (id: string) => {
+    if (!id || readItems.has(id)) return;
+    const next = new Set(readItems);
+    next.add(id);
+    saveReadItems(next);
+  };
+
+  const openItem = (item: Item) => {
+    markRead(item.id);
+    setActiveItem(item);
+  };
+
+  const toggleRead = (id: string) => {
+    if (!id) return;
+    const next = new Set(readItems);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    saveReadItems(next);
+  };
+
+  const toggleSaved = (item: Item) => {
+    setSavedEntries((current) => {
+      const exists = current.some((entry) => entry.item.id === item.id);
+      const next = exists
+        ? current.filter((entry) => entry.item.id !== item.id)
+        : [{ item, savedAt: new Date().toISOString() }, ...current].slice(0, 500);
+      localStorage.setItem(savedItemsKey, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const toggleProcessed = (id: string) => {
+    const next = new Set(processedItems);
+    if (next.has(id)) next.delete(id);
+    else {
+      next.add(id);
+      if (!readItems.has(id)) markRead(id);
+    }
+    const compact = [...next].slice(-500);
+    localStorage.setItem(processedItemsKey, JSON.stringify(compact));
+    setProcessedItems(new Set(compact));
+  };
+
+  const changeDensity = (value: string) => {
+    localStorage.setItem("aibaize-density", value);
+    setDensity(value);
+  };
+
+  const exportSaved = () => {
+    const markdown = [
+      "# AI.BAIZE 稍后读",
+      "",
+      ...savedEntries.flatMap(({ item, savedAt }) => [
+        `## [${item.title}](${item.url})`,
+        "",
+        `- 来源：${item.sourceName}`,
+        `- 收藏时间：${new Date(savedAt).toLocaleString("zh-CN")}`,
+        `- 状态：${processedItems.has(item.id) ? "已处理" : readItems.has(item.id) ? "已读" : "未读"}`,
+        "",
+        item.editorialBrief?.fact || item.summary || item.reason || "",
+        "",
+      ]),
+    ].join("\n");
+    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `aibaize-reading-${new Date().toISOString().slice(0, 10)}.md`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const switchMode = (nextMode: string) => {
+    setMode(nextMode);
+    setMobileMenuOpen(false);
+    setActiveItem(null);
+    setAskOpen(false);
+    setStatusFilter(nextMode === "reading" ? "saved" : "all");
+  };
+
+  const openAsk = (item?: Item) => {
+    if (item) {
+      markRead(item.id);
+      setActiveItem(item);
+    }
+    setPanelTab("ask");
+    setAskOpen(true);
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches("input, textarea, select, [contenteditable='true']")) return;
+      if (event.key === "Escape" && (activeItem || askOpen)) {
+        setActiveItem(null);
+        setAskOpen(false);
+        return;
+      }
+      if (!activeItem) return;
+      const index = visibleItems.findIndex((item) => item.id === activeItem.id);
+      if (event.key.toLowerCase() === "j" && index >= 0 && index < visibleItems.length - 1) openItem(visibleItems[index + 1]);
+      if (event.key.toLowerCase() === "k" && index > 0) openItem(visibleItems[index - 1]);
+      if (event.key.toLowerCase() === "m") toggleRead(activeItem.id);
+      if (event.key.toLowerCase() === "b") toggleSaved(activeItem);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeItem, askOpen, visibleItems, readItems, savedEntries]);
 
   const shareSite = async () => {
     const url = canonicalSiteUrl;
@@ -326,7 +519,7 @@ function App() {
   };
 
   return (
-    <main className="app">
+    <main className={`app ${activeItem || askOpen ? "reader-open" : ""}`}>
       <header className="mobile-topbar">
         <button className="mobile-menu-button" type="button" onClick={() => setMobileMenuOpen(true)} aria-label="打开导航">
           <Menu size={22} />
@@ -354,9 +547,10 @@ function App() {
         </div>
         <nav className="side-nav" aria-label="主导航">
           {nav.map((item) => (
-            <button className={mode === item.key ? "active" : ""} key={item.key} onClick={() => { setMode(item.key); setMobileMenuOpen(false); }}>
+            <button className={mode === item.key ? "active" : ""} key={item.key} onClick={() => switchMode(item.key)}>
               {item.key === "selected" && <Flame size={18} />}
               {item.key === "all" && <ListFilter size={18} />}
+              {item.key === "reading" && <Bookmark size={18} />}
               {item.key === "education" && <GraduationCap size={18} />}
               {item.key === "culture" && <Palette size={18} />}
               {item.key === "daily" && <Database size={18} />}
@@ -389,8 +583,8 @@ function App() {
               <>
                 <header className="page-head compact-head">
                   <div>
-                    <h1>{mode === "all" ? "全部 AI 动态" : mode === "mp" ? "公众号爆文" : mode === "education" ? "AI 教育" : mode === "culture" ? "AI 文化" : "精选"}</h1>
-                    <p>{mode === "mp" ? "中文媒体、公众号与国内 AI 动态聚合。" : mode === "education" ? "教育、学习、课堂、教师工具与 EdTech 场景中的 AI 最新动态。" : mode === "culture" ? "文化、艺术、影视、音乐、游戏、版权与创意产业中的 AI 最新动态。" : mode === "all" ? "完整抓取结果，包含精选之外的长尾内容。" : "AI 自动挑选的高价值内容，按热度、时效、来源可信度排序。"}</p>
+                    <h1>{mode === "all" ? "全部 AI 动态" : mode === "reading" ? "稍后读" : mode === "mp" ? "公众号爆文" : mode === "education" ? "AI 教育" : mode === "culture" ? "AI 文化" : "精选"}</h1>
+                    <p>{mode === "reading" ? "保存在本机的阅读清单，可标记已处理并导出 Markdown。" : mode === "mp" ? "中文媒体、公众号与国内 AI 动态聚合。" : mode === "education" ? "教育、学习、课堂、教师工具与 EdTech 场景中的 AI 最新动态。" : mode === "culture" ? "文化、艺术、影视、音乐、游戏、版权与创意产业中的 AI 最新动态。" : mode === "all" ? "完整抓取结果，包含精选之外的长尾内容。" : "AI 自动挑选的高价值内容，按热度、时效、来源可信度排序。"}</p>
                   </div>
                   <div className="head-metrics">
                     <Stat label="可见" value={stats?.total ?? 0} />
@@ -404,6 +598,9 @@ function App() {
                     </button>
                     <button className="icon-action" onClick={() => load(1, false)} title="刷新列表">
                       {loading ? <Loader2 className="spin" size={18} /> : <RefreshCw size={18} />}
+                    </button>
+                    <button className="icon-action ask-action" onClick={() => openAsk()} title="问白泽">
+                      <MessageSquareText size={18} />
                     </button>
                   </div>
                 </header>
@@ -423,11 +620,36 @@ function App() {
                     <Check size={17} />
                     筛选
                   </button>
+                  {mode === "reading" && (
+                    <button className="icon-action" type="button" onClick={exportSaved} title="导出 Markdown" disabled={!savedEntries.length}>
+                      <Download size={17} />
+                    </button>
+                  )}
                 </section>
+                {mode !== "mp" && mode !== "education" && mode !== "culture" && (
+                  <section className="reading-controls" aria-label="阅读状态和密度">
+                    <div className="reading-status">
+                      {[
+                        ["all", "全部"],
+                        ["unread", "未读"],
+                        ["saved", "稍后读"],
+                        ["processed", "已处理"],
+                      ].map(([key, label]) => (
+                        <button className={statusFilter === key ? "active" : ""} key={key} type="button" onClick={() => setStatusFilter(key)}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="density-switch">
+                      <button className={density === "comfortable" ? "active" : ""} type="button" onClick={() => changeDensity("comfortable")} title="舒展视图"><Rows3 size={16} /></button>
+                      <button className={density === "compact" ? "active" : ""} type="button" onClick={() => changeDensity("compact")} title="紧凑视图"><List size={16} /></button>
+                    </div>
+                  </section>
+                )}
               </>
             )}
 
-            {mode === "all" && <div className="tag-row">
+            {(mode === "all" || mode === "selected") && <div className="tag-row signal-tabs">
               {
                 channelTabs.map((tab) => (
                   <button className={activeChannel === tab.key ? "active" : ""} key={tab.key || "all"} onClick={() => setActiveChannel(tab.key)}>
@@ -451,11 +673,23 @@ function App() {
 
             {error && <div className="notice error">{error}</div>}
             {loading && <div className="notice">正在加载真实数据...</div>}
-            {!loading && items.length === 0 && <div className="notice">暂无数据，可以到后台点击“立即抓取”。</div>}
+            {!loading && visibleItems.length === 0 && <div className="notice">{mode === "reading" ? "稍后读清单还是空的。" : "当前筛选没有内容。"}</div>}
 
             {mode === "daily" && daily ? <DailyMagazine daily={daily} archive={dailyArchive} /> : mode === "mp" && mp ? <MpTable mp={mp} /> : (
               <>
-                <Feed items={items} />
+                {!loading && statusFilter === "all" && hotItems.length > 0 && mode !== "reading" && <HotPulse items={hotItems} readItems={readItems} onOpen={openItem} />}
+                <Feed
+                  items={visibleItems}
+                  density={density}
+                  readItems={readItems}
+                  savedIds={savedIds}
+                  processedItems={processedItems}
+                  onOpen={(item) => { setPanelTab("reader"); setAskOpen(false); openItem(item); }}
+                  onAsk={openAsk}
+                  onToggleRead={toggleRead}
+                  onToggleSaved={toggleSaved}
+                  onToggleProcessed={toggleProcessed}
+                />
                 {items.length < feedTotal && (
                   <div className="load-more">
                     <button className="primary" onClick={() => load(feedPage + 1, true)} disabled={loading}>
@@ -468,8 +702,46 @@ function App() {
           </>
         )}
       </section>
+      <MobileBottomNav mode={mode} onChange={switchMode} onMore={() => setMobileMenuOpen(true)} />
+      {(activeItem || askOpen) && (
+        <ReadingWorkspace
+          item={activeItem}
+          initialTab={panelTab}
+          saved={Boolean(activeItem && savedIds.has(activeItem.id))}
+          processed={Boolean(activeItem && processedItems.has(activeItem.id))}
+          onClose={() => { setActiveItem(null); setAskOpen(false); }}
+          onRead={markRead}
+          onToggleSaved={toggleSaved}
+          onToggleProcessed={toggleProcessed}
+        />
+      )}
       {showBookmarkGuide && <BookmarkGuide onClose={() => setShowBookmarkGuide(false)} />}
     </main>
+  );
+}
+
+function MobileBottomNav({ mode, onChange, onMore }: { mode: string; onChange: (mode: string) => void; onMore: () => void }) {
+  const items = [
+    { key: "selected", label: "精选", icon: Flame },
+    { key: "all", label: "全部", icon: ListFilter },
+    { key: "daily", label: "日报", icon: Database },
+  ];
+  return (
+    <nav className="mobile-bottom-nav" aria-label="手机底部导航">
+      {items.map((item) => {
+        const Icon = item.icon;
+        return (
+          <button className={mode === item.key ? "active" : ""} key={item.key} type="button" onClick={() => onChange(item.key)}>
+            <Icon size={18} />
+            <span>{item.label}</span>
+          </button>
+        );
+      })}
+      <button className={!items.some((item) => item.key === mode) ? "active" : ""} type="button" onClick={onMore}>
+        <Menu size={18} />
+        <span>更多</span>
+      </button>
+    </nav>
   );
 }
 
@@ -521,6 +793,7 @@ function AgentPage() {
     ["关键词搜索", "/api/public/items?mode=all&q=OpenAI"],
     ["日报", "/api/public/daily"],
     ["历史日报", "/api/public/dailies?take=7"],
+    ["问白泽", "/api/public/ask"],
     ["RSS", "/feed.xml"],
     ["OpenAPI", "/openapi.json"],
     ["Skill", "/aihot-skill/SKILL.md"],
@@ -647,6 +920,10 @@ function localDateKey(value: string) {
   return date.toLocaleDateString("en-CA");
 }
 
+function dailyIdentity(daily: DailyDigest) {
+  return daily.id || daily.issueKey || daily.generatedAt;
+}
+
 function sourceBadge(item: Item) {
   if (item.category === "education") return "教育";
   if (item.category === "culture") return "文化";
@@ -657,6 +934,258 @@ function sourceBadge(item: Item) {
   return "资讯";
 }
 
+function buildHotItems(items: Item[]) {
+  const now = Date.now();
+  return [...items]
+    .filter((item) => {
+      const ageHours = (now - new Date(item.publishedAt || 0).getTime()) / 36e5;
+      return Number.isFinite(ageHours) && ageHours <= 72;
+    })
+    .sort((a, b) => {
+      const aFresh = Math.max(0, 72 - (now - new Date(a.publishedAt || 0).getTime()) / 36e5);
+      const bFresh = Math.max(0, 72 - (now - new Date(b.publishedAt || 0).getTime()) / 36e5);
+      const aHeat = (a.score || 0) * 1.6 + (a.related?.count || 0) * 8 + aFresh + (a.pinned ? 30 : 0);
+      const bHeat = (b.score || 0) * 1.6 + (b.related?.count || 0) * 8 + bFresh + (b.pinned ? 30 : 0);
+      return bHeat - aHeat;
+    })
+    .slice(0, 4);
+}
+
+function HotPulse({ items, readItems, onOpen }: { items: Item[]; readItems: Set<string>; onOpen: (item: Item) => void }) {
+  return (
+    <section className="hot-pulse" aria-label="当前热点">
+      <div className="hot-pulse-head">
+        <div>
+          <span>当前热点</span>
+          <strong>{items.length} 条值得先看</strong>
+        </div>
+        <small>综合分数、时效与关联讨论排序</small>
+      </div>
+      <div className="hot-pulse-list">
+        {items.map((item, index) => (
+          <a className={readItems.has(item.id) ? "read" : ""} href={item.url} key={item.id} rel="noreferrer" target="_blank" onClick={(event) => { event.preventDefault(); onOpen(item); }}>
+            <b>{index + 1}</b>
+            <span>
+              <strong>{item.title}</strong>
+              <small>{item.sourceName} · {formatTime(item.publishedAt)} · {item.related?.count ? `关联 ${item.related.count} 条` : item.categoryLabel || "行业动态"}</small>
+            </span>
+          </a>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ReadingWorkspace({
+  item,
+  initialTab,
+  saved,
+  processed,
+  onClose,
+  onRead,
+  onToggleSaved,
+  onToggleProcessed,
+}: {
+  item: Item | null;
+  initialTab: "reader" | "ask";
+  saved: boolean;
+  processed: boolean;
+  onClose: () => void;
+  onRead: (id: string) => void;
+  onToggleSaved: (item: Item) => void;
+  onToggleProcessed: (id: string) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [tab, setTab] = useState<"reader" | "ask">(initialTab);
+  useEffect(() => setTab(initialTab), [initialTab, item?.id]);
+  const shareText = item ? `${item.title}\n${item.summary || item.reason || ""}\n${item.url}` : "";
+
+  const copyItem = async () => {
+    if (!item) return;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: item.title, text: item.summary || item.reason, url: item.url });
+        return;
+      }
+      await navigator.clipboard.writeText(shareText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  const openOriginal = () => {
+    if (!item) return;
+    onRead(item.id);
+    window.open(item.url, "_blank", "noopener,noreferrer");
+  };
+
+  return (
+    <div className="quick-view-backdrop" role="presentation" onClick={onClose}>
+      <article className="quick-view reading-workspace" role="dialog" aria-modal="true" aria-label="阅读工作台" onClick={(event) => event.stopPropagation()}>
+        <div className="quick-view-grabber">
+          <ChevronDown size={18} />
+        </div>
+        <header className="workspace-head">
+          <div className="workspace-tabs" role="tablist">
+            <button className={tab === "reader" ? "active" : ""} type="button" onClick={() => setTab("reader")} disabled={!item}>
+              <BookOpen size={15} />
+              阅读
+            </button>
+            <button className={tab === "ask" ? "active" : ""} type="button" onClick={() => setTab("ask")}>
+              <MessageSquareText size={15} />
+              问白泽
+            </button>
+          </div>
+          <button className="quick-icon" type="button" onClick={onClose} aria-label="关闭速览">
+            <X size={18} />
+          </button>
+        </header>
+        {tab === "reader" && item ? (
+          <>
+            <div className="workspace-scroll">
+              <header className="quick-view-head">
+                <div>
+                  <span>{item.sourceName} · {formatTime(item.publishedAt)}</span>
+                  <h2>{item.title}</h2>
+                </div>
+              </header>
+              <div className="quick-meta">
+                <span>{item.categoryLabel || "行业动态"}</span>
+                <span>{item.channelLabel || "资讯聚合"}</span>
+                <strong>{item.score}</strong>
+              </div>
+              <EditorialBrief item={item} />
+              <div className="quick-reason">
+                <span>推荐理由</span>
+                <p>{item.reason}</p>
+              </div>
+              {item.related && item.related.count > 1 && (
+                <div className="quick-related">
+                  <span>关联讨论</span>
+                  <p>{item.related.count} 条 · {item.related.sources.slice(0, 5).join(" / ")}</p>
+                </div>
+              )}
+              <div className="quick-tags">
+                {item.tags?.slice(0, 8).map((tag) => (
+                  <span key={tag}>{tag}</span>
+                ))}
+              </div>
+            </div>
+            <footer className="quick-actions workspace-actions">
+              <button className="primary" type="button" onClick={openOriginal}>
+                阅读原文
+                <ArrowUpRight size={16} />
+              </button>
+              <button className={saved ? "quick-copy active" : "quick-copy"} type="button" onClick={() => onToggleSaved(item)}>
+                <Bookmark size={16} />
+                {saved ? "已收藏" : "稍后读"}
+              </button>
+              <button className={processed ? "quick-copy active" : "quick-copy"} type="button" onClick={() => onToggleProcessed(item.id)}>
+                <CheckCircle2 size={16} />
+                {processed ? "已处理" : "标记处理"}
+              </button>
+              <button className="quick-copy icon-only" type="button" onClick={copyItem} title="分享">
+                <Copy size={16} />
+                {copied ? "已复制" : "分享"}
+              </button>
+            </footer>
+          </>
+        ) : (
+          <AskBaize item={item} />
+        )}
+      </article>
+    </div>
+  );
+}
+
+function AskBaize({ item }: { item: Item | null }) {
+  const [question, setQuestion] = useState("");
+  const [result, setResult] = useState<AskResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const commands = [
+    ["brief", "一句话摘要"],
+    ["compare", "多来源比较"],
+    ["timeline", "事件时间线"],
+    ["impact", "影响判断"],
+    ["sources", "查看信源"],
+    ["next", "下一篇"],
+  ];
+
+  const ask = async (command = "") => {
+    const prompt = question.trim() || (item ? `分析 ${item.title}` : "最近最值得关注的 AI 变化");
+    setLoading(true);
+    setError("");
+    try {
+      const next = await api<AskResult>("/api/public/ask", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question: prompt, command, itemId: item?.id || "" }),
+      });
+      setResult(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "问答失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section className="ask-baize">
+      <div className="ask-context">
+        <Sparkles size={18} />
+        <div>
+          <strong>问白泽</strong>
+          <span>{item ? `正在分析：${item.title}` : "基于 AI.BAIZE 精选库回答，并附原始信源"}</span>
+        </div>
+      </div>
+      <div className="ask-commands">
+        {commands.map(([key, label]) => (
+          <button key={key} type="button" onClick={() => ask(key)} disabled={loading}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <label className="ask-input">
+        <textarea
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") ask();
+          }}
+          placeholder="例如：比较各家对这次模型发布的判断"
+        />
+        <button type="button" onClick={() => ask()} disabled={loading}>
+          {loading ? <Loader2 className="spin" size={16} /> : <MessageSquareText size={16} />}
+          提问
+        </button>
+      </label>
+      {error && <div className="notice error">{error}</div>}
+      {result && (
+        <div className="ask-result">
+          <div className="ask-answer">
+            {result.answer.split("\n").map((line, index) => <p key={`${line}-${index}`}>{line}</p>)}
+          </div>
+          <div className="ask-citations">
+            <span>引用信源</span>
+            {result.citations.map((citation) => (
+              <a href={citation.url} key={`${citation.id}-${citation.index}`} target="_blank" rel="noreferrer">
+                <b>{citation.index}</b>
+                <span>
+                  <strong>{citation.title}</strong>
+                  <small>{citation.sourceType} · {citation.sourceName} · {formatTime(citation.publishedAt)}</small>
+                </span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function DailyMagazine({ daily, archive }: { daily: DailyDigest; archive: DailyDigest[] }) {
   const [showAllArchive, setShowAllArchive] = useState(false);
   const [activeDaily, setActiveDaily] = useState(daily);
@@ -664,15 +1193,20 @@ function DailyMagazine({ daily, archive }: { daily: DailyDigest; archive: DailyD
   const issue = formatIssueDate(activeDaily.generatedAt);
   const storyCount = activeDaily.sections.reduce((sum, section) => sum + section.items.length, 0);
   const savedArchive = archive.length ? archive : [];
-  const fullArchive = savedArchive.some((item) => localDateKey(item.generatedAt) === localDateKey(daily.generatedAt)) ? savedArchive : [daily, ...savedArchive];
+  const archiveWithoutCurrentVirtual = daily.fromSnapshot
+    ? savedArchive
+    : savedArchive.filter((item) => !(item.virtual && localDateKey(item.generatedAt) === localDateKey(daily.generatedAt)));
+  const fullArchive = archiveWithoutCurrentVirtual.some((item) => dailyIdentity(item) === dailyIdentity(daily))
+    ? archiveWithoutCurrentVirtual
+    : [daily, ...archiveWithoutCurrentVirtual];
   const archiveList = showAllArchive ? fullArchive : fullArchive.slice(0, 8);
   const currentMonth = formatIssueDate(daily.generatedAt).month;
   return (
     <section className="daily-magazine">
       <aside className="daily-archive" aria-label="日报期刊">
-        <button className={localDateKey(activeDaily.generatedAt) === localDateKey(daily.generatedAt) ? "daily-latest active" : "daily-latest"} type="button" onClick={() => setActiveDaily(daily)}>
-          <b>最新一期</b>
-          <span>{localDateKey(daily.generatedAt)}</span>
+        <button className={dailyIdentity(activeDaily) === dailyIdentity(daily) ? "daily-latest active" : "daily-latest"} type="button" onClick={() => setActiveDaily(daily)}>
+          <b>最新一期 · {daily.issueLabel || "分时快报"}</b>
+          <span>{localDateKey(daily.generatedAt)} {daily.issueTime || formatIssueDate(daily.generatedAt).weekday}</span>
         </button>
         <div className="daily-month-head">
           <span>{currentMonth}</span>
@@ -682,11 +1216,14 @@ function DailyMagazine({ daily, archive }: { daily: DailyDigest; archive: DailyD
           {archiveList.map((issueItem, index) => {
             const itemDate = formatIssueDate(issueItem.generatedAt);
             const title = issueItem.sections?.[0]?.items?.[0]?.title || issueItem.headline || "AI 日报";
-            const isActive = localDateKey(issueItem.generatedAt) === localDateKey(activeDaily.generatedAt);
+            const isActive = dailyIdentity(issueItem) === dailyIdentity(activeDaily);
             return (
-              <button className={isActive ? "active" : ""} key={issueItem.id || issueItem.generatedAt} onClick={() => setActiveDaily(issueItem)}>
-                <span>{itemDate.archiveDay}</span>
-                <b>{title}</b>
+              <button className={isActive ? "active" : ""} key={dailyIdentity(issueItem)} onClick={() => setActiveDaily(issueItem)}>
+                <span>
+                  {itemDate.archiveDay}
+                  <small>{issueItem.issueTime || ""}</small>
+                </span>
+                <b><em>{issueItem.issueLabel || "日报"}</em>{title}</b>
               </button>
             );
           })}
@@ -709,8 +1246,13 @@ function DailyMagazine({ daily, archive }: { daily: DailyDigest; archive: DailyD
             <span>{issue.zh}</span>
             <b>{issue.weekday}</b>
             <i />
-            <small>DAILY · 每日八时</small>
+            <small>{activeDaily.issueLabel || "分时快报"} · {activeDaily.issueTime || "实时"} 更新</small>
           </div>
+          {(activeDaily.excludedFromEarlierToday || 0) > 0 && (
+            <div className="daily-increment">
+              本期新增 {storyCount} 条，已排除今日早前报道 {activeDaily.excludedFromEarlierToday} 条
+            </div>
+          )}
           <div className="daily-editorial-note">
             <span>主编判断</span>
             <p>{activeDaily.summary}</p>
@@ -892,22 +1434,55 @@ function Stat({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function Feed({ items }: { items: Item[] }) {
+function Feed({
+  items,
+  density,
+  readItems,
+  savedIds,
+  processedItems,
+  onOpen,
+  onAsk,
+  onToggleRead,
+  onToggleSaved,
+  onToggleProcessed,
+}: {
+  items: Item[];
+  density: string;
+  readItems: Set<string>;
+  savedIds: Set<string>;
+  processedItems: Set<string>;
+  onOpen: (item: Item) => void;
+  onAsk: (item: Item) => void;
+  onToggleRead: (id: string) => void;
+  onToggleSaved: (item: Item) => void;
+  onToggleProcessed: (id: string) => void;
+}) {
   const timelineItems = [...items].sort((a, b) => new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime() || (b.score || 0) - (a.score || 0));
-  const groups = timelineItems.reduce<Record<string, Item[]>>((acc, item) => {
-    const label = new Date(item.publishedAt).toLocaleDateString("zh-CN", { month: "long", day: "numeric" });
-    acc[label] = acc[label] || [];
-    acc[label].push(item);
+  const groups = timelineItems.reduce<Record<string, { label: string; items: Item[] }>>((acc, item) => {
+    const date = new Date(item.publishedAt);
+    const key = Number.isNaN(date.getTime()) ? "unknown" : date.toLocaleDateString("en-CA");
+    acc[key] = acc[key] || {
+      label: Number.isNaN(date.getTime()) ? "时间未知" : date.toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short" }),
+      items: [],
+    };
+    acc[key].items.push(item);
     return acc;
   }, {});
 
   return (
-    <section className="timeline">
-      {Object.entries(groups).map(([date, dateItems]) => (
+    <section className={`timeline ${density === "compact" ? "compact" : ""}`}>
+      {Object.entries(groups).map(([date, group]) => {
+        const unread = group.items.filter((item) => !readItems.has(item.id)).length;
+        return (
         <div className="timeline-day" key={date}>
-          <div className="date-label">{date}</div>
-          {dateItems.map((item) => (
-            <article className="timeline-item" key={item.id}>
+          <div className="date-label">
+            <span>{group.label}</span>
+            <b>{unread ? `${unread} 条未读` : "已读完"}</b>
+          </div>
+          {group.items.map((item) => {
+            const isRead = readItems.has(item.id);
+            return (
+            <article className={`timeline-item ${isRead ? "read" : ""}`} key={item.id}>
               <time>{new Date(item.publishedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>
               <span className="rail" />
               <div className="card">
@@ -918,11 +1493,20 @@ function Feed({ items }: { items: Item[] }) {
                 <div className="card-head">
                   <span>{item.sourceName} · {item.channelLabel || "资讯聚合"} · {item.categoryLabel || "行业动态"}</span>
                   <div>
+                    <button className={savedIds.has(item.id) ? "read-toggle active" : "read-toggle"} type="button" onClick={() => onToggleSaved(item)} title={savedIds.has(item.id) ? "移出稍后读" : "加入稍后读"} aria-label={savedIds.has(item.id) ? "移出稍后读" : "加入稍后读"}>
+                      <Bookmark size={14} />
+                    </button>
+                    <button className={processedItems.has(item.id) ? "read-toggle active" : "read-toggle"} type="button" onClick={() => onToggleProcessed(item.id)} title={processedItems.has(item.id) ? "取消已处理" : "标记已处理"} aria-label={processedItems.has(item.id) ? "取消已处理" : "标记已处理"}>
+                      <CheckCircle2 size={14} />
+                    </button>
+                    <button className="read-toggle" type="button" onClick={() => onToggleRead(item.id)} title={isRead ? "标记为未读" : "标记为已读"} aria-label={isRead ? "标记为未读" : "标记为已读"}>
+                      {isRead ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
                     {(item.pinned || item.score >= 60) && <b>精选</b>}
                     <strong className="score-pill">{item.score}</strong>
                   </div>
                 </div>
-                <a className="title" href={item.url} target="_blank" rel="noreferrer">
+                <a className="title" href={item.url} target="_blank" rel="noreferrer" onClick={(event) => { event.preventDefault(); onOpen(item); }}>
                   {item.title}
                 </a>
                 <EditorialBrief item={item} />
@@ -951,15 +1535,23 @@ function Feed({ items }: { items: Item[] }) {
                     ))}
                   </div>
                 )}
-                <a className="read" href={item.url} target="_blank" rel="noreferrer">
-                  阅读原文
-                  <ArrowUpRight size={16} />
-                </a>
+                <div className="card-actions">
+                  <button className="read read-detail" type="button" onClick={() => onOpen(item)}>
+                    站内阅读
+                    <ArrowUpRight size={16} />
+                  </button>
+                  <button className="read ask-detail" type="button" onClick={() => onAsk(item)}>
+                    问白泽
+                    <MessageSquareText size={15} />
+                  </button>
+                </div>
               </div>
             </article>
-          ))}
+            );
+          })}
         </div>
-      ))}
+        );
+      })}
     </section>
   );
 }

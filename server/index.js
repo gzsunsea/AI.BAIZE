@@ -6,6 +6,8 @@ const { refreshAll } = require("./jobs/refresh");
 const { attachRelated, categoryLabel, enrichItem, itemCategory, sourceChannel } = require("./lib/editorial");
 const { enhanceRecentItems } = require("./lib/llmEnhancer");
 const { isQualityCandidate, isSelectedQualityCandidate, makeId } = require("./lib/scoring");
+const { canonicalUrl, titleFingerprint } = require("./lib/dedupe");
+const { answerQuestion } = require("./lib/askBaize");
 
 const PORT = Number(process.env.PORT || 8080);
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "aihot-admin";
@@ -288,17 +290,67 @@ function visibleItems(query) {
       return true;
     });
   }
+  return selectCuratedItems(filtered, state.settings?.rules);
+}
+
+function selectedRank(item) {
+  const tierBoost = {
+    preferred_x: 24,
+    official_first_party: 22,
+    expert_rss: 18,
+    reference: 8,
+    cn_media: 2,
+    community_fallback: -16,
+  }[item.priorityTier] || 0;
+  const ageHours = Math.max(0, (Date.now() - new Date(item.publishedAt || 0).getTime()) / 36e5);
+  const freshness = Math.max(0, 18 - Math.min(18, ageHours / 4));
+  return Number(Boolean(item.pinned)) * 1000 + Number(item.score || 0) + tierBoost + freshness;
+}
+
+function selectCuratedItems(items = [], rules = {}) {
+  const limit = Math.min(100, Math.max(20, Number(rules?.selectedFeedLimit || 60)));
+  const sourceLimit = Math.max(3, Math.floor(limit * Number(rules?.selectedSourceShare || 0.2)));
+  const communityLimit = Math.min(limit, Math.max(0, Number(rules?.selectedCommunityLimit || 6)));
+  const cnMediaLimit = Math.min(limit, Math.max(6, Number(rules?.selectedCnMediaLimit || 18)));
+  const preferredTarget = Math.ceil(limit * Number(rules?.selectedPreferredShare || 0.6));
+  const ranked = [...items].sort((a, b) => selectedRank(b) - selectedRank(a) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
+  const selected = [];
+  const selectedIds = new Set();
+  const sourceCounts = new Map();
   let communityCount = 0;
-  const communityLimit = Number(state.settings?.rules?.selectedCommunityLimit || 12);
-  return filtered
-    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || (b.score || 0) - (a.score || 0) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime())
-    .filter((item) => {
-      const isCommunityFallback = item.priorityTier === "community_fallback" || ["hn", "github", "devto"].includes(item.sourceKind);
-      if (!isCommunityFallback) return true;
-      communityCount += 1;
-      return communityCount <= communityLimit;
-    })
-    .sort((a, b) => new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime() || (b.score || 0) - (a.score || 0));
+  let cnMediaCount = 0;
+
+  const isPreferred = (item) => ["preferred_x", "official_first_party", "expert_rss"].includes(item.priorityTier);
+  const canTake = (item) => {
+    if (selected.length >= limit || selectedIds.has(item.id)) return false;
+    const sourceKey = item.sourceId || item.sourceName || item.sourceKind || "unknown";
+    if (!item.pinned && (sourceCounts.get(sourceKey) || 0) >= sourceLimit) return false;
+    const community = item.priorityTier === "community_fallback" || ["hn", "github", "devto", "arxiv"].includes(item.sourceKind);
+    if (!item.pinned && community && communityCount >= communityLimit) return false;
+    const cnMedia = item.priorityTier === "cn_media";
+    if (!item.pinned && cnMedia && cnMediaCount >= cnMediaLimit) return false;
+    return true;
+  };
+  const take = (item) => {
+    if (!canTake(item)) return false;
+    const sourceKey = item.sourceId || item.sourceName || item.sourceKind || "unknown";
+    selected.push(item);
+    selectedIds.add(item.id);
+    sourceCounts.set(sourceKey, (sourceCounts.get(sourceKey) || 0) + 1);
+    if (item.priorityTier === "community_fallback" || ["hn", "github", "devto", "arxiv"].includes(item.sourceKind)) communityCount += 1;
+    if (item.priorityTier === "cn_media") cnMediaCount += 1;
+    return true;
+  };
+
+  for (const item of ranked.filter((candidate) => candidate.pinned)) take(item);
+  for (const item of ranked.filter(isPreferred)) {
+    if (selected.filter(isPreferred).length >= preferredTarget) break;
+    take(item);
+  }
+  for (const item of ranked.filter((candidate) => !isPreferred(candidate))) take(item);
+  for (const item of ranked) take(item);
+
+  return selected.sort((a, b) => selectedRank(b) - selectedRank(a) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
 }
 
 app.get("/api/items", (req, res) => {
@@ -334,15 +386,69 @@ function shanghaiDayRange(value = new Date()) {
   return { start, end: start + 24 * 60 * 60 * 1000 };
 }
 
+function dailyIssueMeta(value = new Date()) {
+  const date = new Date(value);
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const hour = Number(parts.find((part) => part.type === "hour")?.value || 0);
+  const minute = Number(parts.find((part) => part.type === "minute")?.value || 0);
+  const minutes = hour * 60 + minute;
+  const label = minutes < 11 * 60 ? "早报" : minutes < 15 * 60 ? "午间更新" : "晚间更新";
+  return {
+    issueKey: `${localDateKey(date)}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+    issueLabel: label,
+    issueTime: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+  };
+}
+
 const dailySectionOrder = ["model", "product", "industry", "research", "opinion", "education", "culture", "opensource"];
+
+function digestItemKeys(item = {}) {
+  return [
+    item.id,
+    item.canonicalUrl,
+    item.url ? canonicalUrl(item.url) : "",
+    item.eventId,
+    item.titleFingerprint,
+    item.title ? titleFingerprint(item.title) : "",
+  ].filter(Boolean);
+}
+
+function collectDailyDigestItemKeys(digests = [], generatedAt = new Date()) {
+  const targetKey = localDateKey(generatedAt);
+  const keys = new Set();
+  for (const digest of digests || []) {
+    if (localDateKey(digest.generatedAt) !== targetKey) continue;
+    const items = [
+      ...(digest.items || []),
+      ...(digest.sections || []).flatMap((section) => section.items || []),
+    ];
+    for (const item of items) {
+      for (const key of digestItemKeys(item)) keys.add(key);
+    }
+  }
+  return keys;
+}
 
 function buildDailyDigest(state, query = {}, options = {}) {
   const q = String(query.q || "").trim().toLowerCase();
   const since = Number(options.since || 0);
   const until = Number(options.until || 0);
+  const excludeKeys = options.excludeKeys || new Set();
+  let excludedCount = 0;
   const pool = state.items
     .filter((item) => !item.hidden)
     .filter((item) => isSelectedQualityCandidate(item))
+    .filter((item) => {
+      if (!excludeKeys.size) return true;
+      const alreadyCovered = digestItemKeys(item).some((key) => excludeKeys.has(key));
+      if (alreadyCovered) excludedCount += 1;
+      return !alreadyCovered;
+    })
     .filter((item) => {
       const published = new Date(item.publishedAt || 0).getTime();
       if (since && published < since) return false;
@@ -385,17 +491,24 @@ function buildDailyDigest(state, query = {}, options = {}) {
     }))
     .filter((section) => section.items.length > 0);
   const storyCount = sections.reduce((sum, section) => sum + section.items.length, 0);
+  const generatedAt = new Date(options.generatedAt || Date.now()).toISOString();
+  const issue = dailyIssueMeta(generatedAt);
+  const summary = storyCount
+    ? `过去 ${until ? "24" : "36"} 小时内，系统从 ${state.sources.filter((source) => source.enabled).length} 个免费数据源抓取并筛选内容。今日重点集中在 ${[...tagCounts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4)
+        .map(([tag]) => tag)
+        .join("、") || "模型与产品动态"}。`
+    : options.emptySummary || "当前窗口内暂无符合质量规则的新增内容。";
   return {
-    id: options.id || makeId(`daily-${options.generatedAt || Date.now()}-${storyCount}`),
-    generatedAt: new Date(options.generatedAt || Date.now()).toISOString(),
-    headline: options.headline || `AI 日报：${storyCount || top.slice(0, 12).length} 条栏目精选`,
-    summary: `过去 ${until ? "24" : "36"} 小时内，系统从 ${state.sources.filter((source) => source.enabled).length} 个免费数据源抓取并筛选内容。今日重点集中在 ${[...tagCounts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 4)
-      .map(([tag]) => tag)
-      .join("、") || "模型与产品动态"}。`,
+    id: options.id || makeId(`daily-${generatedAt}-${storyCount}`),
+    generatedAt,
+    ...issue,
+    headline: options.headline || (storyCount ? `AI ${issue.issueLabel}：${storyCount} 条新增精选` : `AI ${issue.issueLabel}：暂无新增高价值内容`),
+    summary,
     items: top.slice(0, 12),
     sections,
+    excludedFromEarlierToday: excludedCount,
     fromSnapshot: Boolean(options.fromSnapshot),
     virtual: Boolean(options.virtual),
   };
@@ -421,6 +534,7 @@ function currentDailyDigest(query = {}) {
     const snapshot = latestSnapshot;
     return {
       ...snapshot,
+      ...dailyIssueMeta(snapshot.generatedAt),
       items: snapshot.items || (snapshot.sections || []).flatMap((section) => section.items || []).slice(0, 12),
       summary: snapshot.summary || `自动生成的 AI BAIZE 日报，共 ${(snapshot.sections || []).length} 个栏目。`,
       fromSnapshot: true,
@@ -428,7 +542,7 @@ function currentDailyDigest(query = {}) {
   }
   const since = Date.now() - 36 * 60 * 60 * 1000;
   return {
-    ...buildDailyDigest(state, query, { since, generatedAt: new Date(), headline: "今日 AI 日报" }),
+    ...buildDailyDigest(state, query, { since, generatedAt: new Date() }),
     fromSnapshot: false,
   };
 }
@@ -441,26 +555,29 @@ app.get("/api/public/daily", (req, res) => {
   res.json(currentDailyDigest(req.query));
 });
 
-app.get("/api/public/dailies", (_req, res) => {
-  const state = readState();
-  const take = Math.min(30, Math.max(1, Number(_req.query.take || 7)));
-  const snapshots = state.dailyDigests || [];
+function buildDailyArchive(state, take = 7, now = new Date()) {
+  const snapshots = [...(state.dailyDigests || [])].sort((a, b) => new Date(b.generatedAt || 0).getTime() - new Date(a.generatedAt || 0).getTime());
   const items = [];
-  const seen = new Set();
+  const snapshotDays = new Set(snapshots.map((digest) => localDateKey(digest.generatedAt)));
+  const seenIssues = new Set();
+  for (const snapshot of snapshots) {
+    if (items.length >= take) break;
+    const issue = dailyIssueMeta(snapshot.generatedAt);
+    const issueKey = snapshot.id || issue.issueKey;
+    if (seenIssues.has(issueKey)) continue;
+    items.push({
+      ...snapshot,
+      ...issue,
+      items: snapshot.items || (snapshot.sections || []).flatMap((section) => section.items || []).slice(0, 12),
+      summary: snapshot.summary || `自动生成的 AI BAIZE 日报，共 ${(snapshot.sections || []).length} 个栏目。`,
+      fromSnapshot: true,
+    });
+    seenIssues.add(issueKey);
+  }
   for (let offset = 0; items.length < take && offset < take + 14; offset += 1) {
-    const target = new Date(Date.now() - offset * 24 * 60 * 60 * 1000);
+    const target = new Date(new Date(now).getTime() - offset * 24 * 60 * 60 * 1000);
     const key = localDateKey(target);
-    const snapshot = snapshots.find((digest) => localDateKey(digest.generatedAt) === key);
-    if (snapshot) {
-      items.push({
-        ...snapshot,
-        items: snapshot.items || (snapshot.sections || []).flatMap((section) => section.items || []).slice(0, 12),
-        summary: snapshot.summary || `自动生成的 AI BAIZE 日报，共 ${(snapshot.sections || []).length} 个栏目。`,
-        fromSnapshot: true,
-      });
-      seen.add(key);
-      continue;
-    }
+    if (snapshotDays.has(key)) continue;
     const range = shanghaiDayRange(target);
     const virtual = buildDailyDigest(state, {}, {
       since: range.start,
@@ -470,28 +587,45 @@ app.get("/api/public/dailies", (_req, res) => {
     });
     if (virtual.sections.length) {
       items.push(virtual);
-      seen.add(key);
+      snapshotDays.add(key);
     }
   }
-  for (const snapshot of snapshots) {
-    const key = localDateKey(snapshot.generatedAt);
-    if (items.length >= take) break;
-    if (seen.has(key)) continue;
-    items.push({
-      ...snapshot,
-      items: snapshot.items || (snapshot.sections || []).flatMap((section) => section.items || []).slice(0, 12),
-      summary: snapshot.summary || `自动生成的 AI BAIZE 日报，共 ${(snapshot.sections || []).length} 个栏目。`,
-      fromSnapshot: true,
-    });
-    seen.add(key);
+  return items
+    .sort((a, b) => new Date(b.generatedAt || 0).getTime() - new Date(a.generatedAt || 0).getTime())
+    .slice(0, take);
+}
+
+app.get("/api/public/dailies", (_req, res) => {
+  const state = readState();
+  const take = Math.min(30, Math.max(1, Number(_req.query.take || 7)));
+  res.json({ items: buildDailyArchive(state, take) });
+});
+
+app.post("/api/public/ask", (req, res) => {
+  const question = String(req.body?.question || "").trim();
+  const command = String(req.body?.command || "").trim();
+  const itemId = String(req.body?.itemId || "").trim();
+  if (!question && !command) {
+    res.status(400).json({ error: "question or command is required" });
+    return;
   }
-  res.json({ items });
+  res.json(answerQuestion(readState(), { question, command, itemId }));
 });
 
 function generateDailyDigest() {
   const state = readState();
   const since = Date.now() - 36 * 60 * 60 * 1000;
-  const digest = buildDailyDigest(state, {}, { since, generatedAt: new Date(), id: makeId(`daily-${Date.now()}`) });
+  const generatedAt = new Date();
+  const excludeKeys = collectDailyDigestItemKeys(state.dailyDigests || [], generatedAt);
+  const digest = buildDailyDigest(state, {}, {
+    since,
+    generatedAt,
+    id: makeId(`daily-${Date.now()}`),
+    excludeKeys,
+    emptySummary: excludeKeys.size
+      ? "本期未发现未报道的高质量候选，已避免复用今日早前快报内容。"
+      : "当前窗口内暂无符合质量规则的新增内容。",
+  });
   state.dailyDigests = [digest, ...(state.dailyDigests || [])].slice(0, 30);
   writeState(state);
   return digest;
@@ -499,8 +633,8 @@ function generateDailyDigest() {
 
 app.get("/api/stats", (_req, res) => {
   const state = readState();
-  const threshold = Number(state.settings?.rules?.selectedThreshold || 72);
   const items = state.items.filter((item) => !item.hidden);
+  const selected = visibleItems({ mode: "selected" });
   const tags = new Map();
   for (const item of items) {
     for (const tag of item.tags || []) tags.set(tag, (tags.get(tag) || 0) + 1);
@@ -517,7 +651,7 @@ app.get("/api/stats", (_req, res) => {
   }
   res.json({
     total: items.length,
-    selected: items.filter((item) => (item.pinned || item.score >= threshold) && isSelectedQualityCandidate(item)).length,
+    selected: selected.length,
     sources: state.sources.length,
     refreshedAt: state.settings.refreshedAt,
     tags: [...tags.entries()].sort((a, b) => b[1] - a[1]).map(([tag, count]) => ({ tag, count })),
@@ -619,6 +753,13 @@ app.get("/openapi.json", (req, res) => {
       },
       "/api/public/daily": { get: { summary: "Get current daily digest", responses: { "200": { description: "Daily digest" } } } },
       "/api/public/dailies": { get: { summary: "List saved daily digests", responses: { "200": { description: "Daily digests" } } } },
+      "/api/public/ask": {
+        post: {
+          summary: "Ask grounded questions over the AI.BAIZE selected corpus",
+          requestBody: { required: true },
+          responses: { "200": { description: "Grounded answer with source citations" } },
+        },
+      },
       "/feed.xml": { get: { summary: "RSS feed", responses: { "200": { description: "RSS XML" } } } },
     },
   });
@@ -872,11 +1013,30 @@ app.get(/.*/, (_req, res) => {
   res.sendFile(path.resolve(process.cwd(), "dist", "index.html"));
 });
 
-cron.schedule(readState().settings.cron || "*/30 * * * *", () => {
-  refreshAll().catch((error) => console.error("[refresh]", error));
-});
+function startServer() {
+  cron.schedule(readState().settings.cron || "*/30 * * * *", () => {
+    refreshAll().catch((error) => console.error("[refresh]", error));
+  });
 
-app.listen(PORT, () => {
-  console.log(`AIHOT clone listening on http://0.0.0.0:${PORT}`);
-  refreshAll().catch((error) => console.error("[initial refresh]", error));
-});
+  app.listen(PORT, () => {
+    console.log(`AIHOT clone listening on http://0.0.0.0:${PORT}`);
+    refreshAll().catch((error) => console.error("[initial refresh]", error));
+  });
+}
+
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = {
+  app,
+  buildDailyArchive,
+  buildDailyDigest,
+  collectDailyDigestItemKeys,
+  dailyIssueMeta,
+  digestItemKeys,
+  generateDailyDigest,
+  localDateKey,
+  selectCuratedItems,
+  startServer,
+};

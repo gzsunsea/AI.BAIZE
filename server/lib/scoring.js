@@ -59,6 +59,9 @@ const CN_CONSUMER_DEVICE_RE = /vivo|OPPO|荣耀|小米|红米|Redmi|华为|Mate|
 const DEVICE_CORE_AI_RE = /端侧大模型|本地大模型|AI\s*(?:模型|Agent|智能体|编程|开发|推理|训练)|LLM|多模态模型|生成式\s*AI/i;
 const REAL_AI_INFRA_RE = /(?:AI|大模型|LLM).*(?:训练|推理|算力|服务器|数据中心|集群|部署)|(?:GPU|NPU).*(?:训练|推理|大模型|服务器|数据中心|集群)/i;
 const DIGEST_OR_ROUNDUP_RE = /早报|晚报|日报|周报|一图看懂|汇总|合集|盘点|要闻|morning brief|daily brief|weekly roundup/i;
+const LOW_VALUE_PRESENTATION_RE = /图赏|开箱|外观赏析|真机照|壁纸|桌面美化|颜值体验|上手图集/i;
+const WEAK_AI_GIMMICK_RE = /世界杯|足球|篮球|赛事|比分|预测错误|预测翻车|AI\s*(?:预测|竞猜).*(?:比赛|冠军|比分)|(?:比赛|冠军|比分).*(?:AI|大模型).*(?:预测|竞猜)/i;
+const GENERAL_PRODUCT_UPDATE_RE = /隐藏功能|摄像头画面|系统更新|固件更新|车机更新|新增配色|新皮肤|新外观|续航升级/i;
 const WEAK_GITHUB_RE = /awesome[-_\s]|curated list|course list|summer ?school|books?|lectures?|papers?\.?$|pack(?:s|ing)? your entire repository|AI-friendly file|WhatsApp Web|customer service|use your imagination|OSINT|intelligence gathering|situational analysis/i;
 const BROAD_OFFICIAL_RE = /GitHub Changelog|GitHub Blog|Cloudflare|Apple Machine Learning Research|NVIDIA AI Blog/i;
 const LOW_INFORMATION_TITLE_RE = /^\s*(?:未命名动态|(?:release\s*)?v?\d+(?:\.\d+){1,4}(?:[-+][\w.-]+)?)\s*$/i;
@@ -195,7 +198,10 @@ function isNoiseCandidate(item = {}) {
   if (HARD_LOW_VALUE_RE.test(text)) return true;
   if (CN_PROMO_NOISE_RE.test(text)) return true;
   if (DIGEST_OR_ROUNDUP_RE.test(item.title || "")) return true;
+  if (LOW_VALUE_PRESENTATION_RE.test(item.title || "")) return true;
+  if (WEAK_AI_GIMMICK_RE.test(contentText)) return true;
   if (item.sourceKind === "github" && WEAK_GITHUB_RE.test(text)) return true;
+  if (isChineseMediaSource(item) && GENERAL_PRODUCT_UPDATE_RE.test(item.title || "") && !DEVICE_CORE_AI_RE.test(item.title || "")) return true;
   if (isChineseMediaSource(item) && CN_DEVICE_PROMO_RE.test(text)) return true;
   if (isChineseMediaSource(item) && CN_MOBILE_CHIP_RE.test(contentText) && !REAL_AI_INFRA_RE.test(contentText)) return true;
   if (isChineseMediaSource(item) && CN_CONSUMER_DEVICE_RE.test(contentText) && !DEVICE_CORE_AI_RE.test(contentText)) return true;

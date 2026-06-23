@@ -5,6 +5,7 @@
     "start": "node server/index.js",
     "refresh": "node server/jobs/refresh.js",
     "cleanup:quality": "node server/jobs/cleanupQuality.js",
+    "test": "node --test server/*.test.js server/lib/*.test.js",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0"
   },
