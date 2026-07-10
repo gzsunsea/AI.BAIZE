@@ -118,6 +118,15 @@ function stableUrlKey(url = "") {
   }
 }
 
+function isOriginalHttpUrl(url = "") {
+  try {
+    const parsed = new URL(String(url || ""));
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function summarize(text = "", fallback = "") {
   const clean = stripHtml(text || fallback);
   if (clean.length <= 420) return clean;
@@ -345,6 +354,7 @@ module.exports = {
   inferTags,
   isCoreAiCandidate,
   isNoiseCandidate,
+  isOriginalHttpUrl,
   isQualityCandidate,
   isSelectedQualityCandidate,
   isWeakIndustryCandidate,

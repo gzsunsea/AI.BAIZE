@@ -106,6 +106,9 @@ type ApiState = {
     priorityTier?: string;
     preferred?: boolean;
     noisePenalty?: number;
+    maxHandles?: number;
+    perHandleMaxAttempts?: number;
+    mirrorTimeoutMs?: number;
     health?: { ok: boolean; count: number; attempts: number; durationMs: number; checkedAt: string; message?: string } | null;
   }[];
   clusters?: Stats["clusters"];
@@ -113,7 +116,7 @@ type ApiState = {
   dailyDigests?: { id: string; headline: string; generatedAt: string; sections: { title: string; items: Item[] }[] }[];
   mpArticles?: MpArticle[];
   runs: Stats["runs"];
-  settings: { refreshedAt: string | null; cron: string; rules?: { selectedThreshold: number; selectedCommunityLimit?: number; maxItems: number; rssLimit: number } };
+  settings: { refreshedAt: string | null; cron: string; rules?: { selectedThreshold: number; selectedCommunityLimit?: number; selectedXShare?: number; selectedCnSourceLimit?: number; maxItems: number; rssLimit: number } };
 };
 
 type MpArticle = {
@@ -1654,6 +1657,8 @@ function AdminPanel({ onChanged }: { onChanged: () => void }) {
   const [sourceFilter, setSourceFilter] = useState("preferred");
   const [newMp, setNewMp] = useState({ title: "", url: "", account: "", reads: 0, likes: 0, shares: 0, accountBaseline: 3000 });
   const [threshold, setThreshold] = useState(72);
+  const [xSharePercent, setXSharePercent] = useState(20);
+  const [cnSourceLimit, setCnSourceLimit] = useState(5);
 
   const headers = { "content-type": "application/json", "x-admin-token": token };
 
@@ -1663,6 +1668,8 @@ function AdminPanel({ onChanged }: { onChanged: () => void }) {
       const next = await api<ApiState>("/api/admin/state", { headers });
       setState(next);
       setThreshold(next.settings.rules?.selectedThreshold || 72);
+      setXSharePercent(Math.round(Number(next.settings.rules?.selectedXShare ?? 0.2) * 100));
+      setCnSourceLimit(Number(next.settings.rules?.selectedCnSourceLimit || 5));
       localStorage.setItem(adminTokenKey, token);
     } catch {
       setMessage("后台令牌不正确。默认令牌是 aihot-admin，生产环境建议在 systemd 中设置 ADMIN_TOKEN。");
@@ -1710,7 +1717,17 @@ function AdminPanel({ onChanged }: { onChanged: () => void }) {
   };
 
   const saveRules = async () => {
-    await api("/api/admin/settings", { method: "PUT", headers, body: JSON.stringify({ rules: { selectedThreshold: threshold } }) });
+    await api("/api/admin/settings", {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({
+        rules: {
+          selectedThreshold: threshold,
+          selectedXShare: Math.max(0, Math.min(0.5, xSharePercent / 100)),
+          selectedCnSourceLimit: Math.max(1, Math.min(12, cnSourceLimit)),
+        },
+      }),
+    });
     setMessage("规则已保存。");
     await loadAdmin();
     onChanged();
@@ -1808,6 +1825,18 @@ function AdminPanel({ onChanged }: { onChanged: () => void }) {
                 <button className="primary" onClick={saveRules}>保存规则</button>
               </div>
               <div className="ops-card">
+                <strong>X 保底比例</strong>
+                <input type="number" value={xSharePercent} min={0} max={50} onChange={(event) => setXSharePercent(Number(event.target.value))} />
+                <span>精选列表优先为 preferred_x 留位</span>
+                <button className="primary" onClick={saveRules}>保存规则</button>
+              </div>
+              <div className="ops-card">
+                <strong>中文单源上限</strong>
+                <input type="number" value={cnSourceLimit} min={1} max={12} onChange={(event) => setCnSourceLimit(Number(event.target.value))} />
+                <span>限制 IT之家等单个中文媒体连续占位</span>
+                <button className="primary" onClick={saveRules}>保存规则</button>
+              </div>
+              <div className="ops-card">
                 <strong>日报生成</strong>
                 <span>把当前库存内容固化成一份日报记录</span>
                 <button className="primary" onClick={generateDaily}>生成日报</button>
@@ -1854,6 +1883,9 @@ function AdminPanel({ onChanged }: { onChanged: () => void }) {
                   <p>{source.url}</p>
                   <b>{source.enabled ? "启用" : "停用"} · {source.health ? (source.health.ok ? `正常 ${source.health.count} 条` : `失败 ${source.health.message}`) : "未检查"}</b>
                   {source.health && <small>{formatTime(source.health.checkedAt)} · {source.health.durationMs}ms · {source.health.attempts} 次</small>}
+                  {source.kind === "x_profiles" && (
+                    <small>账号 {source.maxHandles || 28} 个 · 单账号尝试 {source.perHandleMaxAttempts || 3} 次 · mirror {source.mirrorTimeoutMs || 2500}ms</small>
+                  )}
                   <div className="source-actions">
                     <button onClick={() => patchSource(source.id, { enabled: !source.enabled })}>{source.enabled ? "停用" : "启用"}</button>
                     <button onClick={() => deleteSource(source.id)}>删除</button>
