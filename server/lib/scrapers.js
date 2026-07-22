@@ -1,6 +1,6 @@
 const cheerio = require("cheerio");
 const { XMLParser } = require("fast-xml-parser");
-const { normalizeItem, stripHtml } = require("./scoring");
+const { isOriginalHttpUrl, normalizeItem, stripHtml } = require("./scoring");
 
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
@@ -114,6 +114,61 @@ function compactMedia(media = []) {
     .slice(0, 3);
 }
 
+function externalUrlsFromHtml(html = "", base = "") {
+  const baseHost = (() => {
+    try {
+      return new URL(base).host;
+    } catch {
+      return "";
+    }
+  })();
+  const normalized = String(html).replaceAll("\\/", "/").replaceAll("\\u002F", "/");
+  return [...normalized.matchAll(/https?:\/\/[^\s"'<>\\)]+/g)]
+    .map((match) => match[0].replace(/&amp;/g, "&"))
+    .filter((url) => {
+      try {
+        const parsed = new URL(url);
+        if (baseHost && parsed.host === baseHost) return false;
+        if (/schema\.org|w3\.org|tailwindcss|cdn\./i.test(parsed.host)) return false;
+        return true;
+      } catch {
+        return false;
+      }
+    });
+}
+
+function preferredOriginalUrl(html = "", base = "") {
+  const urls = externalUrlsFromHtml(html, base);
+  const statusUrl = urls.find((url) => /https?:\/\/(x|twitter)\.com\/[^"'\s<>\\]+\/status\//i.test(url));
+  if (statusUrl) return statusUrl;
+  return urls.find((url) => !/https?:\/\/(x|twitter)\.com\//i.test(url)) || "";
+}
+
+async function resolveAihotItemUrls(items = [], source = {}) {
+  const limit = Number(source.detailResolveLimit || 16);
+  let resolved = 0;
+  const base = source.url || "";
+  const timeoutMs = Number(source.detailTimeoutMs || 3500);
+  const output = [];
+  for (const item of items) {
+    let next = item;
+    const url = String(item.url || "");
+    if (!isOriginalHttpUrl(url) && resolved < limit && /^\/items\//.test(url)) {
+      resolved += 1;
+      try {
+        const detailUrl = absolutizeUrl(url, base);
+        const html = await fetchText(detailUrl, {}, timeoutMs);
+        const originalUrl = preferredOriginalUrl(html, base);
+        if (originalUrl) next = { ...item, url: originalUrl };
+      } catch {
+        next = item;
+      }
+    }
+    output.push(next);
+  }
+  return output;
+}
+
 function articleMediaFromHtml(html = "", base = "") {
   const $ = cheerio.load(html);
   const media = [];
@@ -214,18 +269,20 @@ async function scrapeAihot(source) {
   const html = await fetchText(source.url, {}, fetchTimeout(source, 9000));
   const embedded = parseAihotJson(html);
   if (embedded.length) {
-    return embedded.map((item) =>
-      normalizeItem({
-        ...item,
-        sourceKind: "aihot",
-        sourceName: item.source?.name || "AIHOT 公开页",
-        ...sourceMeta(source),
-      }),
-    );
+    const items = embedded
+      .map((item) =>
+        normalizeItem({
+          ...item,
+          sourceKind: "aihot",
+          sourceName: item.source?.name || "AIHOT 公开页",
+          ...sourceMeta(source),
+        }),
+      );
+    return (await resolveAihotItemUrls(items, source)).filter((item) => isOriginalHttpUrl(item.url));
   }
 
   const $ = cheerio.load(html);
-  return $(".timeline-card")
+  const items = $(".timeline-card")
     .toArray()
     .map((node) => {
       const card = $(node);
@@ -253,22 +310,20 @@ async function scrapeAihot(source) {
         ]),
       });
     });
+  return (await resolveAihotItemUrls(items, source)).filter((item) => isOriginalHttpUrl(item.url));
 }
 
 async function scrapeXReference(source) {
-  const html = await fetchText(source.url, {}, fetchTimeout(source, 9000));
-  const embedded = parseAihotJson(html);
-  return embedded
-    .map((item) =>
-      normalizeItem({
-        ...item,
-        sourceKind: "x",
-        sourceName: item.source?.name ? `X · ${item.source.name}` : "X 高价值聚合线索",
-        ...sourceMeta(source),
-        tags: [...new Set([...(item.tags || []), "X 高价值", "社交信号"])],
-      }),
-    )
-    .filter((item) => /https?:\/\/(x|twitter)\.com\//i.test(item.url || ""))
+  const items = await scrapeAihot(source);
+  return items
+    .filter((item) => /https?:\/\/(x|twitter)\.com\/[^"'\s<>\\]+\/status\//i.test(item.url || ""))
+    .map((item) => ({
+      ...item,
+      sourceKind: "x",
+      priorityTier: "preferred_x",
+      preferred: true,
+      tags: [...new Set([...(item.tags || []), "X 高价值", "社交信号"])].slice(0, 8),
+    }))
     .slice(0, source.limit || 40);
 }
 
@@ -422,14 +477,14 @@ function isHighValueXText(text = "") {
   return /AI|agent|LLM|model|OpenAI|Claude|Anthropic|DeepMind|Gemini|Hugging Face|benchmark|eval|research|paper|robot|education|edtech|culture|creative|copyright|模型|智能体|多模态|推理|教育|文化|艺术|版权|开源/i.test(text);
 }
 
-async function fetchFirstMirror(handle, mirrors = [], budget = { attempts: 0, maxAttempts: 8 }) {
+async function fetchFirstMirror(handle, mirrors = [], budget = { attempts: 0, maxAttempts: 8 }, timeoutMs = 2500) {
   const errors = [];
   for (const template of mirrors) {
     if (budget.attempts >= budget.maxAttempts) break;
     budget.attempts += 1;
     const url = template.replaceAll("{handle}", handle);
     try {
-      return { url, xml: await fetchText(url, { accept: "application/rss+xml,application/xml,text/xml,*/*" }, 4500) };
+      return { url, xml: await fetchText(url, { accept: "application/rss+xml,application/xml,text/xml,*/*" }, timeoutMs) };
     } catch (error) {
       errors.push(`${url}: ${error.message}`);
     }
@@ -438,14 +493,15 @@ async function fetchFirstMirror(handle, mirrors = [], budget = { attempts: 0, ma
 }
 
 async function scrapeXProfiles(source) {
-  const handles = (source.handles || []).slice(0, 12);
+  const handles = (source.handles || []).slice(0, Number(source.maxHandles || 28));
   const mirrors = source.mirrors?.length ? source.mirrors : [source.url || "https://twiiit.com/{handle}/rss"];
   const items = [];
   const errors = [];
-  const budget = { attempts: 0, maxAttempts: Number(source.maxAttempts || 8) };
+  const perHandleAttempts = Math.max(1, Number(source.perHandleMaxAttempts || source.maxAttempts || Math.min(3, mirrors.length || 1)));
+  const mirrorTimeoutMs = Number(source.mirrorTimeoutMs || 2500);
   for (const handle of handles) {
     try {
-      const { xml } = await fetchFirstMirror(handle, mirrors, budget);
+      const { xml } = await fetchFirstMirror(handle, mirrors, { attempts: 0, maxAttempts: perHandleAttempts }, mirrorTimeoutMs);
       const nextItems = rssEntriesToItems(xml, { ...source, limit: 8 }, {
         sourceName: `X · @${handle}`,
         sourceKind: "x",
@@ -455,7 +511,6 @@ async function scrapeXProfiles(source) {
     } catch (error) {
       errors.push(`@${handle}: ${error.message}`);
     }
-    if (budget.attempts >= budget.maxAttempts) break;
     if (items.length >= (source.limit || 36)) break;
   }
   if (!items.length && errors.length) throw new Error(errors.slice(0, 4).join(" || "));

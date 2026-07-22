@@ -54,6 +54,8 @@ const DEFAULT_SOURCES = [
     enabled: true,
     tier: "reference",
     timeoutMs: 12000,
+    detailResolveLimit: 16,
+    detailTimeoutMs: 3500,
     retries: 0,
   }, "reference"),
   withMeta({
@@ -449,8 +451,10 @@ const DEFAULT_SOURCES = [
     enabled: true,
     tier: "social",
     limit: 60,
-    maxAttempts: 14,
-    timeoutMs: 22000,
+    maxHandles: 4,
+    perHandleMaxAttempts: 2,
+    mirrorTimeoutMs: 1800,
+    timeoutMs: 16000,
     retries: 0,
   }, "preferred_x"),
   withMeta({

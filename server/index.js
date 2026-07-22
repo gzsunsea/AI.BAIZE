@@ -1,19 +1,33 @@
 const path = require("node:path");
+const crypto = require("node:crypto");
+const dns = require("node:dns").promises;
+const net = require("node:net");
 const express = require("express");
 const cron = require("node-cron");
 const { readState, writeState } = require("./lib/store");
 const { refreshAll } = require("./jobs/refresh");
 const { attachRelated, categoryLabel, enrichItem, itemCategory, sourceChannel } = require("./lib/editorial");
 const { enhanceRecentItems } = require("./lib/llmEnhancer");
-const { isQualityCandidate, isSelectedQualityCandidate, makeId } = require("./lib/scoring");
+const { isOriginalHttpUrl, isQualityCandidate, isSelectedQualityCandidate, makeId } = require("./lib/scoring");
 const { canonicalUrl, titleFingerprint } = require("./lib/dedupe");
 const { answerQuestion } = require("./lib/askBaize");
+const { buildHotTopics, buildReport } = require("./lib/experience");
 
 const PORT = Number(process.env.PORT || 8080);
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "aihot-admin";
+const DEFAULT_ADMIN_TOKEN = "aihot-admin";
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || DEFAULT_ADMIN_TOKEN;
 const app = express();
 
+app.disable("x-powered-by");
 app.use(express.json({ limit: "1mb" }));
+
+app.use((_req, res, next) => {
+  res.set("X-Content-Type-Options", "nosniff");
+  res.set("X-Frame-Options", "DENY");
+  res.set("Referrer-Policy", "no-referrer");
+  res.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  next();
+});
 
 app.use((req, res, next) => {
   if (req.headers.host === "aibaize.cc") {
@@ -23,13 +37,83 @@ app.use((req, res, next) => {
   next();
 });
 
+function clientKey(req) {
+  return String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || req.ip || "unknown").split(",")[0].trim();
+}
+
+function rateLimit({ windowMs, max, message }) {
+  const hits = new Map();
+  return (req, res, next) => {
+    const now = Date.now();
+    const key = clientKey(req);
+    const current = hits.get(key);
+    if (!current || now >= current.resetAt) {
+      hits.set(key, { count: 1, resetAt: now + windowMs });
+      next();
+      return;
+    }
+    current.count += 1;
+    if (current.count > max) {
+      res.set("Retry-After", String(Math.ceil((current.resetAt - now) / 1000)));
+      res.status(429).json({ error: message || "Too many requests" });
+      return;
+    }
+    next();
+  };
+}
+
+const publicWriteLimit = rateLimit({
+  windowMs: Number(process.env.PUBLIC_WRITE_RATE_WINDOW_MS || 60_000),
+  max: Number(process.env.PUBLIC_WRITE_RATE_MAX || 30),
+});
+
+const adminWriteLimit = rateLimit({
+  windowMs: Number(process.env.ADMIN_WRITE_RATE_WINDOW_MS || 60_000),
+  max: Number(process.env.ADMIN_WRITE_RATE_MAX || 60),
+});
+
+function safeEqual(a = "", b = "") {
+  const left = Buffer.from(String(a));
+  const right = Buffer.from(String(b));
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
 function requireAdmin(req, res, next) {
-  const token = req.header("x-admin-token") || req.query.token;
-  if (token !== ADMIN_TOKEN) {
+  const token = req.header("x-admin-token") || "";
+  if (process.env.NODE_ENV === "production" && ADMIN_TOKEN === DEFAULT_ADMIN_TOKEN && process.env.ALLOW_DEFAULT_ADMIN_TOKEN !== "1") {
+    res.status(503).json({ error: "Admin token is not configured" });
+    return;
+  }
+  if (!safeEqual(token, ADMIN_TOKEN)) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
   next();
+}
+
+function trimTrailingSlash(value = "") {
+  return String(value || "").replace(/\/+$/, "");
+}
+
+function publicBaseUrl(req) {
+  const configured = trimTrailingSlash(process.env.PUBLIC_BASE_URL || "");
+  if (/^https?:\/\/[a-z0-9.-]+(?::\d+)?$/i.test(configured)) return configured;
+  const host = String(req.headers.host || "").toLowerCase();
+  if (/^[a-z0-9.-]+(?::\d+)?$/i.test(host)) return `http://${host}`;
+  return "http://localhost:8080";
+}
+
+function xmlEscape(value = "") {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function cdata(value = "") {
+  return `<![CDATA[${String(value).replaceAll("]]>", "]]]]><![CDATA[>")}]]>`;
 }
 
 function isChineseMedia(item) {
@@ -264,6 +348,7 @@ function visibleItems(query) {
   const category = String(query.category || "");
   const filtered = state.items
     .filter((item) => !item.hidden)
+    .filter((item) => isOriginalHttpUrl(item.url))
     .filter((item) => {
       if (mode === "selected") return (item.pinned || item.score >= threshold) && isSelectedQualityCandidate(item);
       if (mode === "mp") return isChineseMedia(item) && isQualityCandidate(item);
@@ -307,13 +392,19 @@ function selectedRank(item) {
   return Number(Boolean(item.pinned)) * 1000 + Number(item.score || 0) + tierBoost + freshness;
 }
 
+function isXStatusSignal(item) {
+  return /https?:\/\/(x|twitter)\.com\/[^"'\s<>\\]+\/status\//i.test(item.url || "");
+}
+
 function selectCuratedItems(items = [], rules = {}) {
   const limit = Math.min(100, Math.max(20, Number(rules?.selectedFeedLimit || 60)));
   const sourceLimit = Math.max(3, Math.floor(limit * Number(rules?.selectedSourceShare || 0.2)));
   const communityLimit = Math.min(limit, Math.max(0, Number(rules?.selectedCommunityLimit || 6)));
   const cnMediaLimit = Math.min(limit, Math.max(6, Number(rules?.selectedCnMediaLimit || 18)));
+  const cnSourceLimit = Math.min(sourceLimit, Math.max(1, Number(rules?.selectedCnSourceLimit || 5)));
   const preferredTarget = Math.ceil(limit * Number(rules?.selectedPreferredShare || 0.6));
-  const ranked = [...items].sort((a, b) => selectedRank(b) - selectedRank(a) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
+  const xTarget = Math.ceil(limit * Number(rules?.selectedXShare || 0.2));
+  const ranked = items.filter((item) => isOriginalHttpUrl(item.url)).sort((a, b) => selectedRank(b) - selectedRank(a) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
   const selected = [];
   const selectedIds = new Set();
   const sourceCounts = new Map();
@@ -321,6 +412,7 @@ function selectCuratedItems(items = [], rules = {}) {
   let cnMediaCount = 0;
 
   const isPreferred = (item) => ["preferred_x", "official_first_party", "expert_rss"].includes(item.priorityTier);
+  const isPreferredX = (item) => item.priorityTier === "preferred_x" || item.sourceKind === "x" || isXStatusSignal(item);
   const canTake = (item) => {
     if (selected.length >= limit || selectedIds.has(item.id)) return false;
     const sourceKey = item.sourceId || item.sourceName || item.sourceKind || "unknown";
@@ -328,6 +420,7 @@ function selectCuratedItems(items = [], rules = {}) {
     const community = item.priorityTier === "community_fallback" || ["hn", "github", "devto", "arxiv"].includes(item.sourceKind);
     if (!item.pinned && community && communityCount >= communityLimit) return false;
     const cnMedia = item.priorityTier === "cn_media";
+    if (!item.pinned && cnMedia && (sourceCounts.get(sourceKey) || 0) >= cnSourceLimit) return false;
     if (!item.pinned && cnMedia && cnMediaCount >= cnMediaLimit) return false;
     return true;
   };
@@ -343,6 +436,10 @@ function selectCuratedItems(items = [], rules = {}) {
   };
 
   for (const item of ranked.filter((candidate) => candidate.pinned)) take(item);
+  for (const item of ranked.filter(isPreferredX)) {
+    if (selected.filter(isPreferredX).length >= xTarget) break;
+    take(item);
+  }
   for (const item of ranked.filter(isPreferred)) {
     if (selected.filter(isPreferred).length >= preferredTarget) break;
     take(item);
@@ -350,7 +447,20 @@ function selectCuratedItems(items = [], rules = {}) {
   for (const item of ranked.filter((candidate) => !isPreferred(candidate))) take(item);
   for (const item of ranked) take(item);
 
-  return selected.sort((a, b) => selectedRank(b) - selectedRank(a) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
+  const ordered = selected.sort((a, b) => selectedRank(b) - selectedRank(a) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
+  const pinned = ordered.filter((item) => item.pinned);
+  const xSignals = ordered.filter((item) => !item.pinned && isPreferredX(item));
+  const otherSignals = ordered.filter((item) => !item.pinned && !isPreferredX(item));
+  if (!xSignals.length || !otherSignals.length) return ordered;
+
+  const interval = Math.max(1, Math.floor((xSignals.length + otherSignals.length) / xSignals.length));
+  const interleaved = [];
+  while (xSignals.length || otherSignals.length) {
+    for (let index = 1; index < interval && otherSignals.length; index += 1) interleaved.push(otherSignals.shift());
+    if (xSignals.length) interleaved.push(xSignals.shift());
+    else interleaved.push(...otherSignals.splice(0));
+  }
+  return [...pinned, ...interleaved];
 }
 
 app.get("/api/items", (req, res) => {
@@ -526,6 +636,35 @@ app.get("/api/public/items", (req, res) => {
   res.json({ items, page, take });
 });
 
+app.get("/api/public/hot-topics", (_req, res) => {
+  const state = readState();
+  res.json(buildHotTopics(state, {
+    selectedThreshold: state.settings?.rules?.selectedThreshold || 70,
+    enrichItem,
+  }));
+});
+
+app.get("/api/public/reports", (req, res) => {
+  try {
+    const state = readState();
+    res.json(buildReport(state, {
+      period: String(req.query.period || "daily"),
+      date: req.query.date ? String(req.query.date) : undefined,
+      buildVirtualDigest: (dateKey) => {
+        const range = shanghaiDayRange(`${dateKey}T12:00:00+08:00`);
+        return buildDailyDigest(state, {}, {
+          since: range.start,
+          until: range.end,
+          generatedAt: range.start + 12 * 60 * 60 * 1000,
+          virtual: true,
+        });
+      },
+    }));
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || "report generation failed" });
+  }
+});
+
 function currentDailyDigest(query = {}) {
   const state = readState();
   const todayKey = localDateKey();
@@ -601,7 +740,7 @@ app.get("/api/public/dailies", (_req, res) => {
   res.json({ items: buildDailyArchive(state, take) });
 });
 
-app.post("/api/public/ask", (req, res) => {
+app.post("/api/public/ask", publicWriteLimit, (req, res) => {
   const question = String(req.body?.question || "").trim();
   const command = String(req.body?.command || "").trim();
   const itemId = String(req.body?.itemId || "").trim();
@@ -708,21 +847,21 @@ app.get("/api/sources", (_req, res) => {
 
 app.get("/feed.xml", (req, res) => {
   const items = publicItems({ mode: req.query.mode || "selected" }).slice(0, 50);
-  const base = `http://${req.headers.host}`;
+  const base = publicBaseUrl(req);
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
   <channel>
     <title>AIHOT Clone</title>
-    <link>${base}</link>
+    <link>${xmlEscape(base)}</link>
     <description>AI 自动筛选的高价值动态</description>
     ${items
       .map(
         (item) => `<item>
-      <title><![CDATA[${item.title}]]></title>
-      <link>${item.url}</link>
-      <guid>${item.canonicalUrl || item.url || item.id}</guid>
+      <title>${cdata(item.title)}</title>
+      <link>${xmlEscape(item.url)}</link>
+      <guid>${xmlEscape(item.canonicalUrl || item.url || item.id)}</guid>
       <pubDate>${new Date(item.publishedAt).toUTCString()}</pubDate>
-      <description><![CDATA[${item.summary}]]></description>
+      <description>${cdata(item.summary)}</description>
     </item>`,
       )
       .join("\n")}
@@ -732,7 +871,7 @@ app.get("/feed.xml", (req, res) => {
 });
 
 app.get("/openapi.json", (req, res) => {
-  const base = `http://${req.headers.host}`;
+  const base = publicBaseUrl(req);
   res.json({
     openapi: "3.1.0",
     info: { title: "AIHOT Public API", version: "1.0.0" },
@@ -753,6 +892,17 @@ app.get("/openapi.json", (req, res) => {
       },
       "/api/public/daily": { get: { summary: "Get current daily digest", responses: { "200": { description: "Daily digest" } } } },
       "/api/public/dailies": { get: { summary: "List saved daily digests", responses: { "200": { description: "Daily digests" } } } },
+      "/api/public/hot-topics": { get: { summary: "List cluster-backed current signals", responses: { "200": { description: "Current signals" } } } },
+      "/api/public/reports": {
+        get: {
+          summary: "Get a daily, weekly, or monthly editorial report",
+          parameters: [
+            { name: "period", in: "query", schema: { type: "string", enum: ["daily", "weekly", "monthly"] } },
+            { name: "date", in: "query", schema: { type: "string", format: "date" } },
+          ],
+          responses: { "200": { description: "Editorial report" }, "400": { description: "Invalid period or date" } },
+        },
+      },
       "/api/public/ask": {
         post: {
           summary: "Ask grounded questions over the AI.BAIZE selected corpus",
@@ -766,7 +916,7 @@ app.get("/openapi.json", (req, res) => {
 });
 
 app.get("/aihot-skill/SKILL.md", (req, res) => {
-  const base = `http://${req.headers.host}`;
+  const base = publicBaseUrl(req);
   res.type("text/markdown").send(`# AIHOT Skill
 
 Use this skill when the user asks for recent AI news, AI daily digests, model releases, product launches, research papers, open-source AI projects, AI education, AI culture, or Chinese AI hot articles.
@@ -791,7 +941,7 @@ Summarize the top items, include source names, scores, links, and explain why ea
 });
 
 app.get("/aihot-skill/install.sh", (req, res) => {
-  const base = `http://${req.headers.host}`;
+  const base = publicBaseUrl(req);
   res.type("text/plain").send(`#!/usr/bin/env bash
 set -euo pipefail
 mkdir -p "$HOME/.codex/skills/aihot"
@@ -804,7 +954,7 @@ app.get("/api/admin/state", requireAdmin, (_req, res) => {
   res.json(readState());
 });
 
-app.post("/api/feedback", (req, res) => {
+app.post("/api/feedback", publicWriteLimit, (req, res) => {
   const state = readState();
   const body = req.body || {};
   const feedback = {
@@ -824,7 +974,7 @@ app.post("/api/feedback", (req, res) => {
   res.json({ ok: true, feedback });
 });
 
-app.post("/api/admin/refresh", requireAdmin, async (_req, res) => {
+app.post("/api/admin/refresh", requireAdmin, adminWriteLimit, async (_req, res) => {
   try {
     res.json(await refreshAll());
   } catch (error) {
@@ -832,7 +982,7 @@ app.post("/api/admin/refresh", requireAdmin, async (_req, res) => {
   }
 });
 
-app.post("/api/admin/enhance", requireAdmin, async (req, res) => {
+app.post("/api/admin/enhance", requireAdmin, adminWriteLimit, async (req, res) => {
   try {
     const limit = Math.min(200, Math.max(1, Number(req.body?.limit || req.query.limit || 60)));
     const force = req.body?.force === true || req.query.force === "1";
@@ -842,11 +992,11 @@ app.post("/api/admin/enhance", requireAdmin, async (req, res) => {
   }
 });
 
-app.post("/api/admin/daily", requireAdmin, (_req, res) => {
+app.post("/api/admin/daily", requireAdmin, adminWriteLimit, (_req, res) => {
   res.json(generateDailyDigest());
 });
 
-app.post("/api/admin/mp/seed", requireAdmin, (_req, res) => {
+app.post("/api/admin/mp/seed", requireAdmin, adminWriteLimit, (_req, res) => {
   const state = readState();
   const existing = new Set((state.mpArticles || []).map((article) => article.url));
   const seeds = state.items
@@ -869,7 +1019,7 @@ app.post("/api/admin/mp/seed", requireAdmin, (_req, res) => {
   res.json({ ok: true, added: seeds.length });
 });
 
-app.post("/api/admin/mp/articles", requireAdmin, (req, res) => {
+app.post("/api/admin/mp/articles", requireAdmin, adminWriteLimit, (req, res) => {
   const state = readState();
   const article = normalizeMpArticle(req.body || {});
   state.mpArticles = [article, ...(state.mpArticles || []).filter((item) => item.id !== article.id)].slice(0, 500);
@@ -877,21 +1027,21 @@ app.post("/api/admin/mp/articles", requireAdmin, (req, res) => {
   res.json({ ok: true, article });
 });
 
-app.put("/api/admin/mp/articles/:id", requireAdmin, (req, res) => {
+app.put("/api/admin/mp/articles/:id", requireAdmin, adminWriteLimit, (req, res) => {
   const state = readState();
   state.mpArticles = (state.mpArticles || []).map((article) => (article.id === req.params.id ? normalizeMpArticle({ ...article, ...req.body, id: article.id }) : article));
   writeState(state);
   res.json({ ok: true });
 });
 
-app.delete("/api/admin/mp/articles/:id", requireAdmin, (req, res) => {
+app.delete("/api/admin/mp/articles/:id", requireAdmin, adminWriteLimit, (req, res) => {
   const state = readState();
   state.mpArticles = (state.mpArticles || []).filter((article) => article.id !== req.params.id);
   writeState(state);
   res.json({ ok: true });
 });
 
-app.put("/api/admin/settings", requireAdmin, (req, res) => {
+app.put("/api/admin/settings", requireAdmin, adminWriteLimit, (req, res) => {
   const state = readState();
   state.settings = {
     ...state.settings,
@@ -905,7 +1055,7 @@ app.put("/api/admin/settings", requireAdmin, (req, res) => {
   res.json({ ok: true, settings: state.settings });
 });
 
-app.post("/api/admin/sources", requireAdmin, (req, res) => {
+app.post("/api/admin/sources", requireAdmin, adminWriteLimit, (req, res) => {
   const state = readState();
   const body = req.body || {};
   const source = {
@@ -931,47 +1081,99 @@ app.post("/api/admin/sources", requireAdmin, (req, res) => {
   res.json({ ok: true, source });
 });
 
-app.put("/api/admin/sources/:id", requireAdmin, (req, res) => {
+app.put("/api/admin/sources/:id", requireAdmin, adminWriteLimit, (req, res) => {
   const state = readState();
   state.sources = state.sources.map((source) => (source.id === req.params.id ? { ...source, ...req.body } : source));
   writeState(state);
   res.json({ ok: true, sources: state.sources });
 });
 
-app.delete("/api/admin/sources/:id", requireAdmin, (req, res) => {
+app.delete("/api/admin/sources/:id", requireAdmin, adminWriteLimit, (req, res) => {
   const state = readState();
   state.sources = state.sources.filter((source) => source.id !== req.params.id);
   writeState(state);
   res.json({ ok: true });
 });
 
-app.put("/api/admin/feedback/:id", requireAdmin, (req, res) => {
+app.put("/api/admin/feedback/:id", requireAdmin, adminWriteLimit, (req, res) => {
   const state = readState();
   state.feedback = (state.feedback || []).map((item) => (item.id === req.params.id ? { ...item, ...req.body, updatedAt: new Date().toISOString() } : item));
   writeState(state);
   res.json({ ok: true });
 });
 
-app.put("/api/admin/items/:id", requireAdmin, (req, res) => {
+app.put("/api/admin/items/:id", requireAdmin, adminWriteLimit, (req, res) => {
   const state = readState();
   state.items = state.items.map((item) => (item.id === req.params.id ? { ...item, ...req.body, updatedAt: new Date().toISOString() } : item));
   writeState(state);
   res.json({ ok: true });
 });
 
-app.delete("/api/admin/items/:id", requireAdmin, (req, res) => {
+app.delete("/api/admin/items/:id", requireAdmin, adminWriteLimit, (req, res) => {
   const state = readState();
   state.items = state.items.filter((item) => item.id !== req.params.id);
   writeState(state);
   res.json({ ok: true });
 });
 
-app.put("/api/admin/sources", requireAdmin, (req, res) => {
+app.put("/api/admin/sources", requireAdmin, adminWriteLimit, (req, res) => {
   const state = readState();
   state.sources = Array.isArray(req.body.sources) ? req.body.sources : state.sources;
   writeState(state);
   res.json({ ok: true, sources: state.sources });
 });
+
+function isPrivateIp(address = "") {
+  const family = net.isIP(address);
+  if (family === 4) {
+    const parts = address.split(".").map(Number);
+    const [a, b] = parts;
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 198 && (b === 18 || b === 19)) ||
+      a >= 224
+    );
+  }
+  if (family === 6) {
+    const value = address.toLowerCase();
+    return (
+      value === "::1" ||
+      value === "::" ||
+      value.startsWith("fc") ||
+      value.startsWith("fd") ||
+      value.startsWith("fe80") ||
+      value.startsWith("::ffff:127.") ||
+      value.startsWith("::ffff:10.") ||
+      value.startsWith("::ffff:192.168.") ||
+      /^::ffff:172\.(1[6-9]|2\d|3[01])\./.test(value)
+    );
+  }
+  return true;
+}
+
+async function assertPublicHttpTarget(target) {
+  if (!/^https?:$/.test(target.protocol)) {
+    throw new Error("Unsupported media url");
+  }
+  const hostname = target.hostname.toLowerCase();
+  if (!hostname || hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")) {
+    throw new Error("Blocked private media url");
+  }
+  if (net.isIP(hostname)) {
+    if (isPrivateIp(hostname)) throw new Error("Blocked private media url");
+    return;
+  }
+  const addresses = await dns.lookup(hostname, { all: true, verbatim: true });
+  if (!addresses.length || addresses.some((entry) => isPrivateIp(entry.address))) {
+    throw new Error("Blocked private media url");
+  }
+}
 
 app.get("/api/media", async (req, res) => {
   const rawUrl = String(req.query.url || "");
@@ -982,8 +1184,10 @@ app.get("/api/media", async (req, res) => {
     res.status(400).send("Bad media url");
     return;
   }
-  if (!/^https?:$/.test(target.protocol)) {
-    res.status(400).send("Unsupported media url");
+  try {
+    await assertPublicHttpTarget(target);
+  } catch (error) {
+    res.status(400).send(error.message || "Bad media url");
     return;
   }
   try {
