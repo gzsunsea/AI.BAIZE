@@ -217,7 +217,11 @@ function buildReport(state = {}, options = {}) {
   const period = String(options.period || "daily");
   if (!REPORT_PERIODS.has(period)) throw badRequest("invalid period");
   const now = new Date(options.now || Date.now());
-  const anchor = parseDateKey(options.date || shanghaiDateKey(now));
+  const latestSnapshot = [...(state.dailyDigests || [])]
+    .filter((digest) => !Number.isNaN(new Date(digest.generatedAt).getTime()))
+    .sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime())[0];
+  const defaultDate = latestSnapshot ? shanghaiDateKey(latestSnapshot.generatedAt) : shanghaiDateKey(now);
+  const anchor = parseDateKey(options.date || defaultDate);
   const range = reportRange(period, anchor);
   const daily = latestDigestPerLocalDay(state.dailyDigests || [], range);
   const sections = mergeDigestSections(daily);

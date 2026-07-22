@@ -1,0 +1,371 @@
+.reports-workspace {
+  max-width: 1180px;
+  margin: 0 auto;
+  scroll-margin-top: 20px;
+}
+
+.reports-page-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-8);
+  padding: 12px 0 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.reports-page-head > div > span,
+.report-volume span,
+.report-themes > span {
+  color: var(--editorial);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+}
+
+.reports-page-head h1 {
+  margin: 4px 0;
+  font-family: ui-serif, "Songti SC", STSong, serif;
+  font-size: clamp(32px, 4vw, 48px);
+  line-height: 1;
+}
+
+.reports-page-head p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.report-period-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(74px, 1fr));
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.report-period-tabs button {
+  display: grid;
+  min-height: 58px;
+  place-content: center;
+  border: 0;
+  border-radius: 10px;
+  color: var(--muted);
+  background: transparent;
+}
+
+.report-period-tabs small {
+  font-size: 8px;
+  letter-spacing: 0.12em;
+}
+
+.report-period-tabs strong {
+  font-size: 13px;
+}
+
+.report-period-tabs button.active {
+  color: var(--text);
+  background: var(--panel-strong);
+  box-shadow: inset 0 -2px var(--editorial);
+}
+
+.report-loading,
+.report-error,
+.report-empty {
+  display: flex;
+  min-height: 240px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--muted);
+  background: var(--surface);
+}
+
+.report-error {
+  justify-content: space-between;
+  padding: var(--space-8);
+}
+
+.report-error p,
+.report-empty p {
+  margin: 5px 0 0;
+}
+
+.report-error > div:last-child {
+  display: flex;
+  gap: 8px;
+}
+
+.report-error button,
+.report-empty button,
+.report-issue-nav button {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+.report-issue-nav {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) 120px;
+  gap: var(--space-3);
+  align-items: center;
+  margin: var(--space-4) 0;
+}
+
+.report-issue-nav > div {
+  text-align: center;
+}
+
+.report-issue-nav span,
+.report-issue-nav small {
+  display: block;
+}
+
+.report-issue-nav span {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.report-issue-nav small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.report-issue-nav button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.report-paper {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.15);
+}
+
+.report-lead {
+  display: grid;
+  justify-items: center;
+  padding: clamp(36px, 7vw, 80px) clamp(20px, 7vw, 90px) 42px;
+  text-align: center;
+}
+
+.report-volume {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-volume b {
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+}
+
+.report-lead h2 {
+  max-width: 24em;
+  margin: 22px auto;
+  color: var(--text);
+  font-family: ui-serif, "Songti SC", STSong, serif;
+  font-size: clamp(28px, 4.4vw, 52px);
+  line-height: 1.24;
+}
+
+.report-meta {
+  display: flex;
+  gap: 16px;
+  color: var(--muted);
+}
+
+.report-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.report-themes {
+  padding: 22px clamp(20px, 7vw, 90px);
+  border-block: 1px solid var(--border);
+  background: var(--panel-strong);
+}
+
+.report-themes > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.report-themes b {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--soft);
+  font-size: 12px;
+}
+
+.report-themes small {
+  margin-left: 6px;
+  color: var(--editorial);
+}
+
+.report-sections {
+  padding: 0 clamp(20px, 7vw, 90px) 60px;
+}
+
+.report-section > header {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 34px 0 16px;
+  border-bottom: 2px solid var(--text);
+}
+
+.report-section > header > span {
+  color: var(--editorial);
+  font-family: ui-monospace, monospace;
+  font-size: 20px;
+}
+
+.report-section h3 {
+  margin: 0;
+  font-family: ui-serif, "Songti SC", STSong, serif;
+  font-size: 24px;
+}
+
+.report-section header small {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+
+.report-story-list button {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 14px;
+  width: 100%;
+  padding: 20px 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  background: transparent;
+  text-align: left;
+}
+
+.report-story-list button > span {
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+}
+
+.report-story-list small,
+.report-story-list strong,
+.report-story-list p {
+  display: block;
+}
+
+.report-story-list small {
+  color: var(--accent);
+  font-size: 10px;
+}
+
+.report-story-list strong {
+  margin-top: 5px;
+  font-family: ui-serif, "Songti SC", STSong, serif;
+  font-size: 20px;
+  line-height: 1.4;
+}
+
+.report-story-list p {
+  max-width: 76ch;
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.report-story-list button:hover strong {
+  color: var(--accent);
+}
+
+.report-empty {
+  flex-direction: column;
+}
+
+.back-to-report-top {
+  position: sticky;
+  bottom: 24px;
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 7px;
+  margin: 18px 0 0 auto;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--surface-raised);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
+}
+
+@media (max-width: 900px) {
+  .reports-page-head {
+    align-items: flex-start;
+  }
+
+  .report-period-tabs {
+    min-width: 250px;
+  }
+}
+
+@media (max-width: 720px) {
+  .reports-page-head {
+    display: block;
+  }
+
+  .report-period-tabs {
+    width: 100%;
+    margin-top: 18px;
+  }
+
+  .report-issue-nav {
+    grid-template-columns: 88px minmax(0, 1fr) 88px;
+  }
+
+  .report-issue-nav button {
+    min-height: 44px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  .report-error {
+    display: grid;
+    padding: 24px;
+  }
+
+  .report-lead h2 {
+    font-size: 30px;
+  }
+
+  .report-section > header {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+  }
+
+  .report-story-list strong {
+    font-size: 18px;
+  }
+
+  .back-to-report-top {
+    bottom: calc(78px + env(safe-area-inset-bottom));
+  }
+}

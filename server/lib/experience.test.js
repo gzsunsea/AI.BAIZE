@@ -156,3 +156,15 @@ test("reports reject invalid periods and dates", () => {
   assert.throws(() => buildReport({}, { period: "yearly", date: "2026-07-22" }), /invalid period/);
   assert.throws(() => buildReport({}, { period: "daily", date: "22-07-2026" }), /invalid date/);
 });
+
+test("reports without a requested date anchor to the latest stored snapshot", () => {
+  const report = buildReport({
+    dailyDigests: [
+      digest("2026-07-09T04:00:00.000Z", [{ id: "older", title: "Older", score: 80 }]),
+      digest("2026-07-10T04:00:00.000Z", [{ id: "latest", title: "Latest", score: 90 }]),
+    ],
+  }, { period: "daily", now: "2026-07-22T04:00:00.000Z" });
+
+  assert.deepEqual(report.range, { start: "2026-07-10", end: "2026-07-10" });
+  assert.equal(report.headline, "Latest");
+});

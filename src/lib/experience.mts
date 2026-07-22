@@ -79,3 +79,9 @@ export function topicRequestUrls(topic: TopicDefinition) {
   }
   return (topic.query.terms || []).slice(0, 3).map((term) => `${base}&q=${encodeURIComponent(term)}&page=1&pageSize=80`);
 }
+
+export function coverageLabel(coverage: { complete: boolean; days: number; requiredDays: number; start: string | null; end: string | null }) {
+  if (!coverage.days || !coverage.start || !coverage.end) return "当前周期暂无快照";
+  if (coverage.complete) return `${coverage.days}/${coverage.requiredDays} 天完整覆盖`;
+  return `覆盖 ${coverage.days}/${coverage.requiredDays} 天 · ${coverage.start} 至 ${coverage.end}`;
+}

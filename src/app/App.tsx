@@ -41,6 +41,7 @@ import {
 import { AppShell } from "../components/layout/AppShell";
 import { FeedExperience } from "../components/feed/FeedExperience";
 import { TopicPage } from "../components/topics/TopicPage";
+import { ReportsWorkspace } from "../components/reports/ReportsWorkspace";
 import { BookmarkGuide, ThemeToggle } from "../components/shared";
 import { topicForMode, topicRequestUrls } from "../lib/experience.mts";
 import type { ApiState, AskResult, DailyDigest, HotTopic, Item, MpArticle, MpDigest, SavedEntry, Stats } from "../types";
@@ -159,7 +160,9 @@ export function App() {
       let nextDaily: DailyDigest | null = null;
       let nextDailyArchive: DailyDigest[] = [];
       let nextMp: MpDigest | null = null;
-      if (mode === "daily") {
+      if (mode === "reports") {
+        nextItems = [];
+      } else if (mode === "daily") {
         const [digest, archive] = await Promise.all([
           api<DailyDigest>(`/api/daily?q=${encodeURIComponent(query)}`),
           api<{ items: DailyDigest[] }>("/api/public/dailies?take=16"),
@@ -452,6 +455,8 @@ export function App() {
           <AgentPage />
         ) : mode === "about" ? (
           <About stats={stats} />
+        ) : mode === "reports" ? (
+          <ReportsWorkspace onOpen={(item) => { setPanelTab("reader"); setAskOpen(false); openItem(item); }} />
         ) : ["selected", "all", "reading"].includes(mode) ? (
           <FeedExperience
             mode={mode}

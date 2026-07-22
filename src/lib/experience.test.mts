@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { groupItemsByLocalDate, topicForMode, topicRequestUrls } from "./experience.mts";
+import { coverageLabel, groupItemsByLocalDate, topicForMode, topicRequestUrls } from "./experience.mts";
 
 test("groups feed items by Shanghai local date and preserves order", () => {
   const items = [
@@ -31,4 +31,10 @@ test("topic requests are bounded and use server-side filters", () => {
 
   const educationUrls = topicRequestUrls(topicForMode("topic-education")!);
   assert.deepEqual(educationUrls, ["/api/items?mode=all&category=education&page=1&pageSize=80"]);
+});
+
+test("report coverage copy distinguishes complete, partial, and empty periods", () => {
+  assert.equal(coverageLabel({ complete: true, days: 7, requiredDays: 7, start: "2026-07-20", end: "2026-07-26" }), "7/7 天完整覆盖");
+  assert.equal(coverageLabel({ complete: false, days: 2, requiredDays: 7, start: "2026-07-20", end: "2026-07-21" }), "覆盖 2/7 天 · 2026-07-20 至 2026-07-21");
+  assert.equal(coverageLabel({ complete: false, days: 0, requiredDays: 7, start: null, end: null }), "当前周期暂无快照");
 });

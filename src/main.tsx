@@ -5,6 +5,7 @@ import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/layout.css";
 import "./styles/feed.css";
+import "./styles/reports.css";
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
