@@ -39,8 +39,9 @@ import {
   X,
 } from "lucide-react";
 import { AppShell } from "../components/layout/AppShell";
+import { FeedExperience } from "../components/feed/FeedExperience";
 import { BookmarkGuide, ThemeToggle } from "../components/shared";
-import type { ApiState, AskResult, DailyDigest, Item, MpArticle, MpDigest, SavedEntry, Stats } from "../types";
+import type { ApiState, AskResult, DailyDigest, HotTopic, Item, MpArticle, MpDigest, SavedEntry, Stats } from "../types";
 import "../styles.css";
 
 const nav = [
@@ -118,6 +119,7 @@ export function App() {
   const [showBookmarkGuide, setShowBookmarkGuide] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeItem, setActiveItem] = useState<Item | null>(null);
+  const [activeRelatedItems, setActiveRelatedItems] = useState<Item[]>([]);
   const [askOpen, setAskOpen] = useState(false);
   const [panelTab, setPanelTab] = useState<"reader" | "ask">("reader");
   const [readItems, setReadItems] = useState<Set<string>>(() => {
@@ -141,6 +143,9 @@ export function App() {
       return new Set();
     }
   });
+  const [hotTopics, setHotTopics] = useState<HotTopic[]>([]);
+  const [hotTopicsLoading, setHotTopicsLoading] = useState(false);
+  const [hotTopicsError, setHotTopicsError] = useState("");
 
   const load = async (page = 1, append = false) => {
     setLoading(true);
@@ -253,9 +258,10 @@ export function App() {
     saveReadItems(next);
   };
 
-  const openItem = (item: Item) => {
+  const openItem = (item: Item, relatedItems: Item[] = []) => {
     markRead(item.id);
     setActiveItem(item);
+    setActiveRelatedItems(relatedItems);
   };
 
   const toggleRead = (id: string) => {
@@ -335,6 +341,23 @@ export function App() {
     setAskOpen(true);
   };
 
+  const loadHotTopics = async () => {
+    setHotTopicsLoading(true);
+    setHotTopicsError("");
+    try {
+      const result = await api<{ generatedAt: string; items: HotTopic[] }>("/api/public/hot-topics");
+      setHotTopics(result.items || []);
+    } catch (err) {
+      setHotTopicsError(err instanceof Error ? err.message : "当前热点加载失败");
+    } finally {
+      setHotTopicsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (mode === "selected") loadHotTopics();
+  }, [mode]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -413,6 +436,43 @@ export function App() {
           <AgentPage />
         ) : mode === "about" ? (
           <About stats={stats} />
+        ) : ["selected", "all", "reading"].includes(mode) ? (
+          <FeedExperience
+            mode={mode}
+            items={visibleItems}
+            feedTotal={feedTotal}
+            stats={stats}
+            hotTopics={hotTopics}
+            hotTopicsLoading={hotTopicsLoading}
+            hotTopicsError={hotTopicsError}
+            loading={loading}
+            error={error}
+            query={query}
+            activeTag={activeTag}
+            activeChannel={activeChannel}
+            statusFilter={statusFilter}
+            density={density}
+            readItems={readItems}
+            savedIds={savedIds}
+            processedItems={processedItems}
+            shareMessage={shareMessage}
+            onQueryChange={setQuery}
+            onSearch={() => load(1, false)}
+            onTagChange={setActiveTag}
+            onChannelChange={setActiveChannel}
+            onStatusChange={setStatusFilter}
+            onDensityChange={changeDensity}
+            onOpen={(item, relatedItems = []) => { setPanelTab("reader"); setAskOpen(false); openItem(item, relatedItems); }}
+            onAsk={openAsk}
+            onToggleRead={toggleRead}
+            onToggleSaved={toggleSaved}
+            onToggleProcessed={toggleProcessed}
+            onRefresh={() => load(1, false)}
+            onRetryHotTopics={loadHotTopics}
+            onBookmarkSite={bookmarkSite}
+            onShareSite={shareSite}
+            onLoadMore={() => load(feedPage + 1, true)}
+          />
         ) : (
           <>
             {mode !== "daily" && (
