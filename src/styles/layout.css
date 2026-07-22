@@ -1,0 +1,83 @@
+.editorial-shell {
+  grid-template-columns: 224px minmax(0, 1fr);
+  background: var(--bg);
+}
+
+.editorial-sidebar {
+  width: 224px;
+  padding: var(--space-4);
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+}
+
+.editorial-sidebar .brand {
+  width: 100%;
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+.grouped-nav {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+  padding-top: 0;
+  border-top: 0;
+}
+
+.nav-group {
+  display: grid;
+  gap: 4px;
+}
+
+.nav-group-label {
+  padding: 0 12px 5px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.grouped-nav button,
+.admin-nav {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  background: transparent;
+  font-size: 13px;
+  text-align: left;
+}
+
+.grouped-nav button.active,
+.grouped-nav button:hover,
+.admin-nav.active,
+.admin-nav:hover {
+  color: var(--text);
+  background: var(--panel-strong);
+  box-shadow: inset 3px 0 var(--accent);
+}
+
+.editorial-shell .main {
+  grid-column: 2;
+  width: min(var(--content-max), calc(100% - 48px));
+  padding-top: var(--space-6);
+}
+
+@media (max-height: 820px) and (min-width: 721px) {
+  .grouped-nav {
+    gap: 8px;
+  }
+
+  .grouped-nav button,
+  .admin-nav {
+    min-height: 32px;
+  }
+
+  .theme-switch button {
+    height: 34px;
+  }
+}
