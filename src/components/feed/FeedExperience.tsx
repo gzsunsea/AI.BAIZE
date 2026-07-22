@@ -113,6 +113,31 @@ function CurrentSignals({ topics, loading, error, onOpen, onRetry }: {
   );
 }
 
+function mediaProxyUrl(src = "") {
+  if (!src || src.startsWith("/") || src.startsWith(window.location.origin)) return src;
+  return `/api/media?url=${encodeURIComponent(src)}`;
+}
+
+function FeedMediaPreview({ item }: { item: Item }) {
+  const media = (item.media || []).filter((asset) => asset.url || asset.thumbnail).slice(0, 2);
+  if (!media.length) return null;
+
+  return (
+    <div className={`feed-card-media ${media.length > 1 ? "multi" : "single"}`}>
+      {media.map((asset, index) => {
+        const src = asset.thumbnail || asset.url || "";
+        const isVideo = /video|mp4|webm|mov/i.test(`${asset.type || ""} ${asset.url || ""}`);
+        return (
+          <a href={item.url} key={`${src}-${index}`} target="_blank" rel="noreferrer" aria-label={`查看原文图片：${item.title}`}>
+            <img alt={asset.alt || item.title} loading="lazy" src={mediaProxyUrl(src)} />
+            {isVideo && <span>VIDEO</span>}
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
 function FeedCard({ item, density, read, saved, processed, onOpen, onAsk, onToggleRead, onToggleSaved, onToggleProcessed }: {
   item: Item;
   density: string;
@@ -137,6 +162,7 @@ function FeedCard({ item, density, read, saved, processed, onOpen, onAsk, onTogg
       </div>
       <button className="feed-card-title" type="button" onClick={() => onOpen(item)}>{item.title}</button>
       {recommendation && <p className="feed-card-recommendation"><Sparkles size={15} />{recommendation}</p>}
+      <FeedMediaPreview item={item} />
       {density !== "compact" && brief && (brief.fact || brief.impact || brief.scenario) && (
         <div className="feed-card-brief">
           {brief.fact && <p><span>事实</span>{brief.fact}</p>}

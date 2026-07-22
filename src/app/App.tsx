@@ -353,6 +353,8 @@ export function App() {
       setAskOpen(true);
       return;
     }
+    setLoading(true);
+    if (nextMode === "mp") setMp(null);
     setMode(nextMode);
     setMobileMenuOpen(false);
     setActiveItem(null);
@@ -550,7 +552,7 @@ export function App() {
               <>
                 <header className="page-head compact-head">
                   <div>
-                    <h1>{mode === "all" ? "全部 AI 动态" : mode === "reading" ? "稍后读" : mode === "mp" ? "公众号爆文" : mode === "education" ? "AI 教育" : mode === "culture" ? "AI 文化" : "精选"}</h1>
+                    <h1>{mode === "all" ? "全部 AI 动态" : mode === "reading" ? "稍后读" : mode === "mp" ? "中文雷达" : mode === "education" ? "AI 教育" : mode === "culture" ? "AI 文化" : "精选"}</h1>
                     <p>{mode === "reading" ? "保存在本机的阅读清单，可标记已处理并导出 Markdown。" : mode === "mp" ? "中文媒体、公众号与国内 AI 动态聚合。" : mode === "education" ? "教育、学习、课堂、教师工具与 EdTech 场景中的 AI 最新动态。" : mode === "culture" ? "文化、艺术、影视、音乐、游戏、版权与创意产业中的 AI 最新动态。" : mode === "all" ? "完整抓取结果，包含精选之外的长尾内容。" : "AI 自动挑选的高价值内容，按热度、时效、来源可信度排序。"}</p>
                   </div>
                   <div className="head-metrics">
@@ -642,7 +644,9 @@ export function App() {
             {loading && <div className="notice">正在加载真实数据...</div>}
             {!loading && visibleItems.length === 0 && <div className="notice">{mode === "reading" ? "稍后读清单还是空的。" : "当前筛选没有内容。"}</div>}
 
-            {mode === "daily" && daily ? <DailyMagazine daily={daily} archive={dailyArchive} /> : mode === "mp" && mp ? <MpTable mp={mp} /> : (
+            {mode === "daily" && daily ? <DailyMagazine daily={daily} archive={dailyArchive} /> : mode === "mp" ? (
+              mp ? <MpTable mp={mp} /> : <div className="mp-loading-state"><Loader2 className="spin" size={20} /><span>正在载入中文雷达</span></div>
+            ) : (
               <>
                 {!loading && statusFilter === "all" && hotItems.length > 0 && mode !== "reading" && <HotPulse items={hotItems} readItems={readItems} onOpen={openItem} />}
                 <Feed

@@ -1532,6 +1532,16 @@ a {
   line-height: 1.6;
 }
 
+.mp-loading-state {
+  display: flex;
+  min-height: 320px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--muted);
+  border-block: 1px solid var(--border);
+}
+
 .mp-radar {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

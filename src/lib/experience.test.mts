@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { coverageLabel, groupItemsByLocalDate, itemToMarkdown, topicForMode, topicRequestUrls } from "./experience.mts";
@@ -57,4 +58,27 @@ test("Markdown export contains editorial metadata without inventing full text", 
   assert.match(markdown, /## 事实[\s\S]*模型已经发布/);
   assert.match(markdown, /## 推荐理由[\s\S]*值得关注/);
   assert.doesNotMatch(markdown, /完整正文|全文/);
+});
+
+test("mobile feed styles keep long labels and titles inside the viewport", () => {
+  const feedCss = readFileSync(new URL("../styles/feed.css", import.meta.url), "utf8").replace(/\s+/g, " ");
+  const baseCss = readFileSync(new URL("../styles/base.css", import.meta.url), "utf8").replace(/\s+/g, " ");
+
+  assert.match(feedCss, /\.feed-experience \{[^}]*min-width: 0;[^}]*max-width: 100%;/);
+  assert.match(feedCss, /grid-template-columns: minmax\(0, 1fr\) auto;/);
+  assert.match(feedCss, /\.primary-filters button,[^}]*\.topic-filters button \{[^}]*flex: 0 0 auto;[^}]*white-space: nowrap;/);
+  assert.match(feedCss, /\.feed-card-title \{[^}]*max-width: 100%;[^}]*overflow-wrap: anywhere;/);
+  assert.match(baseCss, /html \{[^}]*-webkit-text-size-adjust: 100%;[^}]*text-size-adjust: 100%;/);
+});
+
+test("editorial feed renders available media and Chinese radar never falls through to the previous feed", () => {
+  const feedSource = readFileSync(new URL("../components/feed/FeedExperience.tsx", import.meta.url), "utf8");
+  const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");
+  const feedCss = readFileSync(new URL("../styles/feed.css", import.meta.url), "utf8");
+
+  assert.match(feedSource, /function FeedMediaPreview/);
+  assert.match(feedSource, /<FeedMediaPreview item=\{item\}/);
+  assert.match(feedSource, /\/api\/media\?url=/);
+  assert.match(feedCss, /\.feed-card-media/);
+  assert.match(appSource, /mode === "mp" \? \(\s*mp \? <MpTable mp=\{mp\} \/> : <div className="mp-loading-state"/);
 });
