@@ -36,7 +36,7 @@ function formatTime(value?: string | null) {
   return date.toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-type FeedExperienceProps = {
+export type FeedExperienceProps = {
   mode: string;
   items: Item[];
   feedTotal: number;
@@ -71,6 +71,8 @@ type FeedExperienceProps = {
   onBookmarkSite: () => void;
   onShareSite: () => void;
   onLoadMore: () => void;
+  pageTitle?: string;
+  pageDescription?: string;
 };
 
 function pageCopy(mode: string) {
@@ -162,7 +164,8 @@ function FeedCard({ item, density, read, saved, processed, onOpen, onAsk, onTogg
 
 export function FeedExperience(props: FeedExperienceProps) {
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
-  const copy = pageCopy(props.mode);
+  const defaultCopy = pageCopy(props.mode);
+  const copy = { title: props.pageTitle || defaultCopy.title, description: props.pageDescription || defaultCopy.description };
   const groups = useMemo(() => groupItemsByLocalDate(props.items), [props.items]);
   const todayKey = shanghaiDateKey(new Date());
   const visibleTags = props.stats?.tags.slice(0, 10) || [];

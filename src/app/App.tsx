@@ -40,7 +40,9 @@ import {
 } from "lucide-react";
 import { AppShell } from "../components/layout/AppShell";
 import { FeedExperience } from "../components/feed/FeedExperience";
+import { TopicPage } from "../components/topics/TopicPage";
 import { BookmarkGuide, ThemeToggle } from "../components/shared";
+import { topicForMode, topicRequestUrls } from "../lib/experience.mts";
 import type { ApiState, AskResult, DailyDigest, HotTopic, Item, MpArticle, MpDigest, SavedEntry, Stats } from "../types";
 import "../styles.css";
 
@@ -171,6 +173,19 @@ export function App() {
       } else if (mode === "reading") {
         nextItems = savedEntries.map((entry) => entry.item);
         nextFeedTotal = nextItems.length;
+      } else if (topicForMode(mode)) {
+        const topic = topicForMode(mode)!;
+        const responses = await Promise.all(topicRequestUrls(topic).map((url) => api<{ items: Item[]; total: number }>(url)));
+        const merged = new Map<string, Item>();
+        for (const response of responses) {
+          for (const item of response.items || []) merged.set(item.id, item);
+        }
+        const normalizedQuery = query.trim().toLowerCase();
+        nextItems = [...merged.values()]
+          .filter((item) => !activeTag || item.tags?.includes(activeTag))
+          .filter((item) => !normalizedQuery || `${item.title} ${item.summary} ${item.sourceName} ${(item.tags || []).join(" ")}`.toLowerCase().includes(normalizedQuery))
+          .sort((a, b) => (b.score || 0) - (a.score || 0) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
+        nextFeedTotal = nextItems.length;
       } else {
         const categoryMode = mode === "education" ? "education" : mode === "culture" ? "culture" : "";
         const apiMode = mode === "all" || categoryMode ? "all" : "selected";
@@ -234,6 +249,7 @@ export function App() {
   const visibleTags = useMemo(() => stats?.tags.slice(0, 12) || [], [stats]);
   const hotItems = useMemo(() => buildHotItems(items), [items]);
   const savedIds = useMemo(() => new Set(savedEntries.map((entry) => entry.item.id)), [savedEntries]);
+  const activeTopic = topicForMode(mode);
   const visibleItems = useMemo(() => items.filter((item) => {
     if (mode === "reading" && query.trim()) {
       const haystack = `${item.title} ${item.summary} ${item.sourceName} ${(item.tags || []).join(" ")}`.toLowerCase();
@@ -472,6 +488,46 @@ export function App() {
             onBookmarkSite={bookmarkSite}
             onShareSite={shareSite}
             onLoadMore={() => load(feedPage + 1, true)}
+          />
+        ) : activeTopic ? (
+          <TopicPage
+            definition={activeTopic}
+            feedProps={{
+              mode,
+              items: visibleItems,
+              feedTotal,
+              stats,
+              hotTopics: [],
+              hotTopicsLoading: false,
+              hotTopicsError: "",
+              loading,
+              error,
+              query,
+              activeTag,
+              activeChannel,
+              statusFilter,
+              density,
+              readItems,
+              savedIds,
+              processedItems,
+              shareMessage,
+              onQueryChange: setQuery,
+              onSearch: () => load(1, false),
+              onTagChange: setActiveTag,
+              onChannelChange: setActiveChannel,
+              onStatusChange: setStatusFilter,
+              onDensityChange: changeDensity,
+              onOpen: (item, relatedItems = []) => { setPanelTab("reader"); setAskOpen(false); openItem(item, relatedItems); },
+              onAsk: openAsk,
+              onToggleRead: toggleRead,
+              onToggleSaved: toggleSaved,
+              onToggleProcessed: toggleProcessed,
+              onRefresh: () => load(1, false),
+              onRetryHotTopics: loadHotTopics,
+              onBookmarkSite: bookmarkSite,
+              onShareSite: shareSite,
+              onLoadMore: () => undefined,
+            }}
           />
         ) : (
           <>
