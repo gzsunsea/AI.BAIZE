@@ -11,6 +11,7 @@ const { enhanceRecentItems } = require("./lib/llmEnhancer");
 const { isOriginalHttpUrl, isQualityCandidate, isSelectedQualityCandidate, makeId } = require("./lib/scoring");
 const { canonicalUrl, titleFingerprint } = require("./lib/dedupe");
 const { answerQuestion } = require("./lib/askBaize");
+const { buildHotTopics, buildReport } = require("./lib/experience");
 
 const PORT = Number(process.env.PORT || 8080);
 const DEFAULT_ADMIN_TOKEN = "aihot-admin";
@@ -635,6 +636,25 @@ app.get("/api/public/items", (req, res) => {
   res.json({ items, page, take });
 });
 
+app.get("/api/public/hot-topics", (_req, res) => {
+  const state = readState();
+  res.json(buildHotTopics(state, {
+    selectedThreshold: state.settings?.rules?.selectedThreshold || 70,
+    enrichItem,
+  }));
+});
+
+app.get("/api/public/reports", (req, res) => {
+  try {
+    res.json(buildReport(readState(), {
+      period: String(req.query.period || "daily"),
+      date: req.query.date ? String(req.query.date) : undefined,
+    }));
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || "report generation failed" });
+  }
+});
+
 function currentDailyDigest(query = {}) {
   const state = readState();
   const todayKey = localDateKey();
@@ -862,6 +882,17 @@ app.get("/openapi.json", (req, res) => {
       },
       "/api/public/daily": { get: { summary: "Get current daily digest", responses: { "200": { description: "Daily digest" } } } },
       "/api/public/dailies": { get: { summary: "List saved daily digests", responses: { "200": { description: "Daily digests" } } } },
+      "/api/public/hot-topics": { get: { summary: "List cluster-backed current signals", responses: { "200": { description: "Current signals" } } } },
+      "/api/public/reports": {
+        get: {
+          summary: "Get a daily, weekly, or monthly editorial report",
+          parameters: [
+            { name: "period", in: "query", schema: { type: "string", enum: ["daily", "weekly", "monthly"] } },
+            { name: "date", in: "query", schema: { type: "string", format: "date" } },
+          ],
+          responses: { "200": { description: "Editorial report" }, "400": { description: "Invalid period or date" } },
+        },
+      },
       "/api/public/ask": {
         post: {
           summary: "Ask grounded questions over the AI.BAIZE selected corpus",

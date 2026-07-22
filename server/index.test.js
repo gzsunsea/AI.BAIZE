@@ -1,7 +1,9 @@
 const assert = require("node:assert/strict");
+const { once } = require("node:events");
 const test = require("node:test");
 
 const {
+  app,
   buildDailyArchive,
   buildDailyDigest,
   collectDailyDigestItemKeys,
@@ -204,4 +206,28 @@ test("daily archive preserves multiple issues from the same Shanghai day", () =>
 
   assert.deepEqual(archive.map((item) => item.issueTime), ["16:30", "13:00"]);
   assert.equal(new Set(archive.map((item) => item.id)).size, 2);
+});
+
+test("public experience endpoints expose hot topics, reports, and structured validation", async (t) => {
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => server.close());
+  await once(server, "listening");
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  const hotResponse = await fetch(`${base}/api/public/hot-topics`);
+  assert.equal(hotResponse.status, 200);
+  const hot = await hotResponse.json();
+  assert.equal(Array.isArray(hot.items), true);
+  assert.equal(typeof hot.generatedAt, "string");
+
+  const reportResponse = await fetch(`${base}/api/public/reports?period=weekly&date=2026-07-22`);
+  assert.equal(reportResponse.status, 200);
+  const report = await reportResponse.json();
+  assert.equal(report.period, "weekly");
+  assert.deepEqual(report.range, { start: "2026-07-20", end: "2026-07-26" });
+
+  const invalidResponse = await fetch(`${base}/api/public/reports?period=yearly&date=2026-07-22`);
+  assert.equal(invalidResponse.status, 400);
+  assert.deepEqual(await invalidResponse.json(), { error: "invalid period" });
 });
