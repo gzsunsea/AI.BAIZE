@@ -15,7 +15,12 @@ export function groupItemsByLocalDate<T extends Pick<Item, "publishedAt">>(items
     const key = shanghaiDateKey(item.publishedAt);
     groups.set(key, [...(groups.get(key) || []), item]);
   }
-  return [...groups.entries()].map(([date, groupItems]) => ({ date, items: groupItems }));
+  return [...groups.entries()]
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([date, groupItems]) => ({
+      date,
+      items: [...groupItems].sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()),
+    }));
 }
 
 export function formatDayHeading(dateKey: string) {

@@ -3,8 +3,9 @@ import test from "node:test";
 
 import { coverageLabel, groupItemsByLocalDate, itemToMarkdown, topicForMode, topicRequestUrls } from "./experience.mts";
 
-test("groups feed items by Shanghai local date and preserves order", () => {
+test("groups feed items by Shanghai local date and sorts the timeline newest first", () => {
   const items = [
+    { id: "oldest", publishedAt: "2026-07-20T08:00:00.000Z" },
     { id: "after-midnight", publishedAt: "2026-07-21T16:30:00.000Z" },
     { id: "before-midnight", publishedAt: "2026-07-21T15:30:00.000Z" },
     { id: "same-day", publishedAt: "2026-07-21T18:00:00.000Z" },
@@ -12,8 +13,8 @@ test("groups feed items by Shanghai local date and preserves order", () => {
 
   const groups = groupItemsByLocalDate(items);
 
-  assert.deepEqual(groups.map((group) => group.date), ["2026-07-22", "2026-07-21"]);
-  assert.deepEqual(groups[0].items.map((item) => item.id), ["after-midnight", "same-day"]);
+  assert.deepEqual(groups.map((group) => group.date), ["2026-07-22", "2026-07-21", "2026-07-20"]);
+  assert.deepEqual(groups[0].items.map((item) => item.id), ["same-day", "after-midnight"]);
 });
 
 test("topic definitions normalize legacy education and culture modes", () => {

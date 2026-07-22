@@ -7,6 +7,7 @@ import "./styles/layout.css";
 import "./styles/feed.css";
 import "./styles/reports.css";
 import "./styles/reader.css";
+import "./styles/responsive.css";
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

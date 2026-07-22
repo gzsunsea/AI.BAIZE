@@ -345,9 +345,18 @@ export function App() {
   };
 
   const switchMode = (nextMode: string) => {
+    if (nextMode === "ask") {
+      setMobileMenuOpen(false);
+      setActiveItem(null);
+      setActiveRelatedItems([]);
+      setPanelTab("ask");
+      setAskOpen(true);
+      return;
+    }
     setMode(nextMode);
     setMobileMenuOpen(false);
     setActiveItem(null);
+    setActiveRelatedItems([]);
     setAskOpen(false);
     setStatusFilter(nextMode === "reading" ? "saved" : "all");
   };

@@ -11,6 +11,7 @@ import {
   Menu,
   Monitor,
   Moon,
+  Newspaper,
   Palette,
   Settings,
   Shapes,
@@ -39,6 +40,7 @@ export const navigationGroups: NavigationGroup[] = [
       { key: "topic-opensource", label: "开源", icon: Library },
       { key: "topic-education", label: "AI 教育", icon: GraduationCap },
       { key: "topic-culture", label: "AI 文化", icon: Palette },
+      { key: "mp", label: "中文雷达", icon: Newspaper },
     ],
   },
   {
