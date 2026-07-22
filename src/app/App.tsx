@@ -42,6 +42,7 @@ import { AppShell } from "../components/layout/AppShell";
 import { FeedExperience } from "../components/feed/FeedExperience";
 import { TopicPage } from "../components/topics/TopicPage";
 import { ReportsWorkspace } from "../components/reports/ReportsWorkspace";
+import { ReadingWorkspace as EditorialReadingWorkspace } from "../components/reader/ReadingWorkspace";
 import { BookmarkGuide, ThemeToggle } from "../components/shared";
 import { topicForMode, topicRequestUrls } from "../lib/experience.mts";
 import type { ApiState, AskResult, DailyDigest, HotTopic, Item, MpArticle, MpDigest, SavedEntry, Stats } from "../types";
@@ -660,13 +661,15 @@ export function App() {
         )}
       </AppShell>
       {(activeItem || askOpen) && (
-        <ReadingWorkspace
+        <EditorialReadingWorkspace
           item={activeItem}
+          relatedItems={activeRelatedItems}
           initialTab={panelTab}
           saved={Boolean(activeItem && savedIds.has(activeItem.id))}
           processed={Boolean(activeItem && processedItems.has(activeItem.id))}
-          onClose={() => { setActiveItem(null); setAskOpen(false); }}
+          onClose={() => { setActiveItem(null); setActiveRelatedItems([]); setAskOpen(false); }}
           onRead={markRead}
+          onOpenRelated={(item) => openItem(item, activeRelatedItems)}
           onToggleSaved={toggleSaved}
           onToggleProcessed={toggleProcessed}
         />

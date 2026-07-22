@@ -85,3 +85,20 @@ export function coverageLabel(coverage: { complete: boolean; days: number; requi
   if (coverage.complete) return `${coverage.days}/${coverage.requiredDays} 天完整覆盖`;
   return `覆盖 ${coverage.days}/${coverage.requiredDays} 天 · ${coverage.start} 至 ${coverage.end}`;
 }
+
+export function itemToMarkdown(item: Item) {
+  const brief = item.editorialBrief || {};
+  const sections: string[] = [
+    `# ${item.title}`,
+    `- 来源：${item.sourceName}`,
+    `- 发布时间：${new Date(item.publishedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}`,
+    `- AI.BAIZE ID：${item.id}`,
+    `- 原文：${item.url}`,
+  ];
+  if (brief.fact) sections.push(`## 事实\n\n${brief.fact}`);
+  if (brief.impact) sections.push(`## 影响\n\n${brief.impact}`);
+  if (brief.scenario) sections.push(`## 场景\n\n${brief.scenario}`);
+  if (item.reason) sections.push(`## 推荐理由\n\n${item.reason}`);
+  else if (item.summary) sections.push(`## 摘要\n\n${item.summary}`);
+  return sections.join("\n\n");
+}
