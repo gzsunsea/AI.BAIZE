@@ -203,3 +203,19 @@ test("report cover uses a concise issue headline instead of the longest lead sto
   assert.equal(report.headline, "今日值得关注的 1 条 AI 动态");
   assert.notEqual(report.headline, longTitle);
 });
+
+test("monthly reports keep a bounded set of the highest-scoring stories per section", () => {
+  const dailyDigests = Array.from({ length: 25 }, (_, index) => digest(
+    `2026-07-${String(index + 1).padStart(2, "0")}T04:00:00.000Z`,
+    [{ id: `story-${index}`, title: `Story ${index}`, score: 100 - index }],
+  ));
+
+  const report = buildReport({ dailyDigests }, {
+    period: "monthly",
+    date: "2026-07-31",
+    now: "2026-07-31T12:00:00.000Z",
+  });
+
+  assert.equal(report.storyCount, 18);
+  assert.deepEqual(report.sections[0].items.map((item) => item.id), Array.from({ length: 18 }, (_, index) => `story-${index}`));
+});

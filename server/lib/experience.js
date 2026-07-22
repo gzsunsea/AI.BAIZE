@@ -138,7 +138,7 @@ function reportItemKey(item = {}) {
   return item.eventId || item.canonicalUrl || item.url || item.titleFingerprint || normalizedTitle(item.title) || item.id;
 }
 
-function mergeDigestSections(daily = []) {
+function mergeDigestSections(daily = [], itemLimit = Number.POSITIVE_INFINITY) {
   const selected = new Map();
   for (const { digest } of daily) {
     for (const section of digest.sections || []) {
@@ -169,7 +169,9 @@ function mergeDigestSections(daily = []) {
   return [...groups.values()]
     .map((section) => ({
       ...section,
-      items: section.items.sort((a, b) => (b.score || 0) - (a.score || 0) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime()),
+      items: section.items
+        .sort((a, b) => (b.score || 0) - (a.score || 0) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime())
+        .slice(0, itemLimit),
     }))
     .sort((a, b) => {
       const aIndex = REPORT_SECTION_ORDER.indexOf(a.key);
@@ -255,7 +257,8 @@ function buildReport(state = {}, options = {}) {
   const anchor = parseDateKey(options.date || defaultDate);
   const range = reportRange(period, anchor);
   const daily = reportDailyEntries(state, range, options, now);
-  const sections = mergeDigestSections(daily);
+  const sectionLimit = period === "monthly" ? 18 : period === "weekly" ? 12 : 6;
+  const sections = mergeDigestSections(daily, sectionLimit);
   const allItems = sections.flatMap((section) => section.items);
   const storyCount = allItems.length;
   const nextDate = shiftReportDate(period, anchor, 1);
