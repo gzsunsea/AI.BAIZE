@@ -213,20 +213,50 @@ function shiftReportDate(period, anchor, direction) {
   return utcDateKey(new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + direction, 1, 12)));
 }
 
+function latestReportDate(state, now) {
+  const nowMs = now.getTime();
+  const candidates = [
+    ...(state.dailyDigests || []).map((digest) => digest.generatedAt),
+    ...(state.items || []).filter((item) => !item.hidden).map((item) => item.publishedAt),
+  ]
+    .map((value) => new Date(value))
+    .filter((date) => !Number.isNaN(date.getTime()) && date.getTime() <= nowMs)
+    .sort((a, b) => b.getTime() - a.getTime());
+  return shanghaiDateKey(candidates[0] || now);
+}
+
+function reportDailyEntries(state, range, options, now) {
+  const entries = new Map(latestDigestPerLocalDay(state.dailyDigests || [], range).map((entry) => [entry.dateKey, entry]));
+  if (typeof options.buildVirtualDigest !== "function") return [...entries.values()].sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+
+  const todayKey = shanghaiDateKey(now);
+  const endKey = range.endKey < todayKey ? range.endKey : todayKey;
+  if (range.startKey > endKey) return [...entries.values()].sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+
+  for (const dateKey of enumerateDateKeys(range.startKey, endKey)) {
+    if (entries.has(dateKey)) continue;
+    const digest = options.buildVirtualDigest(dateKey);
+    const hasStories = (digest?.sections || []).some((section) => (section.items || []).length > 0);
+    if (hasStories) entries.set(dateKey, { dateKey, digest });
+  }
+  return [...entries.values()].sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+}
+
+function reportHeadline(period, storyCount) {
+  const prefix = period === "weekly" ? "本周" : period === "monthly" ? "本月" : "今日";
+  return storyCount ? `${prefix}值得关注的 ${storyCount} 条 AI 动态` : "";
+}
+
 function buildReport(state = {}, options = {}) {
   const period = String(options.period || "daily");
   if (!REPORT_PERIODS.has(period)) throw badRequest("invalid period");
   const now = new Date(options.now || Date.now());
-  const latestSnapshot = [...(state.dailyDigests || [])]
-    .filter((digest) => !Number.isNaN(new Date(digest.generatedAt).getTime()))
-    .sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime())[0];
-  const defaultDate = latestSnapshot ? shanghaiDateKey(latestSnapshot.generatedAt) : shanghaiDateKey(now);
+  const defaultDate = latestReportDate(state, now);
   const anchor = parseDateKey(options.date || defaultDate);
   const range = reportRange(period, anchor);
-  const daily = latestDigestPerLocalDay(state.dailyDigests || [], range);
+  const daily = reportDailyEntries(state, range, options, now);
   const sections = mergeDigestSections(daily);
   const allItems = sections.flatMap((section) => section.items);
-  const headlineItem = [...allItems].sort((a, b) => (b.score || 0) - (a.score || 0))[0];
   const storyCount = allItems.length;
   const nextDate = shiftReportDate(period, anchor, 1);
   return {
@@ -234,7 +264,7 @@ function buildReport(state = {}, options = {}) {
     issueId: `${period}:${range.startKey}`,
     range: { start: range.startKey, end: range.endKey },
     coverage: reportCoverage(period, range, daily, now),
-    headline: headlineItem?.title || "",
+    headline: reportHeadline(period, storyCount),
     storyCount,
     estimatedReadingMinutes: Math.max(1, Math.ceil(storyCount / 5)),
     themes: reportThemes(sections),

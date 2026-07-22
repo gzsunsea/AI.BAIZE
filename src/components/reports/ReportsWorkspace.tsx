@@ -94,7 +94,7 @@ export function ReportsWorkspace({ onOpen }: { onOpen: (item: Item) => void }) {
               </div>
             </article>
           ) : (
-            <div className="report-empty"><CalendarDays size={28} /><strong>当前周期暂无快照</strong><p>{coverageLabel(report.coverage)}</p>{period !== "daily" && <button type="button" onClick={() => changePeriod("daily")}>返回日报</button>}</div>
+            <div className="report-empty"><CalendarDays size={28} /><strong>当前周期暂无可用内容</strong><p>所选日期范围内没有符合质量规则的资讯，可以继续查看上一期。</p>{period !== "daily" && <button type="button" onClick={() => changePeriod("daily")}>返回日报</button>}</div>
           )}
           <button className="back-to-report-top" type="button" onClick={() => topRef.current?.scrollIntoView({ behavior: "smooth" })}><ArrowUp size={16} />返回顶部</button>
         </>

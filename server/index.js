@@ -646,9 +646,19 @@ app.get("/api/public/hot-topics", (_req, res) => {
 
 app.get("/api/public/reports", (req, res) => {
   try {
-    res.json(buildReport(readState(), {
+    const state = readState();
+    res.json(buildReport(state, {
       period: String(req.query.period || "daily"),
       date: req.query.date ? String(req.query.date) : undefined,
+      buildVirtualDigest: (dateKey) => {
+        const range = shanghaiDayRange(`${dateKey}T12:00:00+08:00`);
+        return buildDailyDigest(state, {}, {
+          since: range.start,
+          until: range.end,
+          generatedAt: range.start + 12 * 60 * 60 * 1000,
+          virtual: true,
+        });
+      },
     }));
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.message || "report generation failed" });

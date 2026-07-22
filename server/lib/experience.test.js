@@ -138,7 +138,7 @@ test("weekly reports use Monday through Sunday and stable editorial section orde
 
   assert.deepEqual(report.range, { start: "2026-07-20", end: "2026-07-26" });
   assert.deepEqual(report.sections.map((section) => section.key), ["model", "research"]);
-  assert.equal(report.headline, "Model");
+  assert.equal(report.headline, "本周值得关注的 2 条 AI 动态");
 });
 
 test("current monthly coverage ends on the elapsed local date and handles leap years", () => {
@@ -166,5 +166,40 @@ test("reports without a requested date anchor to the latest stored snapshot", ()
   }, { period: "daily", now: "2026-07-22T04:00:00.000Z" });
 
   assert.deepEqual(report.range, { start: "2026-07-10", end: "2026-07-10" });
-  assert.equal(report.headline, "Latest");
+  assert.equal(report.headline, "今日值得关注的 1 条 AI 动态");
+});
+
+test("reports use the latest inventory date and fill missing snapshots for every period", () => {
+  const items = [
+    { id: "monday", title: "Monday signal", score: 88, publishedAt: "2026-07-20T04:00:00.000Z" },
+    { id: "latest", title: "Latest signal", score: 96, publishedAt: "2026-07-22T04:00:00.000Z" },
+  ];
+  const state = {
+    items,
+    dailyDigests: [digest("2026-05-07T04:00:00.000Z", [{ id: "may", title: "May snapshot", score: 80 }])],
+  };
+  const buildVirtualDigest = (dateKey) => digest(
+    `${dateKey}T04:00:00.000Z`,
+    items.filter((item) => item.publishedAt.startsWith(dateKey)),
+  );
+
+  const daily = buildReport(state, { period: "daily", now: "2026-07-22T12:00:00.000Z", buildVirtualDigest });
+  const weekly = buildReport(state, { period: "weekly", now: "2026-07-22T12:00:00.000Z", buildVirtualDigest });
+  const monthly = buildReport(state, { period: "monthly", now: "2026-07-22T12:00:00.000Z", buildVirtualDigest });
+
+  assert.deepEqual(daily.range, { start: "2026-07-22", end: "2026-07-22" });
+  assert.equal(daily.storyCount, 1);
+  assert.equal(weekly.storyCount, 2);
+  assert.equal(monthly.storyCount, 2);
+  assert.equal(daily.coverage.complete, true);
+});
+
+test("report cover uses a concise issue headline instead of the longest lead story title", () => {
+  const longTitle = "steven-jianhao-li/zotero-AI-Butler: 调用大模型自动精读论文库里的论文并总结为笔记";
+  const report = buildReport({
+    dailyDigests: [digest("2026-07-22T04:00:00.000Z", [{ id: "long", title: longTitle, score: 99 }])],
+  }, { period: "daily", date: "2026-07-22", now: "2026-07-22T12:00:00.000Z" });
+
+  assert.equal(report.headline, "今日值得关注的 1 条 AI 动态");
+  assert.notEqual(report.headline, longTitle);
 });
