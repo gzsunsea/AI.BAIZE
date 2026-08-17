@@ -118,6 +118,29 @@ export function readListState(key: string): ListSnapshot | null {
   }
 }
 
+export function captureScrollState(key: string, scrollY: number): void {
+  try {
+    globalThis.sessionStorage?.setItem(key, JSON.stringify({ scrollY }));
+  } catch {
+    // Navigation remains usable when browser storage is unavailable.
+  }
+}
+
+export function readScrollState(key: string): number | null {
+  try {
+    const value = globalThis.sessionStorage?.getItem(key);
+    if (!value) return null;
+    const snapshot = JSON.parse(value) as { scrollY?: unknown };
+    return typeof snapshot.scrollY === "number" ? snapshot.scrollY : null;
+  } catch {
+    return null;
+  }
+}
+
+export function storyBackLabel(origin?: string): "返回信息流" | "返回热点榜" {
+  return origin === "feed" ? "返回信息流" : "返回热点榜";
+}
+
 /** Keep browser link affordances (new tab, save target, etc.) intact. */
 export function shouldInterceptLinkClick(event: LinkClickLike): boolean {
   const target = event.currentTarget.target;

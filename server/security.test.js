@@ -110,6 +110,30 @@ test("media fetch preserves public IPv4-mapped and well-known NAT64 targets", as
   assert.deepEqual(requested, ["::ffff:5db8:d822", "64:ff9b::5db8:d822"]);
 });
 
+test("media fetch rejects IANA non-global IPv4 ranges in direct and embedded forms before requesting", async () => {
+  const blockedTargets = [
+    "http://192.0.0.8/image.png",
+    "http://192.0.2.1/image.png",
+    "http://198.51.100.1/image.png",
+    "http://203.0.113.1/image.png",
+    "http://[::ffff:192.0.2.1]/image.png",
+    "http://[::ffff:0:198.51.100.1]/image.png",
+    "http://[64:ff9b::203.0.113.1]/image.png",
+  ];
+  let requestCount = 0;
+
+  for (const target of blockedTargets) {
+    await assert.rejects(() => fetchPublicMedia(new URL(target), {
+      requestHop: async () => {
+        requestCount += 1;
+        return { status: 200, headers: {}, body: Buffer.alloc(0) };
+      },
+    }), /private media/i, target);
+  }
+
+  assert.equal(requestCount, 0);
+});
+
 test("public responses include baseline browser security headers", async (t) => {
   const { server, base } = await listen();
   t.after(() => server.close());

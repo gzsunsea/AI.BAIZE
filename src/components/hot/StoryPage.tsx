@@ -7,6 +7,7 @@ type StoryPageProps = {
   loading: boolean;
   error: string;
   notFound: boolean;
+  backLabel: string;
   onBack: () => void;
   onOpenItem: (item: Item) => void;
   onRetry: () => void;
@@ -26,13 +27,13 @@ function ItemLink({ item, onOpenItem }: { item: Item; onOpenItem: (item: Item) =
   </article>;
 }
 
-export function StoryPage({ story, loading, error, notFound, onBack, onOpenItem, onRetry }: StoryPageProps) {
+export function StoryPage({ story, loading, error, notFound, backLabel, onBack, onOpenItem, onRetry }: StoryPageProps) {
   if (loading) return <section className="story-page story-loading" aria-live="polite">正在加载事件详情…</section>;
-  if (!story) return <section className="story-page story-missing" aria-live="polite"><button className="story-back" type="button" onClick={onBack}><ArrowLeft size={16} />返回热点榜</button><strong>{notFound ? "404：未找到这个热点事件" : "该事件暂时不可用"}</strong><p>{notFound ? "这个链接可能已过期，或事件尚未达到展示条件。" : error || "故事详情加载失败。"}</p>{!notFound && <button className="primary" type="button" onClick={onRetry}><RefreshCw size={16} />重试</button>}</section>;
+  if (!story) return <section className="story-page story-missing" aria-live="polite"><button className="story-back" type="button" onClick={onBack}><ArrowLeft size={16} />{backLabel}</button><strong>{notFound ? "404：未找到这个热点事件" : "该事件暂时不可用"}</strong><p>{notFound ? "这个链接可能已过期，或事件尚未达到展示条件。" : error || "故事详情加载失败。"}</p>{!notFound && <button className="primary" type="button" onClick={onRetry}><RefreshCw size={16} />重试</button>}</section>;
 
   const representative = story.event.representative;
   return <article className="story-page" aria-labelledby="story-page-title">
-    <button className="story-back" type="button" onClick={onBack}><ArrowLeft size={16} />返回热点榜</button>
+    <button className="story-back" type="button" onClick={onBack}><ArrowLeft size={16} />{backLabel}</button>
     <header className="story-page-head">
       <span>EVENT #{String(story.event.rank).padStart(2, "0")}</span>
       <h1 id="story-page-title">{story.event.title}</h1>

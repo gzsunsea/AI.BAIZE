@@ -157,6 +157,26 @@ test("hot and story routes synchronously invalidate stale page data", () => {
   assert.match(appSource, /if \(next\.page === "story"\) \{[\s\S]*setStory\(null\)[\s\S]*setStoryLoading\(true\)/);
 });
 
+test("hot routes save and restore their own scroll only after matching data renders", () => {
+  const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");
+
+  assert.match(appSource, /const hotListStateKey = "aibaize-hot-list"/);
+  assert.match(appSource, /if \(current\.page === "hot"\) captureScrollState\(hotListStateKey, window\.scrollY\)/);
+  assert.match(appSource, /pendingHotScrollRestore\.current = next\.page === "hot" \? readScrollState\(hotListStateKey\) : null/);
+  assert.match(appSource, /history\.scrollRestoration = "manual"/);
+  assert.match(appSource, /route\.page !== "hot" \|\| hotPageLoading \|\| !hotPageData \|\| pendingHotScrollRestore\.current === null/);
+});
+
+test("story back label follows feed or hot origin while direct stories fall back to hot", () => {
+  const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");
+  const storySource = readFileSync(new URL("../components/hot/StoryPage.tsx", import.meta.url), "utf8");
+
+  assert.match(appSource, /storyOrigin: next\.page === "story" \? current\.page : undefined/);
+  assert.match(appSource, /backLabel=\{storyBackLabel\(history\.state\?\.storyOrigin\)\}/);
+  assert.match(storySource, /backLabel: string/);
+  assert.match(storySource, /\{backLabel\}/);
+});
+
 test("story routes surface API 404s and keep related reader opens route-neutral", () => {
   const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");
   const storySource = readFileSync(new URL("../components/hot/StoryPage.tsx", import.meta.url), "utf8");

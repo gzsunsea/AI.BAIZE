@@ -48,7 +48,7 @@ import { StoryPage } from "../components/hot/StoryPage";
 import { BookmarkGuide, ThemeToggle } from "../components/shared";
 import { topicForMode, topicRequestUrls } from "../lib/experience.mts";
 import { filterAndSortFeedItems } from "../lib/feedSearch.mts";
-import { captureListState, cumulativePageRequests, itemLocation, parseLocation, readListState, shouldInterceptLinkClick, toLocation, type RouteState } from "../lib/navigation";
+import { captureListState, captureScrollState, cumulativePageRequests, itemLocation, parseLocation, readListState, readScrollState, shouldInterceptLinkClick, storyBackLabel, toLocation, type RouteState } from "../lib/navigation";
 import type { ApiState, AskResult, DailyDigest, HotTopic, Item, MpArticle, MpDigest, SavedEntry, Stats, StoryDetail } from "../types";
 import "../styles.css";
 
@@ -70,6 +70,7 @@ const canonicalSiteUrl = "https://www.aibaize.cc";
 const readItemsKey = "aibaize-read-items";
 const savedItemsKey = "aibaize-saved-items";
 const processedItemsKey = "aibaize-processed-items";
+const hotListStateKey = "aibaize-hot-list";
 
 const channelTabs = [
   { key: "", label: "全部" },
@@ -173,6 +174,7 @@ export function App() {
   const [readerFromStoryPage, setReaderFromStoryPage] = useState(false);
   const loadVersion = useRef(0);
   const pendingScrollRestore = useRef<number | null>(null);
+  const pendingHotScrollRestore = useRef<number | null>(null);
   const [itemRouteLoading, setItemRouteLoading] = useState(() => route.page === "item");
   const [itemRouteError, setItemRouteError] = useState("");
 
@@ -245,6 +247,7 @@ export function App() {
 
   const navigate = (next: RouteState, replace = false) => {
     const current = currentRoute();
+    if (current.page === "hot") captureScrollState(hotListStateKey, window.scrollY);
     captureListState(listStateKey(current), {
       scrollY: window.scrollY,
       mode: current.mode,
@@ -257,8 +260,9 @@ export function App() {
       sort: current.sort,
       pageNumber: current.pageNumber,
     });
-    if (replace) history.replaceState({ aibaizeNavigation: true }, "", toLocation(next));
-    else history.pushState({ aibaizeNavigation: true }, "", toLocation(next));
+    const navigationState = { aibaizeNavigation: true, storyOrigin: next.page === "story" ? current.page : undefined };
+    if (replace) history.replaceState(navigationState, "", toLocation(next));
+    else history.pushState(navigationState, "", toLocation(next));
     applyRoute(next);
   };
 
@@ -287,11 +291,18 @@ export function App() {
   };
 
   useEffect(() => {
+    const previous = history.scrollRestoration;
+    history.scrollRestoration = "manual";
+    return () => { history.scrollRestoration = previous; };
+  }, []);
+
+  useEffect(() => {
     const sync = () => {
       const next = parseLocation(window.location.href);
       applyRoute(next);
       const snapshot = readListState(listStateKey(next));
       pendingScrollRestore.current = next.page === "feed" && snapshot ? snapshot.scrollY : null;
+      pendingHotScrollRestore.current = next.page === "hot" ? readScrollState(hotListStateKey) : null;
     };
     window.addEventListener("popstate", sync);
     return () => window.removeEventListener("popstate", sync);
@@ -448,6 +459,16 @@ export function App() {
   useEffect(() => {
     if (route.page === "hot") loadHotPage();
   }, [route.page]);
+
+  useEffect(() => {
+    if (route.page !== "hot" || hotPageLoading || !hotPageData || pendingHotScrollRestore.current === null) return;
+    const scrollY = pendingHotScrollRestore.current;
+    pendingHotScrollRestore.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => window.scrollTo(0, scrollY));
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [route.page, hotPageLoading, hotPageData]);
 
   useEffect(() => {
     if (mode === "reading") {
@@ -718,7 +739,7 @@ export function App() {
         {route.page === "hot" ? (
           <HotPage data={hotPageData} loading={hotPageLoading} error={hotPageError} onOpenStory={(id) => navigate({ ...currentRoute(), page: "story", storyId: id })} onRetry={loadHotPage} />
         ) : route.page === "story" ? (
-          <StoryPage story={story} loading={storyLoading} error={storyError} notFound={storyNotFound} onBack={closeWorkspace} onOpenItem={openStoryItem} onRetry={() => {
+          <StoryPage story={story} loading={storyLoading} error={storyError} notFound={storyNotFound} backLabel={storyBackLabel(history.state?.storyOrigin)} onBack={closeWorkspace} onOpenItem={openStoryItem} onRetry={() => {
             if (!route.storyId) return;
             setStoryLoading(true);
             setStoryError("");

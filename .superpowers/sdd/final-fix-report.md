@@ -105,3 +105,41 @@ The final three review findings are addressed on top of `eb069bd`. No dependency
 - The existing `MODULE_TYPELESS_PACKAGE_JSON` warning still appears during the TypeScript navigation test; resolving it would require a broader CommonJS/ESM packaging decision.
 - No browser automation is configured, so the 390 px visual click-through remains a manual release check.
 - Production deployment and production `data/db.json` changes were not performed.
+
+## Final Review Follow-up — 2026-08-18
+
+### Status
+
+The four final review findings are addressed on top of `6963b8e`. No dependency or runtime-data changes were made.
+
+### Fixes
+
+1. **IANA-grounded media-target validation**
+   - The media proxy now uses an explicit globally-routable predicate for IPv4 and IPv6 instead of a private-address-only predicate.
+   - IPv4 special-purpose ranges include protocol assignments (with the globally reachable PCP/TURN anycast exceptions), documentation networks, benchmarking, shared address space, link-local, private, loopback, multicast, reserved, and deprecated 6to4 relay space.
+   - IPv4-compatible, IPv4-mapped, IPv4-translatable, and well-known NAT64 forms are decoded and subjected to the same IPv4 predicate before `requestHop` can run.
+
+2. **Dedicated `/hot` scroll restoration**
+   - Leaving `/hot` stores a dedicated hot-list scroll snapshot independent of feed filters and pagination.
+   - Browser automatic scroll restoration is disabled for the SPA lifecycle. A `popstate` back to `/hot` records the pending snapshot, reloads matching hot data, and restores only after data is present and React has rendered it.
+
+3. **Origin-aware story return copy**
+   - Story navigation records whether it came from the feed or hotspot list. Story success and error states display `返回信息流` for feed/selected-preview origins and `返回热点榜` for hotspot origins.
+   - Direct story URLs retain the safe existing fallback to the hotspot list.
+
+4. **Whitespace cleanup**
+   - Removed the two trailing-space sequences from `docs/superpowers/specs/2026-08-17-hot-center-search-experience-design.md`.
+
+### Verification
+
+- Focused SSRF/hot/navigation/story suite: `node --test server/security.test.js server/lib/experience.test.js server/index.test.js src/lib/navigation.test.mts src/lib/experience.test.mts` — 64 passed, 0 failed.
+- Full suite: `npm test` — 73 passed, 0 failed.
+- No-emit frontend check: `npm run typecheck` — passed.
+- Production build: `npm run build` — passed.
+- Whitespace check: `git diff --check` — passed.
+
+### Remaining Concerns
+
+- The existing `MODULE_TYPELESS_PACKAGE_JSON` warning remains during the TypeScript navigation test; resolving it requires a broader CommonJS/ESM packaging decision.
+- No real-browser automation is configured, so scroll behavior still benefits from a manual browser release check despite the storage and source-level regression coverage.
+- Production deployment and production `data/db.json` changes were not performed.

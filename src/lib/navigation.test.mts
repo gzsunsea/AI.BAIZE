@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { cumulativePageRequests, parseLocation, shouldInterceptLinkClick, toLocation } from "./navigation.ts";
+import { captureScrollState, cumulativePageRequests, parseLocation, readScrollState, shouldInterceptLinkClick, storyBackLabel, toLocation } from "./navigation.ts";
 
 test("parses hot story and feed search state from URL", () => {
   assert.deepEqual(parseLocation(new URL("https://example.test/story/event-a?q=agent&search=full&channel=news").toString()), {
@@ -36,6 +36,32 @@ test("a restored page requests the cumulative list needed to restore scroll", ()
   assert.deepEqual(cumulativePageRequests(3, 80), [
     { page: 1, pageSize: 80 }, { page: 2, pageSize: 80 }, { page: 3, pageSize: 80 },
   ]);
+});
+
+test("hot-list scroll snapshots round-trip independently from feed state", () => {
+  const values = new Map<string, string>();
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+  Object.defineProperty(globalThis, "sessionStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) || null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    },
+  });
+  try {
+    captureScrollState("aibaize-hot-list", 640);
+    assert.equal(readScrollState("aibaize-hot-list"), 640);
+    assert.equal(readScrollState("aibaize-feed-list"), null);
+  } finally {
+    if (previous) Object.defineProperty(globalThis, "sessionStorage", previous);
+    else Reflect.deleteProperty(globalThis, "sessionStorage");
+  }
+});
+
+test("story back copy follows its list origin and defaults direct links to hot", () => {
+  assert.equal(storyBackLabel("feed"), "返回信息流");
+  assert.equal(storyBackLabel("hot"), "返回热点榜");
+  assert.equal(storyBackLabel(undefined), "返回热点榜");
 });
 
 test("only intercepts plain primary link clicks", () => {

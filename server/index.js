@@ -1245,27 +1245,51 @@ const NON_PUBLIC_IPV6_CIDRS = [
   ["ff00::", 8],
 ];
 
-function isPrivateIp(address = "") {
+// IANA IPv4 Special-Purpose Address Registry entries that are not globally reachable.
+const NON_GLOBAL_IPV4_CIDRS = [
+  ["0.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+  ["169.254.0.0", 16],
+  ["172.16.0.0", 12],
+  ["192.0.2.0", 24],
+  ["192.88.99.0", 24],
+  ["192.168.0.0", 16],
+  ["198.18.0.0", 15],
+  ["198.51.100.0", 24],
+  ["203.0.113.0", 24],
+  ["224.0.0.0", 4],
+  ["240.0.0.0", 4],
+];
+
+function ipv4Value(address = "") {
+  const octets = address.split(".").map(Number);
+  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) return null;
+  return octets.reduce((value, octet) => value * 256 + octet, 0);
+}
+
+function ipv4InCidr(value, network, prefix) {
+  const networkValue = ipv4Value(network);
+  if (value === null || networkValue === null) return false;
+  const blockSize = 2 ** (32 - prefix);
+  return Math.floor(value / blockSize) === Math.floor(networkValue / blockSize);
+}
+
+function isGloballyRoutableIp(address = "") {
   const normalized = address.toLowerCase().replace(/^\[|\]$/g, "").split("%")[0];
   const family = net.isIP(normalized);
   if (family === 4) {
-    const parts = normalized.split(".").map(Number);
-    const [a, b] = parts;
-    return (
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 198 && (b === 18 || b === 19)) ||
-      a >= 224
-    );
+    const value = ipv4Value(normalized);
+    if (value === null) return false;
+    const ietfProtocolAssignments = ipv4InCidr(value, "192.0.0.0", 24);
+    const globallyReachableIetfAnycast = normalized === "192.0.0.9" || normalized === "192.0.0.10";
+    if (ietfProtocolAssignments && !globallyReachableIetfAnycast) return false;
+    return !NON_GLOBAL_IPV4_CIDRS.some(([network, prefix]) => ipv4InCidr(value, network, prefix));
   }
   if (family === 6) {
     const value = ipv6Value(normalized);
-    if (value === null) return true;
+    if (value === null) return false;
     const embeddedIpv4Prefix = [
       ["::", 96],
       ["::ffff:0:0", 96],
@@ -1274,12 +1298,12 @@ function isPrivateIp(address = "") {
     ].find(([network, prefix]) => ipv6InCidr(value, network, prefix));
     if (embeddedIpv4Prefix) {
       const ipv4 = Number(value & 0xffffffffn);
-      return isPrivateIp(`${(ipv4 >>> 24) & 255}.${(ipv4 >>> 16) & 255}.${(ipv4 >>> 8) & 255}.${ipv4 & 255}`);
+      return isGloballyRoutableIp(`${(ipv4 >>> 24) & 255}.${(ipv4 >>> 16) & 255}.${(ipv4 >>> 8) & 255}.${ipv4 & 255}`);
     }
-    return !ipv6InCidr(value, "2000::", 3)
-      || NON_PUBLIC_IPV6_CIDRS.some(([network, prefix]) => ipv6InCidr(value, network, prefix));
+    return ipv6InCidr(value, "2000::", 3)
+      && !NON_PUBLIC_IPV6_CIDRS.some(([network, prefix]) => ipv6InCidr(value, network, prefix));
   }
-  return true;
+  return false;
 }
 
 async function assertPublicHttpTarget(target, lookup = dns.lookup) {
@@ -1291,11 +1315,11 @@ async function assertPublicHttpTarget(target, lookup = dns.lookup) {
     throw new Error("Blocked private media url");
   }
   if (net.isIP(hostname)) {
-    if (isPrivateIp(hostname)) throw new Error("Blocked private media url");
+    if (!isGloballyRoutableIp(hostname)) throw new Error("Blocked private media url");
     return { address: hostname, family: net.isIP(hostname) };
   }
   const addresses = await lookup(hostname, { all: true, verbatim: true });
-  if (!addresses.length || addresses.some((entry) => isPrivateIp(entry.address))) {
+  if (!addresses.length || addresses.some((entry) => !isGloballyRoutableIp(entry.address))) {
     throw new Error("Blocked private media url");
   }
   return addresses[0];
