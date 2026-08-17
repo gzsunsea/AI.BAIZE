@@ -9,6 +9,7 @@ const {
   collectDailyDigestItemKeys,
   dailyIssueMeta,
   itemsResponse,
+  publicItemDetail,
   selectCuratedItems,
 } = require("./index");
 
@@ -44,6 +45,24 @@ test("items API keeps direct search scoped, ranks full matches, and echoes searc
   const full = itemsResponse({ mode: "all", q: "needle", searchMode: "full" }, state);
   assert.deepEqual(full.items.map((entry) => entry.id), ["full-top", "newest-direct", "older-direct", "full-content"]);
   assert.deepEqual(full.search, { query: "needle", mode: "full", sort: "relevance" });
+});
+
+test("items API applies copied category and sort state and durable item details stay allowlisted", () => {
+  const state = {
+    clusters: [],
+    settings: { rules: { selectedThreshold: 72 } },
+    items: [
+      { ...story("culture-new", "Needle culture AI", 50), category: "culture", publishedAt: "2026-08-18T00:00:00.000Z", sourceName: "Culture" },
+      { ...story("culture-ranked", "Needle culture model", 90), category: "culture", publishedAt: "2026-08-17T00:00:00.000Z", editorialBrief: { fact: "needle" }, sourceName: "Culture", hidden: false, raw: { secret: true } },
+      { ...story("education", "Needle education AI", 99), category: "education", publishedAt: "2026-08-19T00:00:00.000Z" },
+    ],
+  };
+  const result = itemsResponse({ mode: "all", q: "needle", searchMode: "full", category: "culture", sort: "relevance" }, state);
+  assert.deepEqual(result.items.map((item) => item.id), ["culture-ranked", "culture-new"]);
+  const detail = publicItemDetail(state, "culture-ranked");
+  assert.equal(detail.item.id, "culture-ranked");
+  assert.equal(Object.hasOwn(detail.item, "raw"), false);
+  assert.equal(publicItemDetail(state, "missing"), null);
 });
 
 function story(id, title, score = 99) {

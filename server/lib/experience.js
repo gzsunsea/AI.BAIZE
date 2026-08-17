@@ -4,8 +4,6 @@ function clusterItemIds(cluster = {}) {
     .filter(Boolean);
 }
 
-const HOT_RULES = { version: 1, windowHours: 72, trendAvailable: false };
-
 const HOT_TIER_WEIGHTS = {
   first_party: 12,
   official_first_party: 12,
@@ -22,6 +20,19 @@ const HOT_TIER_WEIGHTS = {
   community_fallback: 4,
   reference: 3,
   custom: 2,
+};
+
+const HOT_RULES = {
+  version: 1,
+  windowHours: 72,
+  trendAvailable: false,
+  components: {
+    sourceQualityScore: { description: "信源层级权重之和", cap: 30 },
+    sourceCountBonus: { description: "第二个及后续独立信源每个加 8 分", perAdditionalSource: 8, cap: 25 },
+    freshnessBonus: { description: "20 分起，每 4 小时衰减 1 分", initial: 20, decayHours: 4, floor: 0 },
+    selectedScoreBonus: { description: "代表内容精选分除以 4", divisor: 4, cap: 25 },
+  },
+  tierWeights: HOT_TIER_WEIGHTS,
 };
 
 function itemTierWeight(item = {}) {
@@ -59,9 +70,14 @@ function buildHotTopics(state = {}, options = {}) {
         .map((id) => itemsById.get(id))
         .filter(Boolean)
         .filter((item) => nowMs - new Date(item.publishedAt || 0).getTime() <= 72 * 60 * 60 * 1000);
-      const sources = [...new Set(relatedItems
-        .map((item) => item.sourceId || item.sourceName)
-        .filter(Boolean))];
+      const sourceNamesByIdentity = new Map();
+      for (const item of relatedItems) {
+        const identity = item.sourceId || item.sourceName;
+        if (identity && !sourceNamesByIdentity.has(identity)) {
+          sourceNamesByIdentity.set(identity, item.sourceName || item.sourceId);
+        }
+      }
+      const sources = [...sourceNamesByIdentity.values()].filter(Boolean);
       const representative = [...relatedItems].sort((a, b) => (
         Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
         || (b.score || 0) - (a.score || 0)
@@ -78,10 +94,14 @@ function buildHotTopics(state = {}, options = {}) {
         sources: sources.slice(0, 6),
         topScore: Math.max(cluster.topScore || 0, ...relatedItems.map((item) => item.score || 0)),
         publishedAt: representative.publishedAt,
+        latestAt: relatedItems.reduce((latest, item) => (
+          new Date(item.publishedAt || 0).getTime() > new Date(latest || 0).getTime() ? item.publishedAt : latest
+        ), representative.publishedAt),
+        summary: representative.editorialBrief?.fact || representative.summary || representative.reason || cluster.title || representative.title,
         representative: enrichItem(representative),
         relatedItems: relatedItems.map(enrichItem),
       };
-      topic.ageHours = Math.max(0, (nowMs - new Date(topic.publishedAt || 0).getTime()) / (60 * 60 * 1000));
+      topic.ageHours = Math.max(0, (nowMs - new Date(topic.latestAt || 0).getTime()) / (60 * 60 * 1000));
       topic.heat = hotHeat(topic);
       topic.status = hotStatus(topic);
       topic.rules = HOT_RULES;

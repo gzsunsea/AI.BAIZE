@@ -1,6 +1,8 @@
 const path = require("node:path");
 const crypto = require("node:crypto");
 const dns = require("node:dns").promises;
+const http = require("node:http");
+const https = require("node:https");
 const net = require("node:net");
 const express = require("express");
 const cron = require("node-cron");
@@ -346,6 +348,7 @@ function visibleItems(query, state = readState()) {
   const tag = String(query.tag || "");
   const channel = String(query.channel || "");
   const category = String(query.category || "");
+  const sort = searchMode === "full" && q && query.sort !== "published_desc" ? "relevance" : "published_desc";
   const filtered = state.items
     .filter((item) => !item.hidden)
     .filter((item) => isOriginalHttpUrl(item.url))
@@ -383,7 +386,7 @@ function visibleItems(query, state = readState()) {
   const compareByPublishedAt = (a, b) => new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime();
   const compareBySearch = (a, b) => searchRank(b) - searchRank(a) || compareByPublishedAt(a, b);
   if (mode !== "selected") {
-    const sorted = filtered.sort(searchMode === "full" && q ? compareBySearch : compareByPublishedAt);
+    const sorted = filtered.sort(sort === "relevance" ? compareBySearch : compareByPublishedAt);
     if (mode !== "all") return sorted;
     const caps = { hn: 20, github: 16, arxiv: 16, devto: 0 };
     const counts = new Map();
@@ -398,7 +401,7 @@ function visibleItems(query, state = readState()) {
   }
   const selected = selectCuratedItems(filtered, state.settings?.rules);
   if (!q) return selected;
-  return selected.sort(searchMode === "full" ? compareBySearch : compareByPublishedAt);
+  return selected.sort(sort === "relevance" ? compareBySearch : compareByPublishedAt);
 }
 
 function selectedRank(item) {
@@ -498,9 +501,16 @@ function itemsResponse(query, state = readState()) {
     search: {
       query: String(query.q || "").trim(),
       mode: query.searchMode === "full" ? "full" : "direct",
-      sort: query.searchMode === "full" && String(query.q || "").trim() ? "relevance" : "published_desc",
+      sort: query.searchMode === "full" && String(query.q || "").trim() && query.sort !== "published_desc" ? "relevance" : "published_desc",
     },
   };
+}
+
+function publicItemDetail(state, id) {
+  const item = (state.items || []).find((candidate) => candidate.id === id && !candidate.hidden && isOriginalHttpUrl(candidate.url));
+  if (!item) return null;
+  const [decorated] = attachRelated([enrichItem(item)], state.clusters || []);
+  return { item: serializePublicItem(decorated) };
 }
 
 app.get("/api/items", (req, res) => {
@@ -680,6 +690,12 @@ app.get("/api/public/items", (req, res) => {
     .filter((item) => (!category ? true : item.category === category || item.categoryLabel === category))
     .slice((page - 1) * take, page * take);
   res.json({ items, page, take });
+});
+
+app.get("/api/public/items/:id", (req, res) => {
+  const detail = publicItemDetail(readState(), String(req.params.id));
+  if (!detail) return res.status(404).json({ error: "item not found" });
+  return res.json(detail);
 });
 
 app.get("/api/public/hot", (_req, res) => {
@@ -1189,10 +1205,36 @@ app.put("/api/admin/sources", requireAdmin, adminWriteLimit, (req, res) => {
   res.json({ ok: true, sources: state.sources });
 });
 
+function ipv6Value(address = "") {
+  let value = address.toLowerCase().split("%")[0];
+  if (value.includes(".")) {
+    const lastColon = value.lastIndexOf(":");
+    const octets = value.slice(lastColon + 1).split(".").map(Number);
+    if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) return null;
+    value = `${value.slice(0, lastColon)}:${((octets[0] << 8) | octets[1]).toString(16)}:${((octets[2] << 8) | octets[3]).toString(16)}`;
+  }
+  const halves = value.split("::");
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(":") : [];
+  const tail = halves[1] ? halves[1].split(":") : [];
+  const fill = halves.length === 2 ? 8 - head.length - tail.length : 0;
+  const groups = [...head, ...Array(Math.max(0, fill)).fill("0"), ...tail];
+  if (groups.length !== 8 || groups.some((group) => !/^[0-9a-f]{1,4}$/.test(group))) return null;
+  return groups.reduce((result, group) => (result << 16n) + BigInt(`0x${group}`), 0n);
+}
+
+function ipv6InCidr(value, network, prefix) {
+  const networkValue = ipv6Value(network);
+  if (value === null || networkValue === null) return false;
+  const shift = BigInt(128 - prefix);
+  return (value >> shift) === (networkValue >> shift);
+}
+
 function isPrivateIp(address = "") {
-  const family = net.isIP(address);
+  const normalized = address.toLowerCase().replace(/^\[|\]$/g, "").split("%")[0];
+  const family = net.isIP(normalized);
   if (family === 4) {
-    const parts = address.split(".").map(Number);
+    const parts = normalized.split(".").map(Number);
     const [a, b] = parts;
     return (
       a === 0 ||
@@ -1207,38 +1249,83 @@ function isPrivateIp(address = "") {
     );
   }
   if (family === 6) {
-    const value = address.toLowerCase();
-    return (
-      value === "::1" ||
-      value === "::" ||
-      value.startsWith("fc") ||
-      value.startsWith("fd") ||
-      value.startsWith("fe80") ||
-      value.startsWith("::ffff:127.") ||
-      value.startsWith("::ffff:10.") ||
-      value.startsWith("::ffff:192.168.") ||
-      /^::ffff:172\.(1[6-9]|2\d|3[01])\./.test(value)
-    );
+    const value = ipv6Value(normalized);
+    if (value === null) return true;
+    if (ipv6InCidr(value, "::ffff:0:0", 96)) {
+      const ipv4 = Number(value & 0xffffffffn);
+      return isPrivateIp(`${(ipv4 >>> 24) & 255}.${(ipv4 >>> 16) & 255}.${(ipv4 >>> 8) & 255}.${ipv4 & 255}`);
+    }
+    return [
+      ["::", 128], ["::1", 128], ["100::", 64], ["fc00::", 7],
+      ["fe80::", 10], ["fec0::", 10], ["ff00::", 8],
+    ].some(([network, prefix]) => ipv6InCidr(value, network, prefix));
   }
   return true;
 }
 
-async function assertPublicHttpTarget(target) {
+async function assertPublicHttpTarget(target, lookup = dns.lookup) {
   if (!/^https?:$/.test(target.protocol)) {
     throw new Error("Unsupported media url");
   }
-  const hostname = target.hostname.toLowerCase();
+  const hostname = target.hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (!hostname || hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")) {
     throw new Error("Blocked private media url");
   }
   if (net.isIP(hostname)) {
     if (isPrivateIp(hostname)) throw new Error("Blocked private media url");
-    return;
+    return { address: hostname, family: net.isIP(hostname) };
   }
-  const addresses = await dns.lookup(hostname, { all: true, verbatim: true });
+  const addresses = await lookup(hostname, { all: true, verbatim: true });
   if (!addresses.length || addresses.some((entry) => isPrivateIp(entry.address))) {
     throw new Error("Blocked private media url");
   }
+  return addresses[0];
+}
+
+function requestMediaHop(target, resolved) {
+  return new Promise((resolve, reject) => {
+    const transport = target.protocol === "https:" ? https : http;
+    const request = transport.request(target, {
+      headers: {
+        "user-agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/124 Safari/537.36",
+        accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        referer: `${target.protocol}//${target.host}/`,
+      },
+      lookup: (_hostname, _options, callback) => callback(null, resolved.address, resolved.family),
+    }, (upstream) => {
+      const chunks = [];
+      let size = 0;
+      upstream.on("data", (chunk) => {
+        size += chunk.length;
+        if (size > 15 * 1024 * 1024) {
+          request.destroy(new Error("Media response too large"));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      upstream.on("end", () => resolve({
+        status: upstream.statusCode || 502,
+        headers: upstream.headers,
+        body: Buffer.concat(chunks),
+      }));
+      upstream.on("error", reject);
+    });
+    request.setTimeout(12000, () => request.destroy(new Error("Media request timed out")));
+    request.on("error", reject);
+    request.end();
+  });
+}
+
+async function fetchPublicMedia(target, options = {}, redirectCount = 0) {
+  const resolved = await assertPublicHttpTarget(target, options.lookup || dns.lookup);
+  const response = await (options.requestHop || requestMediaHop)(target, resolved);
+  if (response.status >= 300 && response.status < 400) {
+    const location = response.headers?.location;
+    if (!location) throw new Error("Media redirect missing location");
+    if (redirectCount >= 4) throw new Error("Too many media redirects");
+    return fetchPublicMedia(new URL(location, target), options, redirectCount + 1);
+  }
+  return response;
 }
 
 app.get("/api/media", async (req, res) => {
@@ -1251,29 +1338,19 @@ app.get("/api/media", async (req, res) => {
     return;
   }
   try {
-    await assertPublicHttpTarget(target);
-  } catch (error) {
-    res.status(400).send(error.message || "Bad media url");
-    return;
-  }
-  try {
-    const upstream = await fetch(target.toString(), {
-      headers: {
-        "user-agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/124 Safari/537.36",
-        accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        referer: `${target.protocol}//${target.host}/`,
-      },
-      signal: AbortSignal.timeout(12000),
-    });
-    if (!upstream.ok) {
+    const upstream = await fetchPublicMedia(target);
+    if (upstream.status < 200 || upstream.status >= 300) {
       res.status(upstream.status).send("Media fetch failed");
       return;
     }
-    const buffer = Buffer.from(await upstream.arrayBuffer());
-    res.set("Content-Type", upstream.headers.get("content-type") || "image/jpeg");
+    res.set("Content-Type", upstream.headers["content-type"] || "image/jpeg");
     res.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
-    res.send(buffer);
-  } catch {
+    res.send(upstream.body);
+  } catch (error) {
+    if (/unsupported|private media|bad media/i.test(error.message || "")) {
+      res.status(400).send(error.message || "Bad media url");
+      return;
+    }
     res.status(502).send("Media proxy failed");
   }
 });
@@ -1305,9 +1382,11 @@ module.exports = {
   collectDailyDigestItemKeys,
   dailyIssueMeta,
   digestItemKeys,
+  fetchPublicMedia,
   generateDailyDigest,
   itemsResponse,
   localDateKey,
+  publicItemDetail,
   selectCuratedItems,
   startServer,
 };

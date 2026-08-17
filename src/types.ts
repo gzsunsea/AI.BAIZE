@@ -11,6 +11,8 @@ export type Item = {
   score: number;
   tags: string[];
   reason: string;
+  content?: string;
+  raw?: { content?: string; description?: string } | null;
   media?: { url?: string; type?: string; thumbnail?: string; alt?: string }[];
   channel?: string;
   channelLabel?: string;
@@ -129,6 +131,13 @@ export type HotRules = {
   version: number;
   windowHours: number;
   trendAvailable: boolean;
+  components: {
+    sourceQualityScore: { description: string; cap: number };
+    sourceCountBonus: { description: string; perAdditionalSource: number; cap: number };
+    freshnessBonus: { description: string; initial: number; decayHours: number; floor: number };
+    selectedScoreBonus: { description: string; divisor: number; cap: number };
+  };
+  tierWeights: Record<string, number>;
 };
 
 export type HotTopic = {
@@ -142,6 +151,8 @@ export type HotTopic = {
   sources: string[];
   topScore: number;
   publishedAt: string;
+  latestAt: string;
+  summary: string;
   representative: Item;
   relatedItems: Item[];
   rules: HotRules;

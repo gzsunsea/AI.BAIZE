@@ -3,6 +3,23 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { coverageLabel, groupItemsByLocalDate, itemToMarkdown, topicForMode, topicRequestUrls } from "./experience.mts";
+import { filterAndSortFeedItems } from "./feedSearch.mts";
+
+test("all client-rendered feeds share direct/full matching, category filtering, and URL sort", () => {
+  const items = [
+    { id: "saved-first", title: "AI update", summary: "ordinary", sourceName: "Source", tags: [], category: "culture", publishedAt: "2026-08-16T00:00:00.000Z", score: 99 },
+    { id: "new-direct", title: "Needle launch", summary: "ordinary", sourceName: "Source", tags: [], category: "culture", publishedAt: "2026-08-18T00:00:00.000Z", score: 20 },
+    { id: "full-only", title: "AI launch", summary: "ordinary", sourceName: "Source", tags: [], category: "culture", content: "needle", publishedAt: "2026-08-17T00:00:00.000Z", score: 10 },
+    { id: "wrong-category", title: "Needle education", summary: "ordinary", sourceName: "Source", tags: [], category: "education", publishedAt: "2026-08-19T00:00:00.000Z", score: 100 },
+  ] as never[];
+
+  const direct = filterAndSortFeedItems(items, { query: "needle", searchMode: "direct", category: "culture", sort: "published_desc" });
+  assert.deepEqual(direct.map((item) => item.id), ["new-direct"]);
+  const full = filterAndSortFeedItems(items, { query: "needle", searchMode: "full", category: "culture", sort: "relevance" });
+  assert.deepEqual(full.map((item) => item.id), ["new-direct", "full-only"]);
+  const reading = filterAndSortFeedItems(items.slice(0, 2), { query: "", searchMode: "direct", category: "culture", sort: "published_desc" });
+  assert.deepEqual(reading.map((item) => item.id), ["new-direct", "saved-first"]);
+});
 
 test("groups feed items by Shanghai local date and sorts the timeline newest first", () => {
   const items = [
@@ -83,15 +100,15 @@ test("feed search exposes direct and full modes and keeps them in the shared URL
   assert.match(appSource, /searchMode/);
   assert.match(appSource, /searchMode=\$\{encodeURIComponent\(searchMode\)\}/);
   assert.match(appSource, /history\.replaceState/);
-  assert.match(appSource, /window\.requestAnimationFrame\(\(\) => window\.scrollTo\(0, snapshot\.scrollY\)\)/);
+  assert.match(appSource, /pendingScrollRestore\.current = next\.page === "feed" && snapshot \? snapshot\.scrollY : null/);
   assert.match(feedCss, /\.search-mode-tabs \{[^}]*overflow-x: auto;/);
 });
 
-test("topic and reading feeds apply full search fields and ignore stale loads", () => {
+test("topic and reading feeds share the search pipeline and ignore stale loads", () => {
   const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");
 
-  assert.match(appSource, /topicSearchHaystack\(item, searchMode\)/);
-  assert.match(appSource, /readingSearchHaystack\(item, searchMode\)/);
+  assert.match(appSource, /filterAndSortFeedItems\(\[\.\.\.merged\.values\(\)\]/);
+  assert.match(appSource, /mode === "reading" \? filterAndSortFeedItems\(items/);
   assert.match(appSource, /const loadVersion = useRef\(0\)/);
   assert.match(appSource, /const requestVersion = \+\+loadVersion\.current/);
   assert.match(appSource, /if \(requestVersion !== loadVersion\.current\) return;/);

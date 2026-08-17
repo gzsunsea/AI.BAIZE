@@ -257,7 +257,7 @@
   display: grid;
 }
 
-.current-signal-list button {
+.current-signal-list > a {
   display: grid;
   grid-template-columns: 38px minmax(0, 1fr) 42px;
   gap: var(--space-3);
@@ -270,11 +270,11 @@
   text-align: left;
 }
 
-.current-signal-list button:last-child {
+.current-signal-list > a:last-child {
   border-bottom: 0;
 }
 
-.current-signal-list button:hover {
+.current-signal-list > a:hover {
   background: var(--panel-strong);
 }
 
@@ -666,7 +666,7 @@
     text-align: right;
   }
 
-  .current-signal-list button {
+  .current-signal-list > a {
     grid-template-columns: 30px minmax(0, 1fr);
     padding: 14px;
   }

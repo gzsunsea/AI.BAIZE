@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { parseLocation, shouldInterceptLinkClick, toLocation } from "./navigation.ts";
+import { cumulativePageRequests, parseLocation, shouldInterceptLinkClick, toLocation } from "./navigation.ts";
 
 test("parses hot story and feed search state from URL", () => {
   assert.deepEqual(parseLocation(new URL("https://example.test/story/event-a?q=agent&search=full&channel=news").toString()), {
@@ -24,6 +24,20 @@ test("preserves requested feed page and filter state from a direct URL", () => {
   });
 });
 
+test("ordinary item URLs round-trip independently from hotspot story URLs", () => {
+  const route = parseLocation("https://example.test/item/source-item-1");
+  assert.equal(route.page, "item");
+  assert.equal(route.storyId, "source-item-1");
+  assert.equal(toLocation(route), "/item/source-item-1");
+});
+
+test("a restored page requests the cumulative list needed to restore scroll", () => {
+  assert.deepEqual(cumulativePageRequests(1, 80), [{ page: 1, pageSize: 80 }]);
+  assert.deepEqual(cumulativePageRequests(3, 80), [
+    { page: 1, pageSize: 80 }, { page: 2, pageSize: 80 }, { page: 3, pageSize: 80 },
+  ]);
+});
+
 test("only intercepts plain primary link clicks", () => {
   assert.equal(shouldInterceptLinkClick({ button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, defaultPrevented: false, currentTarget: { target: "_self" } }), true);
   assert.equal(shouldInterceptLinkClick({ button: 1, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, defaultPrevented: false, currentTarget: { target: "_self" } }), false);
@@ -31,11 +45,16 @@ test("only intercepts plain primary link clicks", () => {
   assert.equal(shouldInterceptLinkClick({ button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, defaultPrevented: false, currentTarget: { target: "_blank" } }), false);
 });
 
-test("story navigation uses event keys and legacy reader anchors remain interceptable", () => {
+test("ordinary reader navigation uses durable item links and hotspot navigation keeps story links", () => {
   const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");
-  assert.match(appSource, /storyId: item\.eventId \|\| item\.id/);
+  const feedSource = readFileSync(new URL("../components/feed/FeedExperience.tsx", import.meta.url), "utf8");
+  const hotSource = readFileSync(new URL("../components/hot/HotPage.tsx", import.meta.url), "utf8");
+  assert.match(appSource, /page: "item", storyId: item\.id/);
+  assert.match(feedSource, /href=\{itemLocation\(item\.id\)\}/);
+  assert.match(feedSource, /shouldInterceptLinkClick\(event\)/);
+  assert.match(hotSource, /href=\{storyLocation\(topic\.id\)\}/);
   assert.doesNotMatch(appSource, /className=\{readItems\.has\(item\.id\) \? "read" : ""\}[\s\S]{0,240}target="_blank"/);
   assert.doesNotMatch(appSource, /className="title" href=\{item\.url\} target="_blank"/);
   assert.match(appSource, /className=\{readItems\.has\(item\.id\) \? "read" : ""\}[\s\S]{0,240}target="_self"/);
-  assert.match(appSource, /className="title" href=\{item\.url\} target="_self"/);
+  assert.match(appSource, /className="title" href=\{itemLocation\(item\.id\)\} target="_self"/);
 });

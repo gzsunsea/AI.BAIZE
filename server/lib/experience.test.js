@@ -27,9 +27,25 @@ test("hot topics expose rank, heat, status, and a transparent rules version", ()
 
   assert.equal(result.windowHours, 72);
   assert.equal(result.rules.version, 1);
+  assert.deepEqual(Object.keys(result.rules.components), ["sourceQualityScore", "sourceCountBonus", "freshnessBonus", "selectedScoreBonus"]);
+  assert.equal(result.rules.tierWeights.official_first_party, 12);
   assert.equal(result.items[0].rank, 1);
   assert.equal(typeof result.items[0].heat, "number");
   assert.equal(["new", "rising", "active"].includes(result.items[0].status), true);
+});
+
+test("hot topics expose display source names, latest activity, and representative summary", () => {
+  const result = buildHotTopics({
+    items: [
+      signal("a1", "event-a", "source-id-one", 91, { sourceName: "Official One", summary: "Representative summary", publishedAt: "2026-08-17T01:00:00.000Z" }),
+      signal("a2", "event-a", "source-id-two", 88, { sourceName: "Expert Two", publishedAt: "2026-08-17T03:00:00.000Z" }),
+    ],
+    clusters: [{ id: "event-a", title: "Event A", items: ["a1", "a2"] }],
+  }, { now: "2026-08-17T04:00:00.000Z" });
+
+  assert.deepEqual(result.items[0].sources, ["Official One", "Expert Two"]);
+  assert.equal(result.items[0].latestAt, "2026-08-17T03:00:00.000Z");
+  assert.equal(typeof result.items[0].representative.summary, "string");
 });
 
 test("story detail returns newest updates first and null for unknown ids", () => {

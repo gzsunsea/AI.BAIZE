@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import type { HotTopic, Item, Stats } from "../../types";
 import { formatDayHeading, groupItemsByLocalDate, shanghaiDateKey } from "../../lib/experience.mts";
+import { itemLocation, shouldInterceptLinkClick, storyLocation } from "../../lib/navigation";
 
 const channelTabs = [
   { key: "", label: "全部" },
@@ -64,6 +65,7 @@ export type FeedExperienceProps = {
   onStatusChange: (value: string) => void;
   onDensityChange: (value: string) => void;
   onOpen: (item: Item, relatedItems?: Item[]) => void;
+  onOpenStory: (id: string) => void;
   onAsk: (item?: Item) => void;
   onToggleRead: (id: string) => void;
   onToggleSaved: (item: Item) => void;
@@ -84,11 +86,11 @@ function pageCopy(mode: string) {
   return { title: "精选", description: "先看正在形成共识的事件，再进入按时间整理的高价值动态。" };
 }
 
-function CurrentSignals({ topics, loading, error, onOpen, onRetry, onOpenHotPage }: {
+function CurrentSignals({ topics, loading, error, onOpenStory, onRetry, onOpenHotPage }: {
   topics: HotTopic[];
   loading: boolean;
   error: string;
-  onOpen: (item: Item, relatedItems?: Item[]) => void;
+  onOpenStory: (id: string) => void;
   onRetry: () => void;
   onOpenHotPage: () => void;
 }) {
@@ -99,18 +101,18 @@ function CurrentSignals({ topics, loading, error, onOpen, onRetry, onOpenHotPage
     <section className="current-signals" aria-labelledby="current-signals-title">
       <header>
         <div><span>NOW</span><h2 id="current-signals-title">当前热点</h2></div>
-        <p>由独立信源数量、质量与时效共同确认</p><button type="button" onClick={onOpenHotPage}>查看完整热点榜</button>
+        <p>由独立信源数量、质量与时效共同确认</p><a href="/hot" onClick={(event) => { if (!shouldInterceptLinkClick(event)) return; event.preventDefault(); onOpenHotPage(); }}>查看完整热点榜</a>
       </header>
       <div className="current-signal-list">
         {topics.map((topic, index) => (
-          <button type="button" key={topic.id} onClick={() => onOpen(topic.representative, topic.relatedItems)}>
+          <a href={storyLocation(topic.id)} key={topic.id} onClick={(event) => { if (!shouldInterceptLinkClick(event)) return; event.preventDefault(); onOpenStory(topic.id); }}>
             <b>{String(index + 1).padStart(2, "0")}</b>
             <span>
               <strong>{topic.title}</strong>
               <small>{topic.sourceCount} 个独立信源 · {topic.sources.slice(0, 3).join(" / ")} · {formatTime(topic.publishedAt)}</small>
             </span>
             <em>{topic.topScore}</em>
-          </button>
+          </a>
         ))}
       </div>
     </section>
@@ -164,7 +166,7 @@ function FeedCard({ item, density, read, saved, processed, onOpen, onAsk, onTogg
         <time dateTime={item.publishedAt}>{formatTime(item.publishedAt)}</time>
         {read && <span className="state-label"><Eye size={13} />已读</span>}
       </div>
-      <button className="feed-card-title" type="button" onClick={() => onOpen(item)}>{item.title}</button>
+      <a className="feed-card-title" href={itemLocation(item.id)} onClick={(event) => { if (!shouldInterceptLinkClick(event)) return; event.preventDefault(); onOpen(item); }}>{item.title}</a>
       {recommendation && <p className="feed-card-recommendation"><Sparkles size={15} />{recommendation}</p>}
       <FeedMediaPreview item={item} />
       {density !== "compact" && brief && (brief.fact || brief.impact || brief.scenario) && (
@@ -250,7 +252,7 @@ export function FeedExperience(props: FeedExperienceProps) {
         <div className="topic-filters"><button className={!props.activeTag ? "active" : ""} type="button" onClick={() => props.onTagChange("")}>全部主题</button>{visibleTags.map((tag) => <button className={props.activeTag === tag.tag ? "active" : ""} type="button" key={tag.tag} onClick={() => props.onTagChange(tag.tag)}>{tag.tag}<span>{tag.count}</span></button>)}</div>
       )}
 
-      {props.mode === "selected" && props.statusFilter === "all" && <CurrentSignals topics={props.hotTopics} loading={props.hotTopicsLoading} error={props.hotTopicsError} onOpen={props.onOpen} onRetry={props.onRetryHotTopics} onOpenHotPage={props.onOpenHotPage} />}
+      {props.mode === "selected" && props.statusFilter === "all" && <CurrentSignals topics={props.hotTopics} loading={props.hotTopicsLoading} error={props.hotTopicsError} onOpenStory={props.onOpenStory} onRetry={props.onRetryHotTopics} onOpenHotPage={props.onOpenHotPage} />}
       {props.error && <div className="notice error">{props.error}</div>}
       {props.loading && <div className="feed-skeleton" aria-label="正在加载"><i /><i /><i /></div>}
       {!props.loading && groups.length === 0 && <div className="feed-empty"><strong>{props.mode === "reading" ? "稍后读还是空的" : "当前条件没有匹配内容"}</strong><p>{props.mode === "reading" ? "在精选或全部动态里收藏内容后，会出现在这里。" : "可以清除搜索词或切换筛选条件。"}</p></div>}

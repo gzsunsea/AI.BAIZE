@@ -1,5 +1,6 @@
 import { ArrowLeft, ArrowUpRight, RefreshCw } from "lucide-react";
 import type { Item, StoryDetail } from "../../types";
+import { itemLocation, shouldInterceptLinkClick } from "../../lib/navigation";
 
 type StoryPageProps = {
   story: StoryDetail | null;
@@ -19,7 +20,7 @@ function formatTime(value?: string) {
 function ItemLink({ item, onOpenItem }: { item: Item; onOpenItem: (item: Item) => void }) {
   return <article className="story-item">
     <div><span>{item.sourceName}</span><time dateTime={item.publishedAt}>{formatTime(item.publishedAt)}</time></div>
-    <button type="button" onClick={() => onOpenItem(item)}>{item.title}</button>
+    <a className="story-item-title" href={itemLocation(item.id)} onClick={(event) => { if (!shouldInterceptLinkClick(event)) return; event.preventDefault(); onOpenItem(item); }}>{item.title}</a>
     {(item.summary || item.reason) && <p>{item.summary || item.reason}</p>}
     <a href={item.url} target="_blank" rel="noreferrer">查看原文 <ArrowUpRight size={14} /></a>
   </article>;

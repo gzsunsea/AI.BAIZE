@@ -47,7 +47,8 @@ import { HotPage, type HotPageData } from "../components/hot/HotPage";
 import { StoryPage } from "../components/hot/StoryPage";
 import { BookmarkGuide, ThemeToggle } from "../components/shared";
 import { topicForMode, topicRequestUrls } from "../lib/experience.mts";
-import { captureListState, parseLocation, readListState, shouldInterceptLinkClick, toLocation, type RouteState } from "../lib/navigation";
+import { filterAndSortFeedItems } from "../lib/feedSearch.mts";
+import { captureListState, cumulativePageRequests, itemLocation, parseLocation, readListState, shouldInterceptLinkClick, toLocation, type RouteState } from "../lib/navigation";
 import type { ApiState, AskResult, DailyDigest, HotTopic, Item, MpArticle, MpDigest, SavedEntry, Stats, StoryDetail } from "../types";
 import "../styles.css";
 
@@ -111,45 +112,6 @@ class ApiError extends Error {
   }
 }
 
-function searchField(value: unknown) {
-  return String(value || "").toLowerCase();
-}
-
-function directSearchFields(item: Item) {
-  return [item.title, item.summary, item.sourceName, (item.tags || []).join(" ")].map(searchField);
-}
-
-function fullSearchFields(item: Item) {
-  return [
-    ...directSearchFields(item),
-    item.content,
-    item.raw?.content,
-    item.raw?.description,
-    item.reason,
-    item.editorialBrief?.fact,
-    item.editorialBrief?.impact,
-    item.editorialBrief?.scenario,
-  ].map(searchField);
-}
-
-function topicSearchHaystack(item: Item, searchMode: "direct" | "full") {
-  return (searchMode === "full" ? fullSearchFields(item) : directSearchFields(item)).join(" ");
-}
-
-function readingSearchHaystack(item: Item, searchMode: "direct" | "full") {
-  return topicSearchHaystack(item, searchMode);
-}
-
-function fullSearchRank(item: Item, query: string) {
-  if (!query) return 0;
-  const fields: Array<[unknown, number]> = [
-    [item.title, 8], [item.summary, 6], [item.reason, 5], [item.editorialBrief?.fact, 5],
-    [item.editorialBrief?.impact, 4], [item.editorialBrief?.scenario, 4], [item.sourceName, 3],
-    [(item.tags || []).join(" "), 3], [item.content, 2], [item.raw?.content, 2], [item.raw?.description, 2],
-  ];
-  return fields.reduce((score, [value, weight]) => score + (searchField(value).includes(query) ? weight : 0), 0);
-}
-
 export function App() {
   const [route, setRoute] = useState<RouteState>(() => parseLocation(window.location.href));
   const [mode, setMode] = useState(() => route.mode);
@@ -209,8 +171,10 @@ export function App() {
   const [hotPageError, setHotPageError] = useState("");
   const [story, setStory] = useState<StoryDetail | null>(null);
   const [readerFromStoryPage, setReaderFromStoryPage] = useState(false);
-  const appendNextRouteLoad = useRef(false);
   const loadVersion = useRef(0);
+  const pendingScrollRestore = useRef<number | null>(null);
+  const [itemRouteLoading, setItemRouteLoading] = useState(() => route.page === "item");
+  const [itemRouteError, setItemRouteError] = useState("");
 
   const currentRoute = (): RouteState => ({
     ...route,
@@ -241,9 +205,26 @@ export function App() {
       setHotPageData(null);
       setHotPageError("");
       setHotPageLoading(false);
+      setItemRouteLoading(false);
+      setItemRouteError("");
+    } else if (next.page === "item") {
+      setStory(null);
+      setStoryError("");
+      setStoryNotFound(false);
+      setStoryLoading(false);
+      setHotPageData(null);
+      setHotPageError("");
+      setHotPageLoading(false);
+      setActiveItem(null);
+      setActiveRelatedItems([]);
+      setItemRouteLoading(true);
+      setItemRouteError("");
     } else {
       setHotPageLoading(false);
       setStoryLoading(false);
+      setItemRouteLoading(false);
+      setItemRouteError("");
+      setLoading(true);
     }
     setRoute(next);
     setMode(next.mode);
@@ -253,7 +234,7 @@ export function App() {
     setActiveChannel(next.activeChannel);
     setStatusFilter(next.statusFilter);
     setFeedPage(next.pageNumber);
-    if (next.page !== "story") {
+    if (next.page !== "story" && next.page !== "item") {
       setActiveItem(null);
       setActiveRelatedItems([]);
       setReaderFromStoryPage(false);
@@ -284,6 +265,7 @@ export function App() {
   const updateFeedRoute = (changes: Partial<RouteState>) => {
     const changedKeys = Object.keys(changes);
     const onlyPageChanged = changedKeys.length === 1 && changedKeys[0] === "pageNumber";
+    if (onlyPageChanged) pendingScrollRestore.current = window.scrollY;
     navigate({ ...currentRoute(), ...changes, page: "feed", storyId: "" }, !onlyPageChanged);
   };
 
@@ -294,9 +276,9 @@ export function App() {
       setReaderFromStoryPage(false);
       return;
     }
-    if (route.page === "story") {
+    if (route.page === "story" || route.page === "item") {
       if (history.state?.aibaizeNavigation) history.back();
-      else navigate({ ...currentRoute(), page: "hot", storyId: "" }, true);
+      else navigate({ ...currentRoute(), page: route.page === "story" ? "hot" : "feed", storyId: "" }, true);
       return;
     }
     setActiveItem(null);
@@ -309,13 +291,13 @@ export function App() {
       const next = parseLocation(window.location.href);
       applyRoute(next);
       const snapshot = readListState(listStateKey(next));
-      if (snapshot) window.requestAnimationFrame(() => window.scrollTo(0, snapshot.scrollY));
+      pendingScrollRestore.current = next.page === "feed" && snapshot ? snapshot.scrollY : null;
     };
     window.addEventListener("popstate", sync);
     return () => window.removeEventListener("popstate", sync);
   }, []);
 
-  const load = async (page = 1, append = false) => {
+  const load = async (page = 1) => {
     const requestVersion = ++loadVersion.current;
     setLoading(true);
     setError("");
@@ -349,24 +331,28 @@ export function App() {
         for (const response of responses) {
           for (const item of response.items || []) merged.set(item.id, item);
         }
-        const normalizedQuery = query.trim().toLowerCase();
-        nextItems = [...merged.values()]
-          .filter((item) => !activeTag || item.tags?.includes(activeTag))
-          .filter((item) => !normalizedQuery || topicSearchHaystack(item, searchMode).includes(normalizedQuery))
-          .sort((a, b) => (normalizedQuery && searchMode === "full" ? fullSearchRank(b, normalizedQuery) - fullSearchRank(a, normalizedQuery) : 0) || (b.score || 0) - (a.score || 0) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
+        nextItems = filterAndSortFeedItems([...merged.values()], {
+          query,
+          searchMode,
+          activeTag,
+          category: route.category,
+          sort: route.sort,
+        });
         nextFeedTotal = nextItems.length;
       } else {
         const categoryMode = mode === "education" ? "education" : mode === "culture" ? "culture" : "";
         const apiMode = mode === "all" || categoryMode ? "all" : "selected";
-        const pageSize = apiMode === "all" ? 120 : 80;
-        const feed = await api<{ items: Item[]; total: number; page: number; pageSize: number }>(
-          `/api/items?mode=${apiMode}&q=${encodeURIComponent(query)}&searchMode=${encodeURIComponent(searchMode)}&tag=${encodeURIComponent(activeTag)}&channel=${encodeURIComponent(mode === "all" || mode === "selected" ? activeChannel : "")}&category=${encodeURIComponent(categoryMode)}&page=${page}&pageSize=${pageSize}`,
-        );
-        nextItems = feed.items;
-        nextFeedTotal = feed.total;
+        const basePageSize = apiMode === "all" ? 120 : 80;
+        const pageRequests = cumulativePageRequests(page, basePageSize);
+        const effectiveCategory = route.category || categoryMode;
+        const feeds = await Promise.all(pageRequests.map((pagination) => api<{ items: Item[]; total: number; page: number; pageSize: number }>(
+          `/api/items?mode=${apiMode}&q=${encodeURIComponent(query)}&searchMode=${encodeURIComponent(searchMode)}&tag=${encodeURIComponent(activeTag)}&channel=${encodeURIComponent(mode === "all" || mode === "selected" ? activeChannel : "")}&category=${encodeURIComponent(effectiveCategory)}&sort=${encodeURIComponent(route.sort)}&page=${pagination.page}&pageSize=${pagination.pageSize}`,
+        )));
+        nextItems = [...new Map(feeds.flatMap((feed) => feed.items).map((item) => [item.id, item])).values()];
+        nextFeedTotal = feeds[0]?.total || 0;
       }
       if (requestVersion !== loadVersion.current) return;
-      setItems((current) => (append ? [...current, ...nextItems] : nextItems));
+      setItems(nextItems);
       setFeedPage(page);
       setFeedTotal(nextFeedTotal);
       setDaily(nextDaily);
@@ -383,10 +369,18 @@ export function App() {
 
   useEffect(() => {
     if (route.page !== "feed") return;
-    const append = appendNextRouteLoad.current;
-    appendNextRouteLoad.current = false;
-    load(route.pageNumber, append);
+    load(route.pageNumber);
   }, [route]);
+
+  useEffect(() => {
+    if (route.page !== "feed" || loading || pendingScrollRestore.current === null) return;
+    const scrollY = pendingScrollRestore.current;
+    pendingScrollRestore.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => window.scrollTo(0, scrollY));
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [loading, route.page, route.pageNumber, items.length]);
 
   useEffect(() => {
     if (route.page !== "story" || !route.storyId) return;
@@ -409,6 +403,29 @@ export function App() {
       })
       .finally(() => {
         if (!cancelled) setStoryLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [route.page, route.storyId]);
+
+  useEffect(() => {
+    if (route.page !== "item" || !route.storyId) return;
+    let cancelled = false;
+    setItemRouteLoading(true);
+    setItemRouteError("");
+    api<{ item: Item }>(`/api/public/items/${encodeURIComponent(route.storyId)}`)
+      .then(({ item }) => {
+        if (cancelled) return;
+        setPanelTab("reader");
+        setAskOpen(false);
+        setActiveItem(item);
+        setActiveRelatedItems([]);
+        markRead(item.id);
+      })
+      .catch((err) => {
+        if (!cancelled) setItemRouteError(err instanceof ApiError && err.status === 404 ? "404：未找到这条内容" : err instanceof Error ? err.message : "内容加载失败");
+      })
+      .finally(() => {
+        if (!cancelled) setItemRouteLoading(false);
       });
     return () => { cancelled = true; };
   }, [route.page, route.storyId]);
@@ -468,20 +485,20 @@ export function App() {
   const savedIds = useMemo(() => new Set(savedEntries.map((entry) => entry.item.id)), [savedEntries]);
   const activeTopic = topicForMode(mode);
   const visibleItems = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    const searchFiltered = mode === "reading" && normalizedQuery
-      ? items.filter((item) => readingSearchHaystack(item, searchMode).includes(normalizedQuery))
-      : items;
-    const searchSorted = mode === "reading" && normalizedQuery && searchMode === "full"
-      ? [...searchFiltered].sort((a, b) => fullSearchRank(b, normalizedQuery) - fullSearchRank(a, normalizedQuery) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime())
-      : searchFiltered;
-    return searchSorted.filter((item) => {
+    const searched = mode === "reading" ? filterAndSortFeedItems(items, {
+      query,
+      searchMode,
+      activeTag,
+      category: route.category,
+      sort: route.sort,
+    }) : items;
+    return searched.filter((item) => {
     if (statusFilter === "unread") return !readItems.has(item.id);
     if (statusFilter === "saved") return savedIds.has(item.id);
     if (statusFilter === "processed") return processedItems.has(item.id);
     return true;
     });
-  }, [items, mode, query, searchMode, statusFilter, readItems, savedIds, processedItems]);
+  }, [items, mode, query, searchMode, activeTag, route.category, route.sort, statusFilter, readItems, savedIds, processedItems]);
 
   const saveReadItems = (next: Set<string>) => {
     const compact = [...next].slice(-500);
@@ -500,7 +517,7 @@ export function App() {
     markRead(item.id);
     setActiveItem(item);
     setActiveRelatedItems(relatedItems);
-    navigate({ ...currentRoute(), page: "story", storyId: item.eventId || item.id });
+    navigate({ ...currentRoute(), page: "item", storyId: item.id });
   };
 
   const openStoryItem = (item: Item) => {
@@ -710,8 +727,13 @@ export function App() {
               setStoryError(err instanceof Error ? err.message : "故事加载失败");
             }).finally(() => setStoryLoading(false));
           }} />
+        ) : route.page === "item" && (itemRouteLoading || itemRouteError) ? (
+          <section className="story-page story-missing" aria-live="polite">
+            <button className="story-back" type="button" onClick={closeWorkspace}>返回信息流</button>
+            <strong>{itemRouteLoading ? "正在打开阅读工作台…" : itemRouteError}</strong>
+          </section>
         ) : mode === "admin" ? (
-          <AdminPanel onChanged={() => load(1, false)} />
+          <AdminPanel onChanged={() => load(1)} />
         ) : mode === "agent" ? (
           <AgentPage />
         ) : mode === "about" ? (
@@ -740,23 +762,24 @@ export function App() {
             processedItems={processedItems}
             shareMessage={shareMessage}
             onQueryChange={setQuery}
-            onSearch={() => updateFeedRoute({ query, pageNumber: 1 })}
-            onSearchModeChange={(searchMode) => updateFeedRoute({ searchMode, pageNumber: 1 })}
+            onSearch={() => updateFeedRoute({ query, sort: searchMode === "full" && query.trim() ? "relevance" : "published_desc", pageNumber: 1 })}
+            onSearchModeChange={(searchMode) => updateFeedRoute({ searchMode, sort: searchMode === "full" && query.trim() ? "relevance" : "published_desc", pageNumber: 1 })}
             onTagChange={(activeTag) => updateFeedRoute({ activeTag, pageNumber: 1 })}
             onChannelChange={(activeChannel) => updateFeedRoute({ activeChannel, pageNumber: 1 })}
             onStatusChange={(statusFilter) => updateFeedRoute({ statusFilter })}
             onDensityChange={changeDensity}
             onOpen={(item, relatedItems = []) => { setPanelTab("reader"); setAskOpen(false); openItem(item, relatedItems); }}
+            onOpenStory={(id) => navigate({ ...currentRoute(), page: "story", storyId: id })}
             onAsk={openAsk}
             onToggleRead={toggleRead}
             onToggleSaved={toggleSaved}
             onToggleProcessed={toggleProcessed}
-            onRefresh={() => load(feedPage, false)}
+            onRefresh={() => load(feedPage)}
             onRetryHotTopics={loadHotTopics}
             onOpenHotPage={() => navigate({ ...currentRoute(), page: "hot", storyId: "" })}
             onBookmarkSite={bookmarkSite}
             onShareSite={shareSite}
-            onLoadMore={() => { appendNextRouteLoad.current = true; updateFeedRoute({ pageNumber: feedPage + 1 }); }}
+            onLoadMore={() => updateFeedRoute({ pageNumber: feedPage + 1 })}
           />
         ) : activeTopic ? (
           <TopicPage
@@ -782,23 +805,24 @@ export function App() {
               processedItems,
               shareMessage,
               onQueryChange: setQuery,
-              onSearch: () => updateFeedRoute({ query, pageNumber: 1 }),
-              onSearchModeChange: (searchMode) => updateFeedRoute({ searchMode, pageNumber: 1 }),
+              onSearch: () => updateFeedRoute({ query, sort: searchMode === "full" && query.trim() ? "relevance" : "published_desc", pageNumber: 1 }),
+              onSearchModeChange: (searchMode) => updateFeedRoute({ searchMode, sort: searchMode === "full" && query.trim() ? "relevance" : "published_desc", pageNumber: 1 }),
               onTagChange: (activeTag) => updateFeedRoute({ activeTag, pageNumber: 1 }),
               onChannelChange: (activeChannel) => updateFeedRoute({ activeChannel, pageNumber: 1 }),
               onStatusChange: (statusFilter) => updateFeedRoute({ statusFilter }),
               onDensityChange: changeDensity,
               onOpen: (item, relatedItems = []) => { setPanelTab("reader"); setAskOpen(false); openItem(item, relatedItems); },
+              onOpenStory: (id) => navigate({ ...currentRoute(), page: "story", storyId: id }),
               onAsk: openAsk,
               onToggleRead: toggleRead,
               onToggleSaved: toggleSaved,
               onToggleProcessed: toggleProcessed,
-              onRefresh: () => load(feedPage, false),
+              onRefresh: () => load(feedPage),
               onRetryHotTopics: loadHotTopics,
               onOpenHotPage: () => navigate({ ...currentRoute(), page: "hot", storyId: "" }),
               onBookmarkSite: bookmarkSite,
               onShareSite: shareSite,
-              onLoadMore: () => { appendNextRouteLoad.current = true; updateFeedRoute({ pageNumber: feedPage + 1 }); },
+              onLoadMore: () => updateFeedRoute({ pageNumber: feedPage + 1 }),
             }}
           />
         ) : (
@@ -820,7 +844,7 @@ export function App() {
                     <button className="icon-action share-action" onClick={shareSite} title="分享网站">
                       <Share2 size={18} />
                     </button>
-                    <button className="icon-action" onClick={() => load(1, false)} title="刷新列表">
+                    <button className="icon-action" onClick={() => load(1)} title="刷新列表">
                       {loading ? <Loader2 className="spin" size={18} /> : <RefreshCw size={18} />}
                     </button>
                     <button className="icon-action ask-action" onClick={() => openAsk()} title="问白泽">
@@ -837,10 +861,10 @@ export function App() {
                       placeholder="搜索标题/摘要..."
                       value={query}
                       onChange={(event) => setQuery(event.target.value)}
-                      onKeyDown={(event) => event.key === "Enter" && updateFeedRoute({ query, pageNumber: 1 })}
+                      onKeyDown={(event) => event.key === "Enter" && updateFeedRoute({ query, sort: searchMode === "full" && query.trim() ? "relevance" : "published_desc", pageNumber: 1 })}
                     />
                   </label>
-                  <button className="primary" onClick={() => updateFeedRoute({ query, pageNumber: 1 })}>
+                  <button className="primary" onClick={() => updateFeedRoute({ query, sort: searchMode === "full" && query.trim() ? "relevance" : "published_desc", pageNumber: 1 })}>
                     <Check size={17} />
                     筛选
                   </button>
@@ -918,7 +942,7 @@ export function App() {
                 />
                 {items.length < feedTotal && (
                   <div className="load-more">
-                    <button className="primary" onClick={() => { appendNextRouteLoad.current = true; updateFeedRoute({ pageNumber: feedPage + 1 }); }} disabled={loading}>
+                    <button className="primary" onClick={() => updateFeedRoute({ pageNumber: feedPage + 1 })} disabled={loading}>
                       {loading ? "加载中..." : `加载更多 ${items.length}/${feedTotal}`}
                     </button>
                   </div>
@@ -1125,7 +1149,7 @@ function HotPulse({ items, readItems, onOpen }: { items: Item[]; readItems: Set<
       </div>
       <div className="hot-pulse-list">
         {items.map((item, index) => (
-          <a className={readItems.has(item.id) ? "read" : ""} href={item.url} key={item.id} rel="noreferrer" target="_self" onClick={(event) => { if (!shouldInterceptLinkClick(event)) return; event.preventDefault(); onOpen(item); }}>
+          <a className={readItems.has(item.id) ? "read" : ""} href={itemLocation(item.id)} key={item.id} target="_self" onClick={(event) => { if (!shouldInterceptLinkClick(event)) return; event.preventDefault(); onOpen(item); }}>
             <b>{index + 1}</b>
             <span>
               <strong>{item.title}</strong>
@@ -1668,7 +1692,7 @@ function Feed({
                     <strong className="score-pill">{item.score}</strong>
                   </div>
                 </div>
-                <a className="title" href={item.url} target="_self" rel="noreferrer" onClick={(event) => { if (!shouldInterceptLinkClick(event)) return; event.preventDefault(); onOpen(item); }}>
+                <a className="title" href={itemLocation(item.id)} target="_self" onClick={(event) => { if (!shouldInterceptLinkClick(event)) return; event.preventDefault(); onOpen(item); }}>
                   {item.title}
                 </a>
                 <EditorialBrief item={item} />

@@ -1,5 +1,5 @@
 export type RouteState = {
-  page: "feed" | "hot" | "story";
+  page: "feed" | "hot" | "story" | "item";
   storyId: string;
   mode: string;
   query: string;
@@ -53,12 +53,13 @@ function readSort(value: string): RouteState["sort"] {
 export function parseLocation(location: string | Location): RouteState {
   const url = new URL(typeof location === "string" ? location : location.href, locationOrigin());
   const storyMatch = url.pathname.match(/^\/story\/([^/]+)$/);
-  const page: RouteState["page"] = storyMatch ? "story" : url.pathname === "/hot" ? "hot" : "feed";
+  const itemMatch = url.pathname.match(/^\/item\/([^/]+)$/);
+  const page: RouteState["page"] = storyMatch ? "story" : itemMatch ? "item" : url.pathname === "/hot" ? "hot" : "feed";
   const pageNumber = Number.parseInt(url.searchParams.get("page") || "", 10);
 
   return {
     page,
-    storyId: storyMatch ? decodeURIComponent(storyMatch[1]) : "",
+    storyId: storyMatch || itemMatch ? decodeURIComponent((storyMatch || itemMatch)![1]) : "",
     mode: url.searchParams.get("mode") || defaults.mode,
     query: url.searchParams.get("q") || defaults.query,
     searchMode: readSearchMode(url.searchParams.get("search") || ""),
@@ -72,7 +73,7 @@ export function parseLocation(location: string | Location): RouteState {
 }
 
 export function toLocation(route: RouteState) {
-  const path = route.page === "hot" ? "/hot" : route.page === "story" ? `/story/${encodeURIComponent(route.storyId)}` : "/";
+  const path = route.page === "hot" ? "/hot" : route.page === "story" ? `/story/${encodeURIComponent(route.storyId)}` : route.page === "item" ? `/item/${encodeURIComponent(route.storyId)}` : "/";
   const params = new URLSearchParams();
   if (route.page === "feed") {
     for (const [key, value] of [["mode", route.mode], ["q", route.query], ["search", route.searchMode === "direct" ? "" : route.searchMode], ["channel", route.activeChannel], ["tag", route.activeTag], ["category", route.category], ["status", route.statusFilter === "all" ? "" : route.statusFilter], ["sort", route.sort === "published_desc" ? "" : route.sort], ["page", route.pageNumber > 1 ? String(route.pageNumber) : ""]]) {
@@ -81,6 +82,21 @@ export function toLocation(route: RouteState) {
   }
   const query = params.toString();
   return `${path}${query ? `?${query}` : ""}`;
+}
+
+export function storyLocation(id: string) {
+  return `/story/${encodeURIComponent(id)}`;
+}
+
+export function itemLocation(id: string) {
+  return `/item/${encodeURIComponent(id)}`;
+}
+
+/** A page URL represents everything revealed through that load-more page. */
+export function cumulativePageRequests(pageNumber: number, pageSize: number) {
+  const page = Number.isSafeInteger(pageNumber) && pageNumber > 0 ? pageNumber : 1;
+  const size = Number.isSafeInteger(pageSize) && pageSize > 0 ? pageSize : 1;
+  return Array.from({ length: page }, (_, index) => ({ page: index + 1, pageSize: size }));
 }
 
 export function captureListState(key: string, snapshot: ListSnapshot): void {
