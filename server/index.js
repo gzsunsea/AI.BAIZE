@@ -1230,6 +1230,21 @@ function ipv6InCidr(value, network, prefix) {
   return (value >> shift) === (networkValue >> shift);
 }
 
+const NON_PUBLIC_IPV6_CIDRS = [
+  ["64:ff9b:1::", 48],
+  ["100::", 64],
+  ["2001::", 23],
+  ["2001:db8::", 32],
+  ["2002::", 16],
+  ["3ffe::", 16],
+  ["3fff::", 20],
+  ["5f00::", 16],
+  ["fc00::", 7],
+  ["fe80::", 10],
+  ["fec0::", 10],
+  ["ff00::", 8],
+];
+
 function isPrivateIp(address = "") {
   const normalized = address.toLowerCase().replace(/^\[|\]$/g, "").split("%")[0];
   const family = net.isIP(normalized);
@@ -1251,14 +1266,18 @@ function isPrivateIp(address = "") {
   if (family === 6) {
     const value = ipv6Value(normalized);
     if (value === null) return true;
-    if (ipv6InCidr(value, "::ffff:0:0", 96)) {
+    const embeddedIpv4Prefix = [
+      ["::", 96],
+      ["::ffff:0:0", 96],
+      ["::ffff:0:0:0", 96],
+      ["64:ff9b::", 96],
+    ].find(([network, prefix]) => ipv6InCidr(value, network, prefix));
+    if (embeddedIpv4Prefix) {
       const ipv4 = Number(value & 0xffffffffn);
       return isPrivateIp(`${(ipv4 >>> 24) & 255}.${(ipv4 >>> 16) & 255}.${(ipv4 >>> 8) & 255}.${ipv4 & 255}`);
     }
-    return [
-      ["::", 128], ["::1", 128], ["100::", 64], ["fc00::", 7],
-      ["fe80::", 10], ["fec0::", 10], ["ff00::", 8],
-    ].some(([network, prefix]) => ipv6InCidr(value, network, prefix));
+    return !ipv6InCidr(value, "2000::", 3)
+      || NON_PUBLIC_IPV6_CIDRS.some(([network, prefix]) => ipv6InCidr(value, network, prefix));
   }
   return true;
 }

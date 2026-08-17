@@ -4,6 +4,7 @@ export type FeedSearchOptions = {
   query?: string;
   searchMode?: "direct" | "full";
   activeTag?: string;
+  activeChannel?: string;
   category?: string;
   sort?: "published_desc" | "relevance";
 };
@@ -42,11 +43,13 @@ export function feedSearchRank(item: Item, query: string) {
 
 export function filterAndSortFeedItems(items: Item[], options: FeedSearchOptions = {}) {
   const query = normalized(options.query).trim();
+  const activeChannel = normalized(options.activeChannel).trim();
   const mode = options.searchMode === "full" ? "full" : "direct";
   const sort = options.sort === "relevance" && mode === "full" && query ? "relevance" : "published_desc";
   return items
     .filter((item) => !options.category || item.category === options.category || item.categoryLabel === options.category)
     .filter((item) => !options.activeTag || item.tags?.includes(options.activeTag))
+    .filter((item) => !activeChannel || [item.channel, item.channelLabel].some((value) => normalized(value).trim() === activeChannel))
     .filter((item) => !query || (mode === "full" ? fullFields(item) : directFields(item)).some((value) => normalized(value).includes(query)))
     .sort((a, b) => (
       (sort === "relevance" ? feedSearchRank(b, query) - feedSearchRank(a, query) : 0)

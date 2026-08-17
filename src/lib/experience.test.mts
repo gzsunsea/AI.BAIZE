@@ -7,10 +7,10 @@ import { filterAndSortFeedItems } from "./feedSearch.mts";
 
 test("all client-rendered feeds share direct/full matching, category filtering, and URL sort", () => {
   const items = [
-    { id: "saved-first", title: "AI update", summary: "ordinary", sourceName: "Source", tags: [], category: "culture", publishedAt: "2026-08-16T00:00:00.000Z", score: 99 },
-    { id: "new-direct", title: "Needle launch", summary: "ordinary", sourceName: "Source", tags: [], category: "culture", publishedAt: "2026-08-18T00:00:00.000Z", score: 20 },
-    { id: "full-only", title: "AI launch", summary: "ordinary", sourceName: "Source", tags: [], category: "culture", content: "needle", publishedAt: "2026-08-17T00:00:00.000Z", score: 10 },
-    { id: "wrong-category", title: "Needle education", summary: "ordinary", sourceName: "Source", tags: [], category: "education", publishedAt: "2026-08-19T00:00:00.000Z", score: 100 },
+    { id: "saved-first", title: "AI update", summary: "ordinary", sourceName: "Source", tags: [], category: "culture", channel: "news", channelLabel: "资讯聚合", publishedAt: "2026-08-16T00:00:00.000Z", score: 99 },
+    { id: "new-direct", title: "Needle launch", summary: "ordinary", sourceName: "Source", tags: [], category: "culture", channel: "first_party", channelLabel: "一手信源", publishedAt: "2026-08-18T00:00:00.000Z", score: 20 },
+    { id: "full-only", title: "AI launch", summary: "ordinary", sourceName: "Source", tags: [], category: "culture", channel: "social", channelLabel: "观点", content: "needle", publishedAt: "2026-08-17T00:00:00.000Z", score: 10 },
+    { id: "wrong-category", title: "Needle education", summary: "ordinary", sourceName: "Source", tags: [], category: "education", channel: "first_party", channelLabel: "一手信源", publishedAt: "2026-08-19T00:00:00.000Z", score: 100 },
   ] as never[];
 
   const direct = filterAndSortFeedItems(items, { query: "needle", searchMode: "direct", category: "culture", sort: "published_desc" });
@@ -19,6 +19,10 @@ test("all client-rendered feeds share direct/full matching, category filtering, 
   assert.deepEqual(full.map((item) => item.id), ["new-direct", "full-only"]);
   const reading = filterAndSortFeedItems(items.slice(0, 2), { query: "", searchMode: "direct", category: "culture", sort: "published_desc" });
   assert.deepEqual(reading.map((item) => item.id), ["new-direct", "saved-first"]);
+  const copiedTopicUrl = filterAndSortFeedItems(items, { activeChannel: "first_party", category: "culture", sort: "published_desc" });
+  assert.deepEqual(copiedTopicUrl.map((item) => item.id), ["new-direct"]);
+  const copiedReadingUrl = filterAndSortFeedItems(items, { activeChannel: "资讯聚合", category: "culture", sort: "published_desc" });
+  assert.deepEqual(copiedReadingUrl.map((item) => item.id), ["saved-first"]);
 });
 
 test("groups feed items by Shanghai local date and sorts the timeline newest first", () => {
@@ -107,8 +111,8 @@ test("feed search exposes direct and full modes and keeps them in the shared URL
 test("topic and reading feeds share the search pipeline and ignore stale loads", () => {
   const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");
 
-  assert.match(appSource, /filterAndSortFeedItems\(\[\.\.\.merged\.values\(\)\]/);
-  assert.match(appSource, /mode === "reading" \? filterAndSortFeedItems\(items/);
+  assert.match(appSource, /filterAndSortFeedItems\(\[\.\.\.merged\.values\(\)\], \{\s*query,\s*searchMode,\s*activeTag,\s*activeChannel,/);
+  assert.match(appSource, /mode === "reading" \? filterAndSortFeedItems\(items, \{\s*query,\s*searchMode,\s*activeTag,\s*activeChannel,/);
   assert.match(appSource, /const loadVersion = useRef\(0\)/);
   assert.match(appSource, /const requestVersion = \+\+loadVersion\.current/);
   assert.match(appSource, /if \(requestVersion !== loadVersion\.current\) return;/);
@@ -130,9 +134,18 @@ test("editorial feed renders available media and Chinese radar never falls throu
 test("hot center and story pages retain their semantic editorial landmarks", () => {
   const hotSource = readFileSync(new URL("../components/hot/HotPage.tsx", import.meta.url), "utf8");
   const storySource = readFileSync(new URL("../components/hot/StoryPage.tsx", import.meta.url), "utf8");
+  const feedSource = readFileSync(new URL("../components/feed/FeedExperience.tsx", import.meta.url), "utf8");
 
   assert.match(hotSource, /近 72 小时/);
   assert.match(hotSource, /role="list"/);
+  assert.match(hotSource, /perAdditionalSource/);
+  assert.match(hotSource, /decayHours/);
+  assert.match(hotSource, /floor/);
+  assert.match(hotSource, /selectedScoreBonus\.divisor/);
+  assert.match(feedSource, /formatTime\(topic\.latestAt\)/);
+  assert.match(feedSource, /topic\.summary \|\| topic\.representative\.summary/);
+  assert.match(feedSource, /hot-status \$\{topic\.status\}/);
+  assert.match(feedSource, /热度 \{topic\.heat\}/);
   assert.match(storySource, /事件时间线/);
   assert.match(storySource, /<time/);
 });

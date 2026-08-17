@@ -70,6 +70,46 @@ test("media fetch rejects the full IPv6 link-local range returned by DNS", async
   }), /private media/i);
 });
 
+test("media fetch rejects IPv6 translation and special-use ranges before requesting", async () => {
+  const blockedAddresses = [
+    "64:ff9b::7f00:1",
+    "64:ff9b:1::c000:221",
+    "2001:2::1",
+    "2001:db8::1",
+    "2002:7f00:1::",
+    "3fff::1",
+    "5f00::1",
+  ];
+  let requestCount = 0;
+
+  for (const address of blockedAddresses) {
+    await assert.rejects(() => fetchPublicMedia(new URL("https://public.example/image.png"), {
+      lookup: async () => [{ address, family: 6 }],
+      requestHop: async () => {
+        requestCount += 1;
+        return { status: 200, headers: {}, body: Buffer.alloc(0) };
+      },
+    }), /private media/i, address);
+  }
+
+  assert.equal(requestCount, 0);
+});
+
+test("media fetch preserves public IPv4-mapped and well-known NAT64 targets", async () => {
+  const requested = [];
+  for (const address of ["::ffff:5db8:d822", "64:ff9b::5db8:d822"]) {
+    const result = await fetchPublicMedia(new URL("https://public.example/image.png"), {
+      lookup: async () => [{ address, family: 6 }],
+      requestHop: async (_target, resolved) => {
+        requested.push(resolved.address);
+        return { status: 200, headers: {}, body: Buffer.from("ok") };
+      },
+    });
+    assert.equal(result.body.toString(), "ok");
+  }
+  assert.deepEqual(requested, ["::ffff:5db8:d822", "64:ff9b::5db8:d822"]);
+});
+
 test("public responses include baseline browser security headers", async (t) => {
   const { server, base } = await listen();
   t.after(() => server.close());

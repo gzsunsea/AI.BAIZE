@@ -259,7 +259,7 @@
 
 .current-signal-list > a {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 42px;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
   gap: var(--space-3);
   align-items: center;
   padding: 14px 20px;
@@ -283,6 +283,10 @@
   color: var(--editorial);
   font-family: ui-monospace, monospace;
   font-style: normal;
+}
+
+.current-signal-list em {
+  white-space: nowrap;
 }
 
 .current-signal-list span,

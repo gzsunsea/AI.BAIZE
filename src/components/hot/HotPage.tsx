@@ -37,7 +37,8 @@ export function HotPage({ data, loading, error, onOpenStory, onRetry }: HotPageP
 
       {data?.rules && <details className="hot-rules">
         <summary>规则说明（v{data.rules.version}）</summary>
-        <p>热度 = 信源质量（最高 {data.rules.components.sourceQualityScore.cap}）+ 多源确认（最高 {data.rules.components.sourceCountBonus.cap}）+ 时效（初始 {data.rules.components.freshnessBonus.initial}）+ 精选分（最高 {data.rules.components.selectedScoreBonus.cap}）。</p>
+        <p>热度 = 信源质量 + 多源确认 + 时效 + 精选分，总分限制在 0–100。信源质量按每条关联内容的层级权重累加，最高 {data.rules.components.sourceQualityScore.cap} 分。</p>
+        <p>多源确认从第 2 个独立信源起，每增加 1 个加 {data.rules.components.sourceCountBonus.perAdditionalSource} 分，最高 {data.rules.components.sourceCountBonus.cap} 分。时效以最新报道为准，从 {data.rules.components.freshnessBonus.initial} 分起，每 {data.rules.components.freshnessBonus.decayHours} 小时衰减 1 分，最低 {data.rules.components.freshnessBonus.floor} 分。精选分取代表内容最高分除以 {data.rules.components.selectedScoreBonus.divisor} 后四舍五入，最高 {data.rules.components.selectedScoreBonus.cap} 分。</p>
         <p>信源层级权重：{Object.entries(data.rules.tierWeights).map(([tier, weight]) => `${tier} ${weight}`).join(" · ")}。当前不提供趋势变化量。</p>
       </details>}
 

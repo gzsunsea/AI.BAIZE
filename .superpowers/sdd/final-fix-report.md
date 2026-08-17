@@ -71,3 +71,37 @@ All seven Important full-branch review findings are addressed. No production run
 ## Unfixed Important Findings
 
 None.
+
+## Final Three Whole-Branch Fixes — 2026-08-18
+
+### Status
+
+The final three review findings are addressed on top of `eb069bd`. No dependency or runtime-data changes were made.
+
+### Fixes
+
+1. **IPv6 SSRF classification**
+   - Public-media validation now inspects embedded IPv4 values in compatible, mapped, translatable, and well-known NAT64 addresses, rejecting non-public destinations while preserving public ones. Local-use NAT64, discard-only, protocol-assignment, benchmarking, documentation, 6to4, retired 6bone, segment-routing, unique-local, link/site-local, multicast, and IPv6 addresses outside currently allocated global unicast space are rejected before a request hop is created.
+   - Regression coverage includes `64:ff9b::7f00:1`, `64:ff9b:1::/48`, benchmarking, documentation, 6to4, and other non-global ranges, and asserts that `requestHop` remains uncalled.
+
+2. **Copied topic/reading URL channel behavior**
+   - The shared client feed-search contract now accepts `activeChannel` and matches both decorated channel keys and channel labels.
+   - Topic and reading callers pass the URL-restored channel into the shared pipeline; behavior tests cover key-based topic URLs and label-based reading URLs.
+
+3. **Unified hotspot transparency**
+   - The selected-feed current-hotspot preview now displays `latestAt`, representative summary, `status`, and `heat` from the unified `HotTopic` contract.
+   - The hotspot rule explanation now discloses source-tier increments and cap, independent-source increment and cap, freshness initial value, decay interval and floor, selected-score divisor and cap, total-score bounds, and every tier weight.
+
+### Verification
+
+- Focused security/search/hot suite: `node --test server/security.test.js server/lib/experience.test.js server/index.test.js src/lib/experience.test.mts src/lib/navigation.test.mts` — 59 passed, 0 failed.
+- Full suite: `npm test` — 68 passed, 0 failed.
+- No-emit frontend check: `npm run typecheck` — passed.
+- Production build: `npm run build` — passed.
+- Whitespace check: `git diff --check` — passed before this report append and repeated before commit.
+
+### Remaining Concerns
+
+- The existing `MODULE_TYPELESS_PACKAGE_JSON` warning still appears during the TypeScript navigation test; resolving it would require a broader CommonJS/ESM packaging decision.
+- No browser automation is configured, so the 390 px visual click-through remains a manual release check.
+- Production deployment and production `data/db.json` changes were not performed.

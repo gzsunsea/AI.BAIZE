@@ -335,6 +335,7 @@ export function App() {
           query,
           searchMode,
           activeTag,
+          activeChannel,
           category: route.category,
           sort: route.sort,
         });
@@ -489,6 +490,7 @@ export function App() {
       query,
       searchMode,
       activeTag,
+      activeChannel,
       category: route.category,
       sort: route.sort,
     }) : items;
@@ -498,7 +500,7 @@ export function App() {
     if (statusFilter === "processed") return processedItems.has(item.id);
     return true;
     });
-  }, [items, mode, query, searchMode, activeTag, route.category, route.sort, statusFilter, readItems, savedIds, processedItems]);
+  }, [items, mode, query, searchMode, activeTag, activeChannel, route.category, route.sort, statusFilter, readItems, savedIds, processedItems]);
 
   const saveReadItems = (next: Set<string>) => {
     const compact = [...next].slice(-500);

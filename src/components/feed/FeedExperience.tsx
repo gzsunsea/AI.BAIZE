@@ -109,9 +109,10 @@ function CurrentSignals({ topics, loading, error, onOpenStory, onRetry, onOpenHo
             <b>{String(index + 1).padStart(2, "0")}</b>
             <span>
               <strong>{topic.title}</strong>
-              <small>{topic.sourceCount} 个独立信源 · {topic.sources.slice(0, 3).join(" / ")} · {formatTime(topic.publishedAt)}</small>
+              <small>{topic.sourceCount} 个独立信源 · {topic.sources.slice(0, 3).join(" / ")} · 最新 {formatTime(topic.latestAt)}</small>
+              <small>{topic.summary || topic.representative.summary}</small>
             </span>
-            <em>{topic.topScore}</em>
+            <em className={`hot-status ${topic.status}`}>{topic.status === "new" ? "新出现" : "持续发酵"} · 热度 {topic.heat}</em>
           </a>
         ))}
       </div>
