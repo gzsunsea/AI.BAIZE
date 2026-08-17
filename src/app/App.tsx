@@ -45,6 +45,7 @@ import { ReportsWorkspace } from "../components/reports/ReportsWorkspace";
 import { ReadingWorkspace as EditorialReadingWorkspace } from "../components/reader/ReadingWorkspace";
 import { BookmarkGuide, ThemeToggle } from "../components/shared";
 import { topicForMode, topicRequestUrls } from "../lib/experience.mts";
+import { captureListState, parseLocation, readListState, toLocation, type RouteState } from "../lib/navigation";
 import type { ApiState, AskResult, DailyDigest, HotTopic, Item, MpArticle, MpDigest, SavedEntry, Stats } from "../types";
 import "../styles.css";
 
@@ -102,15 +103,16 @@ async function api<T>(url: string, options: RequestInit = {}): Promise<T> {
 }
 
 export function App() {
-  const [mode, setMode] = useState("selected");
+  const [route, setRoute] = useState<RouteState>(() => parseLocation(window.location.href));
+  const [mode, setMode] = useState(() => route.mode);
   const [themeMode, setThemeMode] = useState(localStorage.getItem("aihot-theme-mode") || "dark");
-  const [query, setQuery] = useState("");
-  const [activeTag, setActiveTag] = useState("");
-  const [activeChannel, setActiveChannel] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [query, setQuery] = useState(() => route.query);
+  const [activeTag, setActiveTag] = useState(() => route.activeTag);
+  const [activeChannel, setActiveChannel] = useState(() => route.activeChannel);
+  const [statusFilter, setStatusFilter] = useState(() => route.statusFilter);
   const [density, setDensity] = useState(localStorage.getItem("aibaize-density") || "comfortable");
   const [items, setItems] = useState<Item[]>([]);
-  const [feedPage, setFeedPage] = useState(1);
+  const [feedPage, setFeedPage] = useState(() => route.pageNumber);
   const [feedTotal, setFeedTotal] = useState(0);
   const [daily, setDaily] = useState<DailyDigest | null>(null);
   const [dailyArchive, setDailyArchive] = useState<DailyDigest[]>([]);
@@ -150,6 +152,76 @@ export function App() {
   const [hotTopics, setHotTopics] = useState<HotTopic[]>([]);
   const [hotTopicsLoading, setHotTopicsLoading] = useState(false);
   const [hotTopicsError, setHotTopicsError] = useState("");
+
+  const currentRoute = (): RouteState => ({
+    ...route,
+    mode,
+    query,
+    activeTag,
+    activeChannel,
+    statusFilter,
+    pageNumber: feedPage,
+  });
+
+  const applyRoute = (next: RouteState) => {
+    setRoute(next);
+    setMode(next.mode);
+    setQuery(next.query);
+    setActiveTag(next.activeTag);
+    setActiveChannel(next.activeChannel);
+    setStatusFilter(next.statusFilter);
+    setFeedPage(next.pageNumber);
+    if (next.page !== "story") {
+      setActiveItem(null);
+      setActiveRelatedItems([]);
+    }
+  };
+
+  const listStateKey = (next: RouteState) => `aibaize-list:${toLocation({ ...next, page: "feed", storyId: "" })}`;
+
+  const navigate = (next: RouteState, replace = false) => {
+    const current = currentRoute();
+    captureListState(listStateKey(current), {
+      scrollY: window.scrollY,
+      mode: current.mode,
+      query: current.query,
+      searchMode: current.searchMode,
+      activeChannel: current.activeChannel,
+      activeTag: current.activeTag,
+      category: current.category,
+      statusFilter: current.statusFilter,
+      sort: current.sort,
+      pageNumber: current.pageNumber,
+    });
+    history[replace ? "replaceState" : "pushState"]({ aibaizeNavigation: true }, "", toLocation(next));
+    applyRoute(next);
+  };
+
+  const updateFeedRoute = (changes: Partial<RouteState>, replace = false) => {
+    navigate({ ...currentRoute(), ...changes, page: "feed", storyId: "" }, replace);
+  };
+
+  const closeWorkspace = () => {
+    if (route.page === "story") {
+      if (history.state?.aibaizeNavigation) history.back();
+      else navigate({ ...currentRoute(), page: "hot", storyId: "" }, true);
+      return;
+    }
+    setActiveItem(null);
+    setActiveRelatedItems([]);
+    setAskOpen(false);
+  };
+
+  useEffect(() => {
+    const sync = () => {
+      const next = parseLocation(window.location.href);
+      applyRoute(next);
+      const snapshot = readListState(listStateKey(next));
+      if (snapshot) window.requestAnimationFrame(() => window.scrollTo(0, snapshot.scrollY));
+    };
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, []);
 
   const load = async (page = 1, append = false) => {
     setLoading(true);
@@ -282,6 +354,7 @@ export function App() {
     markRead(item.id);
     setActiveItem(item);
     setActiveRelatedItems(relatedItems);
+    navigate({ ...currentRoute(), page: "story", storyId: item.id });
   };
 
   const toggleRead = (id: string) => {
@@ -355,12 +428,9 @@ export function App() {
     }
     setLoading(true);
     if (nextMode === "mp") setMp(null);
-    setMode(nextMode);
+    updateFeedRoute({ mode: nextMode, statusFilter: nextMode === "reading" ? "saved" : "all", pageNumber: 1 });
     setMobileMenuOpen(false);
-    setActiveItem(null);
-    setActiveRelatedItems([]);
     setAskOpen(false);
-    setStatusFilter(nextMode === "reading" ? "saved" : "all");
   };
 
   const openAsk = (item?: Item) => {
@@ -394,8 +464,7 @@ export function App() {
       const target = event.target as HTMLElement | null;
       if (target?.matches("input, textarea, select, [contenteditable='true']")) return;
       if (event.key === "Escape" && (activeItem || askOpen)) {
-        setActiveItem(null);
-        setAskOpen(false);
+        closeWorkspace();
         return;
       }
       if (!activeItem) return;
@@ -490,10 +559,10 @@ export function App() {
             processedItems={processedItems}
             shareMessage={shareMessage}
             onQueryChange={setQuery}
-            onSearch={() => load(1, false)}
-            onTagChange={setActiveTag}
-            onChannelChange={setActiveChannel}
-            onStatusChange={setStatusFilter}
+            onSearch={() => { updateFeedRoute({ query, pageNumber: 1 }); load(1, false); }}
+            onTagChange={(activeTag) => updateFeedRoute({ activeTag, pageNumber: 1 })}
+            onChannelChange={(activeChannel) => updateFeedRoute({ activeChannel, pageNumber: 1 })}
+            onStatusChange={(statusFilter) => updateFeedRoute({ statusFilter })}
             onDensityChange={changeDensity}
             onOpen={(item, relatedItems = []) => { setPanelTab("reader"); setAskOpen(false); openItem(item, relatedItems); }}
             onAsk={openAsk}
@@ -504,7 +573,7 @@ export function App() {
             onRetryHotTopics={loadHotTopics}
             onBookmarkSite={bookmarkSite}
             onShareSite={shareSite}
-            onLoadMore={() => load(feedPage + 1, true)}
+            onLoadMore={() => { const pageNumber = feedPage + 1; updateFeedRoute({ pageNumber }); load(pageNumber, true); }}
           />
         ) : activeTopic ? (
           <TopicPage
@@ -529,10 +598,10 @@ export function App() {
               processedItems,
               shareMessage,
               onQueryChange: setQuery,
-              onSearch: () => load(1, false),
-              onTagChange: setActiveTag,
-              onChannelChange: setActiveChannel,
-              onStatusChange: setStatusFilter,
+              onSearch: () => { updateFeedRoute({ query, pageNumber: 1 }); load(1, false); },
+              onTagChange: (activeTag) => updateFeedRoute({ activeTag, pageNumber: 1 }),
+              onChannelChange: (activeChannel) => updateFeedRoute({ activeChannel, pageNumber: 1 }),
+              onStatusChange: (statusFilter) => updateFeedRoute({ statusFilter }),
               onDensityChange: changeDensity,
               onOpen: (item, relatedItems = []) => { setPanelTab("reader"); setAskOpen(false); openItem(item, relatedItems); },
               onAsk: openAsk,
@@ -680,7 +749,7 @@ export function App() {
           initialTab={panelTab}
           saved={Boolean(activeItem && savedIds.has(activeItem.id))}
           processed={Boolean(activeItem && processedItems.has(activeItem.id))}
-          onClose={() => { setActiveItem(null); setActiveRelatedItems([]); setAskOpen(false); }}
+          onClose={closeWorkspace}
           onRead={markRead}
           onOpenRelated={(item) => openItem(item, activeRelatedItems)}
           onToggleSaved={toggleSaved}
