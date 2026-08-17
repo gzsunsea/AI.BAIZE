@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Archive,
@@ -45,7 +45,7 @@ import { ReportsWorkspace } from "../components/reports/ReportsWorkspace";
 import { ReadingWorkspace as EditorialReadingWorkspace } from "../components/reader/ReadingWorkspace";
 import { BookmarkGuide, ThemeToggle } from "../components/shared";
 import { topicForMode, topicRequestUrls } from "../lib/experience.mts";
-import { captureListState, parseLocation, readListState, toLocation, type RouteState } from "../lib/navigation";
+import { captureListState, parseLocation, readListState, shouldInterceptLinkClick, toLocation, type RouteState } from "../lib/navigation";
 import type { ApiState, AskResult, DailyDigest, HotTopic, Item, MpArticle, MpDigest, SavedEntry, Stats } from "../types";
 import "../styles.css";
 
@@ -152,6 +152,9 @@ export function App() {
   const [hotTopics, setHotTopics] = useState<HotTopic[]>([]);
   const [hotTopicsLoading, setHotTopicsLoading] = useState(false);
   const [hotTopicsError, setHotTopicsError] = useState("");
+  const [storyLoading, setStoryLoading] = useState(false);
+  const [storyError, setStoryError] = useState("");
+  const appendNextRouteLoad = useRef(false);
 
   const currentRoute = (): RouteState => ({
     ...route,
@@ -287,8 +290,38 @@ export function App() {
   };
 
   useEffect(() => {
-    load(1, false);
-  }, [mode, activeTag, activeChannel]);
+    if (route.page === "story") return;
+    const append = appendNextRouteLoad.current;
+    appendNextRouteLoad.current = false;
+    load(route.pageNumber, append);
+  }, [route]);
+
+  useEffect(() => {
+    if (route.page !== "story" || !route.storyId) return;
+    let cancelled = false;
+    setStoryLoading(true);
+    setStoryError("");
+    api<{ event?: { representative?: Item }; latestUpdates?: Item[]; timeline?: Item[] }>(`/api/public/stories/${encodeURIComponent(route.storyId)}`)
+      .then((story) => {
+        const item = story.event?.representative;
+        if (!item) throw new Error("未找到该故事");
+        if (cancelled) return;
+        markRead(item.id);
+        setActiveItem(item);
+        const related = [...(story.latestUpdates || []), ...(story.timeline || [])]
+          .filter((candidate, index, all) => candidate.id !== item.id && all.findIndex((value) => value.id === candidate.id) === index);
+        setActiveRelatedItems(related);
+        setPanelTab("reader");
+        setAskOpen(false);
+      })
+      .catch((err) => {
+        if (!cancelled) setStoryError(err instanceof Error ? err.message : "故事加载失败");
+      })
+      .finally(() => {
+        if (!cancelled) setStoryLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [route.page, route.storyId]);
 
   useEffect(() => {
     if (mode === "reading") {
@@ -428,7 +461,13 @@ export function App() {
     }
     setLoading(true);
     if (nextMode === "mp") setMp(null);
-    updateFeedRoute({ mode: nextMode, statusFilter: nextMode === "reading" ? "saved" : "all", pageNumber: 1 });
+    updateFeedRoute({
+      mode: nextMode,
+      category: nextMode === "education" || nextMode === "culture" ? nextMode : "",
+      activeChannel: nextMode === "selected" || nextMode === "all" ? activeChannel : "",
+      statusFilter: nextMode === "reading" ? "saved" : "all",
+      pageNumber: 1,
+    });
     setMobileMenuOpen(false);
     setAskOpen(false);
   };
@@ -559,7 +598,7 @@ export function App() {
             processedItems={processedItems}
             shareMessage={shareMessage}
             onQueryChange={setQuery}
-            onSearch={() => { updateFeedRoute({ query, pageNumber: 1 }); load(1, false); }}
+            onSearch={() => updateFeedRoute({ query, pageNumber: 1 })}
             onTagChange={(activeTag) => updateFeedRoute({ activeTag, pageNumber: 1 })}
             onChannelChange={(activeChannel) => updateFeedRoute({ activeChannel, pageNumber: 1 })}
             onStatusChange={(statusFilter) => updateFeedRoute({ statusFilter })}
@@ -569,11 +608,11 @@ export function App() {
             onToggleRead={toggleRead}
             onToggleSaved={toggleSaved}
             onToggleProcessed={toggleProcessed}
-            onRefresh={() => load(1, false)}
+            onRefresh={() => load(feedPage, false)}
             onRetryHotTopics={loadHotTopics}
             onBookmarkSite={bookmarkSite}
             onShareSite={shareSite}
-            onLoadMore={() => { const pageNumber = feedPage + 1; updateFeedRoute({ pageNumber }); load(pageNumber, true); }}
+            onLoadMore={() => { appendNextRouteLoad.current = true; updateFeedRoute({ pageNumber: feedPage + 1 }); }}
           />
         ) : activeTopic ? (
           <TopicPage
@@ -598,7 +637,7 @@ export function App() {
               processedItems,
               shareMessage,
               onQueryChange: setQuery,
-              onSearch: () => { updateFeedRoute({ query, pageNumber: 1 }); load(1, false); },
+              onSearch: () => updateFeedRoute({ query, pageNumber: 1 }),
               onTagChange: (activeTag) => updateFeedRoute({ activeTag, pageNumber: 1 }),
               onChannelChange: (activeChannel) => updateFeedRoute({ activeChannel, pageNumber: 1 }),
               onStatusChange: (statusFilter) => updateFeedRoute({ statusFilter }),
@@ -608,11 +647,11 @@ export function App() {
               onToggleRead: toggleRead,
               onToggleSaved: toggleSaved,
               onToggleProcessed: toggleProcessed,
-              onRefresh: () => load(1, false),
+              onRefresh: () => load(feedPage, false),
               onRetryHotTopics: loadHotTopics,
               onBookmarkSite: bookmarkSite,
               onShareSite: shareSite,
-              onLoadMore: () => undefined,
+              onLoadMore: () => { appendNextRouteLoad.current = true; updateFeedRoute({ pageNumber: feedPage + 1 }); },
             }}
           />
         ) : (
@@ -651,10 +690,10 @@ export function App() {
                       placeholder="搜索标题/摘要..."
                       value={query}
                       onChange={(event) => setQuery(event.target.value)}
-                      onKeyDown={(event) => event.key === "Enter" && load(1, false)}
+                      onKeyDown={(event) => event.key === "Enter" && updateFeedRoute({ query, pageNumber: 1 })}
                     />
                   </label>
-                  <button className="primary" onClick={() => load(1, false)}>
+                  <button className="primary" onClick={() => updateFeedRoute({ query, pageNumber: 1 })}>
                     <Check size={17} />
                     筛选
                   </button>
@@ -673,7 +712,7 @@ export function App() {
                         ["saved", "稍后读"],
                         ["processed", "已处理"],
                       ].map(([key, label]) => (
-                        <button className={statusFilter === key ? "active" : ""} key={key} type="button" onClick={() => setStatusFilter(key)}>
+                        <button className={statusFilter === key ? "active" : ""} key={key} type="button" onClick={() => updateFeedRoute({ statusFilter: key })}>
                           {label}
                         </button>
                       ))}
@@ -690,7 +729,7 @@ export function App() {
             {(mode === "all" || mode === "selected") && <div className="tag-row signal-tabs">
               {
                 channelTabs.map((tab) => (
-                  <button className={activeChannel === tab.key ? "active" : ""} key={tab.key || "all"} onClick={() => setActiveChannel(tab.key)}>
+                  <button className={activeChannel === tab.key ? "active" : ""} key={tab.key || "all"} onClick={() => updateFeedRoute({ activeChannel: tab.key, pageNumber: 1 })}>
                     {tab.label}
                     {tab.key && <span>{stats?.channels?.find((item) => item.channel === tab.key)?.count || 0}</span>}
                   </button>
@@ -698,11 +737,11 @@ export function App() {
             </div>}
 
             {mode !== "daily" && mode !== "mp" && mode !== "education" && mode !== "culture" && <div className="tag-row">
-              <button className={!activeTag ? "active" : ""} onClick={() => setActiveTag("")}>
+              <button className={!activeTag ? "active" : ""} onClick={() => updateFeedRoute({ activeTag: "", pageNumber: 1 })}>
                 全部
               </button>
               {visibleTags.map((tag) => (
-                <button className={activeTag === tag.tag ? "active" : ""} key={tag.tag} onClick={() => setActiveTag(tag.tag)}>
+                <button className={activeTag === tag.tag ? "active" : ""} key={tag.tag} onClick={() => updateFeedRoute({ activeTag: tag.tag, pageNumber: 1 })}>
                   {tag.tag}
                   <span>{tag.count}</span>
                 </button>
@@ -732,7 +771,7 @@ export function App() {
                 />
                 {items.length < feedTotal && (
                   <div className="load-more">
-                    <button className="primary" onClick={() => load(feedPage + 1, true)} disabled={loading}>
+                    <button className="primary" onClick={() => { appendNextRouteLoad.current = true; updateFeedRoute({ pageNumber: feedPage + 1 }); }} disabled={loading}>
                       {loading ? "加载中..." : `加载更多 ${items.length}/${feedTotal}`}
                     </button>
                   </div>
@@ -742,6 +781,11 @@ export function App() {
           </>
         )}
       </AppShell>
+      {route.page === "story" && !activeItem && (
+        <section className="notice story-route-placeholder" aria-live="polite">
+          {storyLoading ? "正在加载故事…" : <><span>{storyError || "该故事暂时不可用。"}</span><button className="primary" type="button" onClick={closeWorkspace}>返回热点</button></>}
+        </section>
+      )}
       {(activeItem || askOpen) && (
         <EditorialReadingWorkspace
           item={activeItem}
@@ -939,7 +983,7 @@ function HotPulse({ items, readItems, onOpen }: { items: Item[]; readItems: Set<
       </div>
       <div className="hot-pulse-list">
         {items.map((item, index) => (
-          <a className={readItems.has(item.id) ? "read" : ""} href={item.url} key={item.id} rel="noreferrer" target="_blank" onClick={(event) => { event.preventDefault(); onOpen(item); }}>
+          <a className={readItems.has(item.id) ? "read" : ""} href={item.url} key={item.id} rel="noreferrer" target="_blank" onClick={(event) => { if (!shouldInterceptLinkClick(event)) return; event.preventDefault(); onOpen(item); }}>
             <b>{index + 1}</b>
             <span>
               <strong>{item.title}</strong>
@@ -1482,7 +1526,7 @@ function Feed({
                     <strong className="score-pill">{item.score}</strong>
                   </div>
                 </div>
-                <a className="title" href={item.url} target="_blank" rel="noreferrer" onClick={(event) => { event.preventDefault(); onOpen(item); }}>
+                <a className="title" href={item.url} target="_blank" rel="noreferrer" onClick={(event) => { if (!shouldInterceptLinkClick(event)) return; event.preventDefault(); onOpen(item); }}>
                   {item.title}
                 </a>
                 <EditorialBrief item={item} />

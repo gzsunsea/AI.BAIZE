@@ -16,6 +16,16 @@ export type ListSnapshot = Pick<RouteState, "mode" | "query" | "searchMode" | "a
   scrollY: number;
 };
 
+type LinkClickLike = {
+  button: number;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+  defaultPrevented: boolean;
+  currentTarget: { target?: string | null };
+};
+
 const defaults: Omit<RouteState, "page" | "storyId"> = {
   mode: "selected",
   query: "",
@@ -90,4 +100,16 @@ export function readListState(key: string): ListSnapshot | null {
   } catch {
     return null;
   }
+}
+
+/** Keep browser link affordances (new tab, save target, etc.) intact. */
+export function shouldInterceptLinkClick(event: LinkClickLike): boolean {
+  const target = event.currentTarget.target;
+  return event.button === 0
+    && !event.defaultPrevented
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.shiftKey
+    && !event.altKey
+    && (!target || target === "_self");
 }
