@@ -65,6 +65,39 @@ test("items API applies copied category and sort state and durable item details 
   assert.equal(publicItemDetail(state, "missing"), null);
 });
 
+test("public item detail derives related metadata only from public cluster members", () => {
+  const state = {
+    items: [
+      {
+        ...story("public", "Public item", 80),
+        sourceId: "public-source",
+        sourceName: "Public Source",
+      },
+      {
+        ...story("hidden", "Hidden item", 100),
+        sourceId: "hidden-source",
+        sourceName: "Hidden Secret Source",
+        hidden: true,
+      },
+    ],
+    clusters: [{
+      id: "mixed-cluster",
+      items: ["public", "hidden"],
+      size: 2,
+      sources: ["Public Source", "Hidden Secret Source"],
+      topScore: 100,
+    }],
+  };
+
+  const detail = publicItemDetail(state, "public");
+
+  assert.deepEqual(detail.item.related, {
+    count: 1,
+    sources: ["Public Source"],
+    topScore: 80,
+  });
+});
+
 function story(id, title, score = 99) {
   return {
     id,

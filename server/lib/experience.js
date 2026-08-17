@@ -92,15 +92,15 @@ function buildHotTopics(state = {}, options = {}) {
 
       const topic = {
         id: cluster.id || representative.eventId || representative.id,
-        title: cluster.title || representative.title,
+        title: representative.title,
         sourceCount: sources.length,
         sources: sources.slice(0, 6),
-        topScore: Math.max(cluster.topScore || 0, ...relatedItems.map((item) => item.score || 0)),
+        topScore: Math.max(0, ...relatedItems.map((item) => Number(item.score || 0))),
         publishedAt: representative.publishedAt,
         latestAt: relatedItems.reduce((latest, item) => (
           new Date(item.publishedAt || 0).getTime() > new Date(latest || 0).getTime() ? item.publishedAt : latest
         ), representative.publishedAt),
-        summary: representative.editorialBrief?.fact || representative.summary || representative.reason || cluster.title || representative.title,
+        summary: representative.editorialBrief?.fact || representative.summary || representative.reason || representative.title,
         representative: enrichItem(representative),
         relatedItems: relatedItems.map(enrichItem),
       };

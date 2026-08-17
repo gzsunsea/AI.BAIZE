@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { app, fetchPublicMedia } = require("./index");
+const { app, createPinnedLookup, fetchPublicMedia, requestMediaHop } = require("./index");
 
 function listen() {
   return new Promise((resolve) => {
@@ -61,6 +61,44 @@ test("media fetch pins the validated DNS address used by the request hop", async
   });
   assert.equal(lookups, 1);
   assert.equal(result.body.toString(), "93.184.216.34");
+});
+
+test("pinned media lookup follows the Node scalar and all-address callback contracts", async () => {
+  const lookup = createPinnedLookup({ address: "93.184.216.34", family: 4 });
+  const scalar = await new Promise((resolve, reject) => {
+    lookup("public.example", { family: 4 }, (error, address, family) => {
+      if (error) reject(error);
+      else resolve({ address, family });
+    });
+  });
+  const all = await new Promise((resolve, reject) => {
+    lookup("public.example", { all: true }, (error, addresses) => {
+      if (error) reject(error);
+      else resolve(addresses);
+    });
+  });
+
+  assert.deepEqual(scalar, { address: "93.184.216.34", family: 4 });
+  assert.deepEqual(all, [{ address: "93.184.216.34", family: 4 }]);
+});
+
+test("default media request hop uses the pinned lookup adapter", async (t) => {
+  const origin = require("node:http").createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "image/png" });
+    res.end("image");
+  });
+  origin.listen(0, "127.0.0.1");
+  t.after(() => origin.close());
+  await require("node:events").once(origin, "listening");
+  const { port } = origin.address();
+
+  const response = await requestMediaHop(
+    new URL(`http://public.example:${port}/image.png`),
+    { address: "127.0.0.1", family: 4 },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.toString(), "image");
 });
 
 test("media fetch rejects the full IPv6 link-local range returned by DNS", async () => {

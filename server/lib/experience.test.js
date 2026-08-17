@@ -54,6 +54,31 @@ test("public hot topics and stories exclude hidden and non-public cluster member
   assert.equal(buildStory(state, "event-invalid", { now: "2026-07-22T04:00:00.000Z" }), null);
 });
 
+test("public hot ranking and derived fields use only filtered public members", () => {
+  const hidden = signal("private-leader", "event-a", "private", 100, { hidden: true });
+  const state = {
+    items: [
+      hidden,
+      signal("a1", "event-a", "public-a1", 80),
+      signal("a2", "event-a", "public-a2", 79),
+      signal("b1", "event-b", "public-b1", 90),
+      signal("b2", "event-b", "public-b2", 89),
+    ],
+    clusters: [
+      { id: "event-a", title: hidden.title, topScore: 100, items: ["private-leader", "a1", "a2"] },
+      { id: "event-b", title: "Precomputed Event B", topScore: 90, items: ["b1", "b2"] },
+    ],
+  };
+
+  const hot = buildHotTopics(state, { now: "2026-07-22T04:00:00.000Z" });
+
+  assert.deepEqual(hot.items.map((topic) => topic.id), ["event-b", "event-a"]);
+  const eventA = hot.items.find((topic) => topic.id === "event-a");
+  assert.equal(eventA.title, "event-a a1");
+  assert.equal(eventA.topScore, 80);
+  assert.equal(eventA.summary, "event-a a1");
+});
+
 test("hot topics expose rank, heat, status, and a transparent rules version", () => {
   const result = buildHotTopics({
     items: [

@@ -201,3 +201,34 @@ The final two Important findings are addressed on top of `36233c1`. No dependenc
 - The existing `MODULE_TYPELESS_PACKAGE_JSON` warning remains during the TypeScript navigation test; resolving it requires a broader CommonJS/ESM packaging decision.
 - No real-browser automation is configured, so browser history scroll behavior still benefits from a manual release click-through despite the route/storage regression coverage.
 - Production deployment and production `data/db.json` changes were not performed.
+
+## Release Review Contract Follow-up — 2026-08-18
+
+### Status
+
+The final three release-review findings are addressed on top of `55068eb`. No dependency, deployment, or runtime-data changes were made.
+
+### Fixes
+
+1. **Pinned DNS lookup callback contract**
+   - The media request hop now returns a one-element address array when Node requests `lookup(..., { all: true }, callback)` and retains the scalar address/family callback for ordinary lookup calls.
+   - Regression coverage exercises both callback shapes and the real default HTTP request hop, rather than only an injected `requestHop` stub.
+
+2. **Public hotspot derived data**
+   - Hotspot title, summary fallback, top score, heat, and ranking are derived only from filtered public members. Precomputed cluster title and score can no longer carry hidden representative data into public output or ranking.
+
+3. **Public item related metadata**
+   - Durable public item detail recomputes related count, display sources, and top score from public cluster members before serialization, preventing hidden member metadata from appearing in `/api/public/items/:id` responses.
+
+### Verification
+
+- Focused security/hot/item suite: `node --test server/security.test.js server/lib/experience.test.js server/index.test.js` — 48 passed, 0 failed.
+- Full suite: `npm test` — 82 passed, 0 failed.
+- No-emit frontend check: `npm run typecheck` — passed.
+- Production build: `npm run build` — passed.
+- Whitespace check: `git diff --check` — passed.
+
+### Remaining Concerns
+
+- The existing `MODULE_TYPELESS_PACKAGE_JSON` warning remains during the TypeScript navigation test; resolving it requires a broader CommonJS/ESM packaging decision.
+- Production deployment, pushing, and production `data/db.json` changes were not performed.

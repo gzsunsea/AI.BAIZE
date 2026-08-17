@@ -513,7 +513,29 @@ function itemsResponse(query, state = readState()) {
 function publicItemDetail(state, id) {
   const item = (state.items || []).find((candidate) => candidate.id === id && isPublicItem(candidate));
   if (!item) return null;
-  const [decorated] = attachRelated([enrichItem(item)], state.clusters || []);
+  const cluster = (state.clusters || []).find((candidate) => (candidate.items || []).some((member) => (
+    (typeof member === "string" ? member : member?.id) === id
+  )));
+  const decorated = enrichItem(item);
+  if (cluster) {
+    const itemsById = new Map((state.items || []).map((candidate) => [candidate.id, candidate]));
+    const publicMembers = (cluster.items || [])
+      .map((member) => itemsById.get(typeof member === "string" ? member : member?.id))
+      .filter(Boolean)
+      .filter(isPublicItem);
+    const sourceNamesByIdentity = new Map();
+    for (const member of publicMembers) {
+      const identity = member.sourceId || member.sourceName;
+      if (identity && !sourceNamesByIdentity.has(identity)) {
+        sourceNamesByIdentity.set(identity, member.sourceName || member.sourceId);
+      }
+    }
+    decorated.related = {
+      count: publicMembers.length,
+      sources: [...sourceNamesByIdentity.values()].filter(Boolean),
+      topScore: Math.max(0, ...publicMembers.map((member) => Number(member.score || 0))),
+    };
+  }
   return { item: serializePublicItem(decorated) };
 }
 
@@ -1388,6 +1410,20 @@ async function assertPublicHttpTarget(target, lookup = dns.lookup) {
   return addresses[0];
 }
 
+function createPinnedLookup(resolved) {
+  return (_hostname, options, callback) => {
+    if (typeof options === "function") {
+      callback = options;
+      options = {};
+    }
+    if (options?.all) {
+      callback(null, [{ address: resolved.address, family: resolved.family }]);
+      return;
+    }
+    callback(null, resolved.address, resolved.family);
+  };
+}
+
 function requestMediaHop(target, resolved) {
   return new Promise((resolve, reject) => {
     const transport = target.protocol === "https:" ? https : http;
@@ -1397,7 +1433,7 @@ function requestMediaHop(target, resolved) {
         accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
         referer: `${target.protocol}//${target.host}/`,
       },
-      lookup: (_hostname, _options, callback) => callback(null, resolved.address, resolved.family),
+      lookup: createPinnedLookup(resolved),
     }, (upstream) => {
       const chunks = [];
       let size = 0;
@@ -1486,6 +1522,7 @@ module.exports = {
   buildDailyArchive,
   buildDailyDigest,
   collectDailyDigestItemKeys,
+  createPinnedLookup,
   dailyIssueMeta,
   digestItemKeys,
   fetchPublicMedia,
@@ -1493,6 +1530,7 @@ module.exports = {
   itemsResponse,
   localDateKey,
   publicItemDetail,
+  requestMediaHop,
   selectCuratedItems,
   startServer,
 };
