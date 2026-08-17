@@ -221,6 +221,23 @@ test("public experience endpoints expose hot topics, reports, and structured val
   assert.equal(Array.isArray(hot.items), true);
   assert.equal(typeof hot.generatedAt, "string");
 
+  const hotListResponse = await fetch(`${base}/api/public/hot`);
+  assert.equal(hotListResponse.status, 200);
+  const hotList = await hotListResponse.json();
+  assert.equal(hotList.windowHours, 72);
+  assert.equal(Array.isArray(hotList.items), true);
+
+  if (hotList.items.length) {
+    const storyResponse = await fetch(`${base}/api/public/stories/${encodeURIComponent(hotList.items[0].id)}`);
+    assert.equal(storyResponse.status, 200);
+    const story = await storyResponse.json();
+    assert.equal(Array.isArray(story.timeline), true);
+  }
+
+  const missingStory = await fetch(`${base}/api/public/stories/missing-story-id`);
+  assert.equal(missingStory.status, 404);
+  assert.deepEqual(await missingStory.json(), { error: "story not found" });
+
   const reportResponse = await fetch(`${base}/api/public/reports?period=weekly&date=2026-07-22`);
   assert.equal(reportResponse.status, 200);
   const report = await reportResponse.json();

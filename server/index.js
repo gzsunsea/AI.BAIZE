@@ -11,7 +11,7 @@ const { enhanceRecentItems } = require("./lib/llmEnhancer");
 const { isOriginalHttpUrl, isQualityCandidate, isSelectedQualityCandidate, makeId } = require("./lib/scoring");
 const { canonicalUrl, titleFingerprint } = require("./lib/dedupe");
 const { answerQuestion } = require("./lib/askBaize");
-const { buildHotTopics, buildReport } = require("./lib/experience");
+const { buildHotTopics, buildReport, buildStory } = require("./lib/experience");
 
 const PORT = Number(process.env.PORT || 8080);
 const DEFAULT_ADMIN_TOKEN = "aihot-admin";
@@ -634,6 +634,24 @@ app.get("/api/public/items", (req, res) => {
     .filter((item) => (!category ? true : item.category === category || item.categoryLabel === category))
     .slice((page - 1) * take, page * take);
   res.json({ items, page, take });
+});
+
+app.get("/api/public/hot", (_req, res) => {
+  const state = readState();
+  res.json(buildHotTopics(state, {
+    selectedThreshold: state.settings?.rules?.selectedThreshold || 70,
+    enrichItem,
+  }));
+});
+
+app.get("/api/public/stories/:id", (req, res) => {
+  const state = readState();
+  const story = buildStory(state, String(req.params.id), {
+    selectedThreshold: state.settings?.rules?.selectedThreshold || 70,
+    enrichItem,
+  });
+  if (!story) return res.status(404).json({ error: "story not found" });
+  return res.json(story);
 });
 
 app.get("/api/public/hot-topics", (_req, res) => {

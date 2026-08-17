@@ -125,15 +125,41 @@ export type AskResult = {
 
 export type SavedEntry = { item: Item; savedAt: string };
 
+export type HotRules = {
+  version: number;
+  windowHours: number;
+  trendAvailable: boolean;
+};
+
 export type HotTopic = {
   id: string;
+  rank: number;
   title: string;
+  heat: number;
+  status: "new" | "active";
+  ageHours?: number;
   sourceCount: number;
   sources: string[];
   topScore: number;
   publishedAt: string;
   representative: Item;
   relatedItems: Item[];
+  rules: HotRules;
+};
+
+export type StoryDetail = {
+  event: Omit<HotTopic, "relatedItems">;
+  summary: string;
+  latestUpdates: Item[];
+  timeline: Item[];
+  sources: string[];
+  rules: HotRules;
+};
+
+export type SearchState = {
+  query: string;
+  mode: "direct" | "full";
+  sort: "published_desc" | "relevance";
 };
 
 export type Report = {
