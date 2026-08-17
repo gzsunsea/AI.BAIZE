@@ -143,3 +143,29 @@ The four final review findings are addressed on top of `6963b8e`. No dependency 
 - The existing `MODULE_TYPELESS_PACKAGE_JSON` warning remains during the TypeScript navigation test; resolving it requires a broader CommonJS/ESM packaging decision.
 - No real-browser automation is configured, so scroll behavior still benefits from a manual browser release check despite the storage and source-level regression coverage.
 - Production deployment and production `data/db.json` changes were not performed.
+
+## Final IPv6 SSRF Follow-up — 2026-08-18
+
+### Status
+
+The remaining Important SSRF finding is addressed on top of `3fdf90b`. Redirect-hop validation and DNS pinning are unchanged.
+
+### Fix
+
+- Replaced the broad `2000::/3` IPv6 admission rule with an explicit snapshot of the IANA IPv6 Global Unicast Address Space allocation registry. Unlisted and reserved blocks such as `2d00::/8`, `3000::/5`, `3800::/6`, and the upper `3f00::/9` reservations are rejected before `requestHop`.
+- Preserved the non-global special-purpose exclusions while allowing the IANA-marked globally reachable more-specific assignments within `2001::/23`, including `2001:1::1`.
+- Added DNS/request-hop regression coverage proving reserved addresses never reach the request hop, `2001:1::1` does, and mapped/NAT64 private destinations remain blocked.
+
+### Verification
+
+- Focused security suite: `node --test server/security.test.js` — 11 passed, 0 failed.
+- Full suite: `npm test` — 75 passed, 0 failed.
+- No-emit frontend check: `npm run typecheck` — passed.
+- Production build: `npm run build` — passed.
+- Whitespace check: `git diff --check` — passed before this report append and repeated before commit.
+
+### Remaining Concerns
+
+- The IPv6 allocation allowlist intentionally tracks the IANA registry snapshot dated 2025-10-10; future IANA global-unicast allocations require a code update before the proxy will accept them.
+- The existing `MODULE_TYPELESS_PACKAGE_JSON` warning remains during the TypeScript navigation test; resolving it requires a broader CommonJS/ESM packaging decision.
+- Production deployment and production `data/db.json` changes were not performed.

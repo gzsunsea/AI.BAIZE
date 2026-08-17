@@ -72,6 +72,7 @@ test("media fetch rejects the full IPv6 link-local range returned by DNS", async
 
 test("media fetch rejects IPv6 translation and special-use ranges before requesting", async () => {
   const blockedAddresses = [
+    "::ffff:7f00:1",
     "64:ff9b::7f00:1",
     "64:ff9b:1::c000:221",
     "2001:2::1",
@@ -93,6 +94,36 @@ test("media fetch rejects IPv6 translation and special-use ranges before request
   }
 
   assert.equal(requestCount, 0);
+});
+
+test("media fetch rejects IANA-reserved global-unicast space before requesting", async () => {
+  let requestCount = 0;
+
+  for (const address of ["2d00::1", "3000::1", "3800::1", "3ff0::1"]) {
+    await assert.rejects(() => fetchPublicMedia(new URL("https://public.example/image.png"), {
+      lookup: async () => [{ address, family: 6 }],
+      requestHop: async () => {
+        requestCount += 1;
+        return { status: 200, headers: {}, body: Buffer.alloc(0) };
+      },
+    }), /private media/i, address);
+  }
+
+  assert.equal(requestCount, 0);
+});
+
+test("media fetch permits globally reachable assignments within IETF protocol space", async () => {
+  const requested = [];
+  const result = await fetchPublicMedia(new URL("https://public.example/image.png"), {
+    lookup: async () => [{ address: "2001:1::1", family: 6 }],
+    requestHop: async (_target, resolved) => {
+      requested.push(resolved.address);
+      return { status: 200, headers: {}, body: Buffer.from("ok") };
+    },
+  });
+
+  assert.equal(result.body.toString(), "ok");
+  assert.deepEqual(requested, ["2001:1::1"]);
 });
 
 test("media fetch preserves public IPv4-mapped and well-known NAT64 targets", async () => {

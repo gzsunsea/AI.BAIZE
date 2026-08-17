@@ -1245,6 +1245,60 @@ const NON_PUBLIC_IPV6_CIDRS = [
   ["ff00::", 8],
 ];
 
+// IANA IPv6 Global Unicast Address Space allocations, updated 2025-10-10:
+// https://www.iana.org/assignments/ipv6-unicast-address-assignments/
+// Unlisted address space within 2000::/3 remains reserved for future allocation.
+const ALLOCATED_GLOBAL_IPV6_CIDRS = [
+  ["2001::", 23],
+  ["2001:200::", 23],
+  ["2001:400::", 23],
+  ["2001:600::", 23],
+  ["2001:800::", 22],
+  ["2001:c00::", 23],
+  ["2001:e00::", 23],
+  ["2001:1200::", 23],
+  ["2001:1400::", 22],
+  ["2001:1800::", 23],
+  ["2001:1a00::", 23],
+  ["2001:1c00::", 22],
+  ["2001:2000::", 19],
+  ["2001:4000::", 23],
+  ["2001:4200::", 23],
+  ["2001:4400::", 23],
+  ["2001:4600::", 23],
+  ["2001:4800::", 23],
+  ["2001:4a00::", 23],
+  ["2001:4c00::", 23],
+  ["2001:5000::", 20],
+  ["2001:8000::", 19],
+  ["2001:a000::", 20],
+  ["2001:b000::", 20],
+  ["2002::", 16],
+  ["2003::", 18],
+  ["2400::", 12],
+  ["2410::", 12],
+  ["2600::", 12],
+  ["2610::", 23],
+  ["2620::", 23],
+  ["2630::", 12],
+  ["2800::", 12],
+  ["2a00::", 12],
+  ["2a10::", 12],
+  ["2c00::", 12],
+];
+
+// Globally reachable more-specific assignments inside the otherwise non-global 2001::/23:
+// https://www.iana.org/assignments/iana-ipv6-special-registry/
+const GLOBAL_IPV6_SPECIAL_PURPOSE_CIDRS = [
+  ["2001:1::1", 128],
+  ["2001:1::2", 128],
+  ["2001:1::3", 128],
+  ["2001:3::", 32],
+  ["2001:4:112::", 48],
+  ["2001:20::", 28],
+  ["2001:30::", 28],
+];
+
 // IANA IPv4 Special-Purpose Address Registry entries that are not globally reachable.
 const NON_GLOBAL_IPV4_CIDRS = [
   ["0.0.0.0", 8],
@@ -1300,8 +1354,13 @@ function isGloballyRoutableIp(address = "") {
       const ipv4 = Number(value & 0xffffffffn);
       return isGloballyRoutableIp(`${(ipv4 >>> 24) & 255}.${(ipv4 >>> 16) & 255}.${(ipv4 >>> 8) & 255}.${ipv4 & 255}`);
     }
-    return ipv6InCidr(value, "2000::", 3)
-      && !NON_PUBLIC_IPV6_CIDRS.some(([network, prefix]) => ipv6InCidr(value, network, prefix));
+    const isAllocatedGlobalUnicast = ALLOCATED_GLOBAL_IPV6_CIDRS
+      .some(([network, prefix]) => ipv6InCidr(value, network, prefix));
+    if (!isAllocatedGlobalUnicast) return false;
+    if (GLOBAL_IPV6_SPECIAL_PURPOSE_CIDRS.some(([network, prefix]) => ipv6InCidr(value, network, prefix))) {
+      return true;
+    }
+    return !NON_PUBLIC_IPV6_CIDRS.some(([network, prefix]) => ipv6InCidr(value, network, prefix));
   }
   return false;
 }
