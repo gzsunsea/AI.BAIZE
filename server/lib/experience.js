@@ -4,10 +4,42 @@ function clusterItemIds(cluster = {}) {
     .filter(Boolean);
 }
 
+const HOT_RULES = { version: 1, windowHours: 72, trendAvailable: false };
+
+function hotHeat(topic) {
+  const tierWeight = {
+    first_party: 12,
+    preferred_x: 11,
+    expert: 10,
+    research: 9,
+    cn_media: 8,
+    education: 7,
+    culture: 7,
+    media: 6,
+    social: 5,
+    community: 4,
+    reference: 3,
+    custom: 2,
+  };
+  const sourceQualityScore = Math.min(30, topic.relatedItems.reduce((sum, item) => (
+    sum + (tierWeight[item.priorityTier || item.sourceTier || item.tier] || 1)
+  ), 0));
+  const sourceCountBonus = Math.min(25, Math.max(0, topic.sourceCount - 1) * 8);
+  const freshnessBonus = Math.max(0, Math.round(20 - topic.ageHours / 4));
+  const selectedScoreBonus = Math.min(25, Math.round(topic.topScore / 4));
+  return Math.max(0, Math.min(100, sourceQualityScore + sourceCountBonus + freshnessBonus + selectedScoreBonus));
+}
+
+function hotStatus(topic) {
+  if (topic.ageHours <= 6) return "new";
+  return "active";
+}
+
 function buildHotTopics(state = {}, options = {}) {
   const nowMs = new Date(options.now || Date.now()).getTime();
   const threshold = Number(options.selectedThreshold || 70);
   const enrichItem = options.enrichItem || ((item) => item);
+  const limit = options.limit === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : Number(options.limit || 10);
   const itemsById = new Map((state.items || []).map((item) => [item.id, item]));
 
   const items = (state.clusters || [])
@@ -28,7 +60,7 @@ function buildHotTopics(state = {}, options = {}) {
       if (!representative) return null;
       if (sources.length < 2 && !(representative.pinned && representative.score >= threshold)) return null;
 
-      return {
+      const topic = {
         id: cluster.id || representative.eventId || representative.id,
         title: cluster.title || representative.title,
         sourceCount: sources.length,
@@ -38,18 +70,45 @@ function buildHotTopics(state = {}, options = {}) {
         representative: enrichItem(representative),
         relatedItems: relatedItems.map(enrichItem),
       };
+      topic.ageHours = Math.max(0, (nowMs - new Date(topic.publishedAt || 0).getTime()) / (60 * 60 * 1000));
+      topic.heat = hotHeat(topic);
+      topic.status = hotStatus(topic);
+      topic.rules = HOT_RULES;
+      return topic;
     })
     .filter(Boolean)
     .sort((a, b) => (
-      b.sourceCount - a.sourceCount
+      b.heat - a.heat
+      || b.sourceCount - a.sourceCount
       || b.topScore - a.topScore
       || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime()
     ))
-    .slice(0, 5);
+    .slice(0, limit)
+    .map((item, index) => ({ ...item, rank: index + 1 }));
 
   return {
     generatedAt: new Date(nowMs).toISOString(),
+    windowHours: HOT_RULES.windowHours,
+    rules: HOT_RULES,
     items,
+  };
+}
+
+function buildStory(state = {}, id, options = {}) {
+  const topics = buildHotTopics(state, { ...options, limit: Number.POSITIVE_INFINITY }).items;
+  const topic = topics.find((item) => item.id === id);
+  if (!topic) return null;
+  const timeline = [...(topic.relatedItems || [])].sort((a, b) => (
+    new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime()
+  ));
+  const { relatedItems, ...event } = topic;
+  return {
+    event,
+    summary: topic.representative.editorialBrief?.fact || topic.representative.summary || topic.title,
+    latestUpdates: timeline.slice(0, 3),
+    timeline,
+    sources: topic.sources,
+    rules: topic.rules || HOT_RULES,
   };
 }
 
@@ -281,5 +340,6 @@ function buildReport(state = {}, options = {}) {
 
 module.exports = {
   buildHotTopics,
+  buildStory,
   buildReport,
 };

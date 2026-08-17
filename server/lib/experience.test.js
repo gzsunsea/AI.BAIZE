@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { buildHotTopics, buildReport } = require("./experience");
+const { buildHotTopics, buildReport, buildStory } = require("./experience");
 
 function signal(id, eventId, sourceId, score = 90, extra = {}) {
   return {
@@ -15,6 +15,36 @@ function signal(id, eventId, sourceId, score = 90, extra = {}) {
     ...extra,
   };
 }
+
+test("hot topics expose rank, heat, status, and a transparent rules version", () => {
+  const result = buildHotTopics({
+    items: [
+      signal("a1", "event-a", "openai", 91, { publishedAt: "2026-08-17T03:00:00.000Z" }),
+      signal("a2", "event-a", "simon", 88, { publishedAt: "2026-08-17T02:00:00.000Z" }),
+    ],
+    clusters: [{ id: "event-a", title: "Event A", items: ["a1", "a2"] }],
+  }, { now: "2026-08-17T04:00:00.000Z" });
+
+  assert.equal(result.windowHours, 72);
+  assert.equal(result.rules.version, 1);
+  assert.equal(result.items[0].rank, 1);
+  assert.equal(typeof result.items[0].heat, "number");
+  assert.equal(["new", "rising", "active"].includes(result.items[0].status), true);
+});
+
+test("story detail returns newest updates first and null for unknown ids", () => {
+  const state = {
+    items: [
+      signal("old", "event-a", "one", 80, { publishedAt: "2026-08-16T01:00:00.000Z" }),
+      signal("new", "event-a", "two", 85, { publishedAt: "2026-08-17T01:00:00.000Z" }),
+    ],
+    clusters: [{ id: "event-a", title: "Event A", items: ["old", "new"] }],
+  };
+  const story = buildStory(state, "event-a", { now: "2026-08-17T04:00:00.000Z", enrichItem: (item) => item });
+  assert.deepEqual(story.timeline.map((item) => item.id), ["new", "old"]);
+  assert.equal(story.latestUpdates[0].id, "new");
+  assert.equal(buildStory(state, "missing", {}), null);
+});
 
 test("hot topics require independent sources and order by evidence before score", () => {
   const items = [
@@ -86,7 +116,7 @@ test("hot topics return at most five eligible clusters", () => {
     clusters.push({ id: `event-${index}`, items: [first.id, second.id] });
   }
 
-  const result = buildHotTopics({ items, clusters }, { now: "2026-07-22T04:00:00.000Z" });
+  const result = buildHotTopics({ items, clusters }, { now: "2026-07-22T04:00:00.000Z", limit: 5 });
 
   assert.equal(result.items.length, 5);
   assert.deepEqual(result.items.map((item) => item.id), ["event-0", "event-1", "event-2", "event-3", "event-4"]);
