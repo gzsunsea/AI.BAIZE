@@ -67,6 +67,134 @@
   padding-top: var(--space-6);
 }
 
+.hot-page,
+.story-page {
+  display: grid;
+  width: min(100%, 960px);
+  min-width: 0;
+  gap: var(--space-5);
+  margin: 0 auto;
+  padding-bottom: var(--space-8);
+}
+
+.hot-page-head,
+.story-page-head {
+  padding: var(--space-5) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.hot-page-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.hot-page-head > div,
+.story-page-head {
+  min-width: 0;
+}
+
+.hot-page-head > div > span,
+.story-page-head > span {
+  color: var(--editorial);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .16em;
+}
+
+.hot-page h1,
+.story-page h1 {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  margin: 5px 0 7px;
+  font-family: ui-serif, "Songti SC", STSong, serif;
+  font-size: clamp(30px, 4vw, 46px);
+  line-height: 1.08;
+  overflow-wrap: anywhere;
+}
+
+.hot-page p,
+.story-page p { color: var(--muted); line-height: 1.65; }
+
+.hot-retry,
+.story-back {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-height: 40px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: var(--surface);
+}
+
+.hot-ranking-list {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.hot-ranking-list li,
+.hot-ranking-list button { min-width: 0; }
+
+.hot-ranking-list button {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 54px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  background: var(--surface);
+  text-align: left;
+}
+
+.hot-ranking-list button:hover { background: var(--panel-strong); }
+.hot-rank { color: var(--editorial); font: 850 24px ui-monospace, monospace; }
+.hot-topic-copy { min-width: 0; }
+.hot-topic-copy strong,
+.hot-topic-copy small { display: block; overflow-wrap: anywhere; }
+.hot-topic-copy strong { font-size: 16px; line-height: 1.45; }
+.hot-topic-copy small { margin-top: 5px; color: var(--muted); }
+.hot-topic-signals { display: grid; justify-items: end; gap: 8px; white-space: nowrap; }
+.hot-topic-signals > b { color: var(--editorial); font: 800 12px ui-monospace, monospace; }
+.hot-status { padding: 3px 7px; border: 1px solid var(--border); border-radius: 999px; font-size: 11px; font-style: normal; }
+.hot-status.new::before { content: "NEW · "; }
+.hot-status.active::before { content: "ONGOING · "; }
+.hot-loading,
+.hot-empty,
+.story-missing,
+.story-loading { padding: var(--space-6); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+.hot-empty { display: grid; gap: var(--space-2); }
+.hot-empty strong,
+.story-missing strong { font-size: 16px; }
+
+.story-page-head > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.story-page-head b { padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--soft); font-size: 11px; }
+.story-summary,
+.story-timeline,
+.story-sources { display: grid; gap: var(--space-3); }
+.story-summary h2,
+.story-timeline h2,
+.story-sources h2 { margin: 0; font-family: ui-serif, "Songti SC", STSong, serif; font-size: 21px; }
+.story-item { display: grid; gap: 7px; padding: var(--space-4); border-left: 2px solid color-mix(in srgb, var(--editorial) 55%, var(--border)); background: var(--surface); }
+.story-item > div { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 11px; }
+.story-item button { padding: 0; border: 0; color: var(--text); background: transparent; font-size: 15px; font-weight: 750; line-height: 1.45; text-align: left; overflow-wrap: anywhere; }
+.story-item p { margin: 0; }
+.story-item a { display: inline-flex; width: fit-content; align-items: center; gap: 4px; color: var(--accent); }
+.story-missing { align-content: start; }
+.story-missing .story-back { width: fit-content; margin-bottom: var(--space-5); }
+
 @media (max-height: 820px) and (min-width: 721px) {
   .grouped-nav {
     gap: 8px;

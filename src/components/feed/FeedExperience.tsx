@@ -68,6 +68,7 @@ export type FeedExperienceProps = {
   onToggleProcessed: (id: string) => void;
   onRefresh: () => void;
   onRetryHotTopics: () => void;
+  onOpenHotPage: () => void;
   onBookmarkSite: () => void;
   onShareSite: () => void;
   onLoadMore: () => void;
@@ -81,12 +82,13 @@ function pageCopy(mode: string) {
   return { title: "精选", description: "先看正在形成共识的事件，再进入按时间整理的高价值动态。" };
 }
 
-function CurrentSignals({ topics, loading, error, onOpen, onRetry }: {
+function CurrentSignals({ topics, loading, error, onOpen, onRetry, onOpenHotPage }: {
   topics: HotTopic[];
   loading: boolean;
   error: string;
   onOpen: (item: Item, relatedItems?: Item[]) => void;
   onRetry: () => void;
+  onOpenHotPage: () => void;
 }) {
   if (loading) return <div className="current-signals-skeleton" aria-label="正在加载当前热点" />;
   if (error) return <div className="signal-error"><span>当前热点暂时不可用，时间线不受影响。</span><button type="button" onClick={onRetry}>重试</button></div>;
@@ -95,7 +97,7 @@ function CurrentSignals({ topics, loading, error, onOpen, onRetry }: {
     <section className="current-signals" aria-labelledby="current-signals-title">
       <header>
         <div><span>NOW</span><h2 id="current-signals-title">当前热点</h2></div>
-        <p>由独立信源数量、质量与时效共同确认</p>
+        <p>由独立信源数量、质量与时效共同确认</p><button type="button" onClick={onOpenHotPage}>查看完整热点榜</button>
       </header>
       <div className="current-signal-list">
         {topics.map((topic, index) => (
@@ -242,7 +244,7 @@ export function FeedExperience(props: FeedExperienceProps) {
         <div className="topic-filters"><button className={!props.activeTag ? "active" : ""} type="button" onClick={() => props.onTagChange("")}>全部主题</button>{visibleTags.map((tag) => <button className={props.activeTag === tag.tag ? "active" : ""} type="button" key={tag.tag} onClick={() => props.onTagChange(tag.tag)}>{tag.tag}<span>{tag.count}</span></button>)}</div>
       )}
 
-      {props.mode === "selected" && props.statusFilter === "all" && <CurrentSignals topics={props.hotTopics} loading={props.hotTopicsLoading} error={props.hotTopicsError} onOpen={props.onOpen} onRetry={props.onRetryHotTopics} />}
+      {props.mode === "selected" && props.statusFilter === "all" && <CurrentSignals topics={props.hotTopics} loading={props.hotTopicsLoading} error={props.hotTopicsError} onOpen={props.onOpen} onRetry={props.onRetryHotTopics} onOpenHotPage={props.onOpenHotPage} />}
       {props.error && <div className="notice error">{props.error}</div>}
       {props.loading && <div className="feed-skeleton" aria-label="正在加载"><i /><i /><i /></div>}
       {!props.loading && groups.length === 0 && <div className="feed-empty"><strong>{props.mode === "reading" ? "稍后读还是空的" : "当前条件没有匹配内容"}</strong><p>{props.mode === "reading" ? "在精选或全部动态里收藏内容后，会出现在这里。" : "可以清除搜索词或切换筛选条件。"}</p></div>}

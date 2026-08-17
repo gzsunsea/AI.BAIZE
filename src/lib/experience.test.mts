@@ -82,3 +82,13 @@ test("editorial feed renders available media and Chinese radar never falls throu
   assert.match(feedCss, /\.feed-card-media/);
   assert.match(appSource, /mode === "mp" \? \(\s*mp \? <MpTable mp=\{mp\} \/> : <div className="mp-loading-state"/);
 });
+
+test("hot center and story pages retain their semantic editorial landmarks", () => {
+  const hotSource = readFileSync(new URL("../components/hot/HotPage.tsx", import.meta.url), "utf8");
+  const storySource = readFileSync(new URL("../components/hot/StoryPage.tsx", import.meta.url), "utf8");
+
+  assert.match(hotSource, /近 72 小时/);
+  assert.match(hotSource, /role="list"/);
+  assert.match(storySource, /事件时间线/);
+  assert.match(storySource, /<time/);
+});

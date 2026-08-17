@@ -43,10 +43,12 @@ import { FeedExperience } from "../components/feed/FeedExperience";
 import { TopicPage } from "../components/topics/TopicPage";
 import { ReportsWorkspace } from "../components/reports/ReportsWorkspace";
 import { ReadingWorkspace as EditorialReadingWorkspace } from "../components/reader/ReadingWorkspace";
+import { HotPage, type HotPageData } from "../components/hot/HotPage";
+import { StoryPage } from "../components/hot/StoryPage";
 import { BookmarkGuide, ThemeToggle } from "../components/shared";
 import { topicForMode, topicRequestUrls } from "../lib/experience.mts";
 import { captureListState, parseLocation, readListState, shouldInterceptLinkClick, toLocation, type RouteState } from "../lib/navigation";
-import type { ApiState, AskResult, DailyDigest, HotTopic, Item, MpArticle, MpDigest, SavedEntry, Stats } from "../types";
+import type { ApiState, AskResult, DailyDigest, HotTopic, Item, MpArticle, MpDigest, SavedEntry, Stats, StoryDetail } from "../types";
 import "../styles.css";
 
 const nav = [
@@ -154,6 +156,11 @@ export function App() {
   const [hotTopicsError, setHotTopicsError] = useState("");
   const [storyLoading, setStoryLoading] = useState(false);
   const [storyError, setStoryError] = useState("");
+  const [hotPageData, setHotPageData] = useState<HotPageData | null>(null);
+  const [hotPageLoading, setHotPageLoading] = useState(false);
+  const [hotPageError, setHotPageError] = useState("");
+  const [story, setStory] = useState<StoryDetail | null>(null);
+  const [readerFromStoryPage, setReaderFromStoryPage] = useState(false);
   const appendNextRouteLoad = useRef(false);
 
   const currentRoute = (): RouteState => ({
@@ -177,6 +184,7 @@ export function App() {
     if (next.page !== "story") {
       setActiveItem(null);
       setActiveRelatedItems([]);
+      setReaderFromStoryPage(false);
     }
   };
 
@@ -205,6 +213,12 @@ export function App() {
   };
 
   const closeWorkspace = () => {
+    if (readerFromStoryPage) {
+      setActiveItem(null);
+      setActiveRelatedItems([]);
+      setReaderFromStoryPage(false);
+      return;
+    }
     if (route.page === "story") {
       if (history.state?.aibaizeNavigation) history.back();
       else navigate({ ...currentRoute(), page: "hot", storyId: "" }, true);
@@ -290,7 +304,7 @@ export function App() {
   };
 
   useEffect(() => {
-    if (route.page === "story") return;
+    if (route.page !== "feed") return;
     const append = appendNextRouteLoad.current;
     appendNextRouteLoad.current = false;
     load(route.pageNumber, append);
@@ -301,18 +315,12 @@ export function App() {
     let cancelled = false;
     setStoryLoading(true);
     setStoryError("");
-    api<{ event?: { representative?: Item }; latestUpdates?: Item[]; timeline?: Item[] }>(`/api/public/stories/${encodeURIComponent(route.storyId)}`)
-      .then((story) => {
-        const item = story.event?.representative;
-        if (!item) throw new Error("未找到该故事");
+    setStory(null);
+    api<StoryDetail>(`/api/public/stories/${encodeURIComponent(route.storyId)}`)
+      .then((nextStory) => {
+        if (!nextStory.event?.representative) throw new Error("未找到该故事");
         if (cancelled) return;
-        markRead(item.id);
-        setActiveItem(item);
-        const related = [...(story.latestUpdates || []), ...(story.timeline || [])]
-          .filter((candidate, index, all) => candidate.id !== item.id && all.findIndex((value) => value.id === candidate.id) === index);
-        setActiveRelatedItems(related);
-        setPanelTab("reader");
-        setAskOpen(false);
+        setStory(nextStory);
       })
       .catch((err) => {
         if (!cancelled) setStoryError(err instanceof Error ? err.message : "故事加载失败");
@@ -322,6 +330,24 @@ export function App() {
       });
     return () => { cancelled = true; };
   }, [route.page, route.storyId]);
+
+  const loadHotPage = async () => {
+    setHotPageLoading(true);
+    setHotPageError("");
+    setHotPageData(null);
+    try {
+      const result = await api<HotPageData>("/api/public/hot");
+      setHotPageData(result);
+    } catch (err) {
+      setHotPageError(err instanceof Error ? err.message : "热点加载失败");
+    } finally {
+      setHotPageLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (route.page === "hot") loadHotPage();
+  }, [route.page]);
 
   useEffect(() => {
     if (mode === "reading") {
@@ -390,6 +416,15 @@ export function App() {
     navigate({ ...currentRoute(), page: "story", storyId: item.eventId || item.id });
   };
 
+  const openStoryItem = (item: Item) => {
+    setReaderFromStoryPage(true);
+    setPanelTab("reader");
+    setAskOpen(false);
+    markRead(item.id);
+    setActiveItem(item);
+    setActiveRelatedItems([...(story?.latestUpdates || []), ...(story?.timeline || [])].filter((candidate) => candidate.id !== item.id));
+  };
+
   const toggleRead = (id: string) => {
     if (!id) return;
     const next = new Set(readItems);
@@ -451,6 +486,11 @@ export function App() {
   };
 
   const switchMode = (nextMode: string) => {
+    if (nextMode === "hot") {
+      navigate({ ...currentRoute(), page: "hot", storyId: "" });
+      setMobileMenuOpen(false);
+      return;
+    }
     if (nextMode === "ask") {
       setMobileMenuOpen(false);
       setActiveItem(null);
@@ -560,7 +600,7 @@ export function App() {
   return (
     <>
       <AppShell
-        mode={mode}
+        mode={route.page === "hot" ? "hot" : mode}
         readerOpen={Boolean(activeItem || askOpen)}
         mobileMenuOpen={mobileMenuOpen}
         themeMode={themeMode}
@@ -569,7 +609,16 @@ export function App() {
         onMobileMenuChange={setMobileMenuOpen}
         onThemeCycle={() => setThemeMode(themeMode === "dark" ? "light" : themeMode === "light" ? "auto" : "dark")}
       >
-        {mode === "admin" ? (
+        {route.page === "hot" ? (
+          <HotPage data={hotPageData} loading={hotPageLoading} error={hotPageError} onOpenStory={(id) => navigate({ ...currentRoute(), page: "story", storyId: id })} onRetry={loadHotPage} />
+        ) : route.page === "story" ? (
+          <StoryPage story={story} loading={storyLoading} error={storyError} onBack={closeWorkspace} onOpenItem={openStoryItem} onRetry={() => {
+            if (!route.storyId) return;
+            setStoryLoading(true);
+            setStoryError("");
+            api<StoryDetail>(`/api/public/stories/${encodeURIComponent(route.storyId)}`).then(setStory).catch((err) => setStoryError(err instanceof Error ? err.message : "故事加载失败")).finally(() => setStoryLoading(false));
+          }} />
+        ) : mode === "admin" ? (
           <AdminPanel onChanged={() => load(1, false)} />
         ) : mode === "agent" ? (
           <AgentPage />
@@ -610,6 +659,7 @@ export function App() {
             onToggleProcessed={toggleProcessed}
             onRefresh={() => load(feedPage, false)}
             onRetryHotTopics={loadHotTopics}
+            onOpenHotPage={() => navigate({ ...currentRoute(), page: "hot", storyId: "" })}
             onBookmarkSite={bookmarkSite}
             onShareSite={shareSite}
             onLoadMore={() => { appendNextRouteLoad.current = true; updateFeedRoute({ pageNumber: feedPage + 1 }); }}
@@ -649,6 +699,7 @@ export function App() {
               onToggleProcessed: toggleProcessed,
               onRefresh: () => load(feedPage, false),
               onRetryHotTopics: loadHotTopics,
+              onOpenHotPage: () => navigate({ ...currentRoute(), page: "hot", storyId: "" }),
               onBookmarkSite: bookmarkSite,
               onShareSite: shareSite,
               onLoadMore: () => { appendNextRouteLoad.current = true; updateFeedRoute({ pageNumber: feedPage + 1 }); },
@@ -781,11 +832,6 @@ export function App() {
           </>
         )}
       </AppShell>
-      {route.page === "story" && !activeItem && (
-        <section className="notice story-route-placeholder" aria-live="polite">
-          {storyLoading ? "正在加载故事…" : <><span>{storyError || "该故事暂时不可用。"}</span><button className="primary" type="button" onClick={closeWorkspace}>返回热点</button></>}
-        </section>
-      )}
       {(activeItem || askOpen) && (
         <EditorialReadingWorkspace
           item={activeItem}

@@ -28,6 +28,7 @@ export const navigationGroups: NavigationGroup[] = [
     label: "发现",
     items: [
       { key: "selected", label: "精选", icon: Flame },
+      { key: "hot", label: "热点榜", icon: Flame },
       { key: "all", label: "全部动态", icon: ListFilter },
       { key: "reports", label: "报告", icon: Database },
     ],
