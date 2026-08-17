@@ -387,7 +387,7 @@ export function App() {
     markRead(item.id);
     setActiveItem(item);
     setActiveRelatedItems(relatedItems);
-    navigate({ ...currentRoute(), page: "story", storyId: item.id });
+    navigate({ ...currentRoute(), page: "story", storyId: item.eventId || item.id });
   };
 
   const toggleRead = (id: string) => {
@@ -983,7 +983,7 @@ function HotPulse({ items, readItems, onOpen }: { items: Item[]; readItems: Set<
       </div>
       <div className="hot-pulse-list">
         {items.map((item, index) => (
-          <a className={readItems.has(item.id) ? "read" : ""} href={item.url} key={item.id} rel="noreferrer" target="_blank" onClick={(event) => { if (!shouldInterceptLinkClick(event)) return; event.preventDefault(); onOpen(item); }}>
+          <a className={readItems.has(item.id) ? "read" : ""} href={item.url} key={item.id} rel="noreferrer" target="_self" onClick={(event) => { if (!shouldInterceptLinkClick(event)) return; event.preventDefault(); onOpen(item); }}>
             <b>{index + 1}</b>
             <span>
               <strong>{item.title}</strong>
@@ -1526,7 +1526,7 @@ function Feed({
                     <strong className="score-pill">{item.score}</strong>
                   </div>
                 </div>
-                <a className="title" href={item.url} target="_blank" rel="noreferrer" onClick={(event) => { if (!shouldInterceptLinkClick(event)) return; event.preventDefault(); onOpen(item); }}>
+                <a className="title" href={item.url} target="_self" rel="noreferrer" onClick={(event) => { if (!shouldInterceptLinkClick(event)) return; event.preventDefault(); onOpen(item); }}>
                   {item.title}
                 </a>
                 <EditorialBrief item={item} />

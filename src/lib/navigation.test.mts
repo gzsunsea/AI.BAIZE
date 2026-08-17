@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { parseLocation, shouldInterceptLinkClick, toLocation } from "./navigation.ts";
@@ -28,4 +29,13 @@ test("only intercepts plain primary link clicks", () => {
   assert.equal(shouldInterceptLinkClick({ button: 1, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, defaultPrevented: false, currentTarget: { target: "_self" } }), false);
   assert.equal(shouldInterceptLinkClick({ button: 0, metaKey: true, ctrlKey: false, shiftKey: false, altKey: false, defaultPrevented: false, currentTarget: { target: "_self" } }), false);
   assert.equal(shouldInterceptLinkClick({ button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, defaultPrevented: false, currentTarget: { target: "_blank" } }), false);
+});
+
+test("story navigation uses event keys and legacy reader anchors remain interceptable", () => {
+  const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");
+  assert.match(appSource, /storyId: item\.eventId \|\| item\.id/);
+  assert.doesNotMatch(appSource, /className=\{readItems\.has\(item\.id\) \? "read" : ""\}[\s\S]{0,240}target="_blank"/);
+  assert.doesNotMatch(appSource, /className="title" href=\{item\.url\} target="_blank"/);
+  assert.match(appSource, /className=\{readItems\.has\(item\.id\) \? "read" : ""\}[\s\S]{0,240}target="_self"/);
+  assert.match(appSource, /className="title" href=\{item\.url\} target="_self"/);
 });

@@ -43,3 +43,15 @@
 - `npm test` — 40 passing.
 - `npm run build` — passing.
 - `git diff --check` — clean.
+
+## Review Fixes, Follow-up (2026-08-17)
+
+- `openItem` now generates `/story/:id` from `item.eventId || item.id`, matching the story endpoint's event/cluster lookup while retaining the item id fallback.
+- The two remaining legacy reader title anchors (hot pulse and timeline) now target `_self`, allowing an ordinary primary click to enter the SPA reader. Existing `shouldInterceptLinkClick` guards keep modified clicks, non-left/middle clicks, and explicit `_blank` targets native, so those paths continue to use the original external `href`.
+- Added a focused source-level navigation regression assertion that locks the event-key route and the target/interception contract.
+
+### Verification After Follow-up
+
+- `node --test src/lib/navigation.test.mts` — 5 passing (Node emitted the existing module-type warning only).
+- `npm test` — 40 passing.
+- `npm run build` — passing.
