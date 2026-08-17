@@ -92,3 +92,21 @@ test("hot center and story pages retain their semantic editorial landmarks", () 
   assert.match(storySource, /事件时间线/);
   assert.match(storySource, /<time/);
 });
+
+test("hot and story routes synchronously invalidate stale page data", () => {
+  const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");
+
+  assert.match(appSource, /if \(next\.page === "hot"\) \{[\s\S]*setHotPageData\(null\)[\s\S]*setHotPageLoading\(true\)/);
+  assert.match(appSource, /if \(next\.page === "story"\) \{[\s\S]*setStory\(null\)[\s\S]*setStoryLoading\(true\)/);
+});
+
+test("story routes surface API 404s and keep related reader opens route-neutral", () => {
+  const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");
+  const storySource = readFileSync(new URL("../components/hot/StoryPage.tsx", import.meta.url), "utf8");
+
+  assert.match(appSource, /class ApiError extends Error[\s\S]*status: number/);
+  assert.match(appSource, /err instanceof ApiError && err\.status === 404/);
+  assert.match(storySource, /notFound: boolean/);
+  assert.match(storySource, /404：未找到这个热点事件/);
+  assert.match(appSource, /onOpenRelated=\{\(item\) => readerFromStoryPage \? openStoryItem\(item\) : openItem\(item, activeRelatedItems\)\}/);
+});

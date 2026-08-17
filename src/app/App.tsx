@@ -100,8 +100,15 @@ function formatTime(value?: string | null) {
 
 async function api<T>(url: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(url, options);
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new ApiError(res.status, await res.text() || res.statusText);
   return res.json();
+}
+
+class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+  }
 }
 
 export function App() {
@@ -154,10 +161,11 @@ export function App() {
   const [hotTopics, setHotTopics] = useState<HotTopic[]>([]);
   const [hotTopicsLoading, setHotTopicsLoading] = useState(false);
   const [hotTopicsError, setHotTopicsError] = useState("");
-  const [storyLoading, setStoryLoading] = useState(false);
+  const [storyLoading, setStoryLoading] = useState(() => route.page === "story");
   const [storyError, setStoryError] = useState("");
+  const [storyNotFound, setStoryNotFound] = useState(false);
   const [hotPageData, setHotPageData] = useState<HotPageData | null>(null);
-  const [hotPageLoading, setHotPageLoading] = useState(false);
+  const [hotPageLoading, setHotPageLoading] = useState(() => route.page === "hot");
   const [hotPageError, setHotPageError] = useState("");
   const [story, setStory] = useState<StoryDetail | null>(null);
   const [readerFromStoryPage, setReaderFromStoryPage] = useState(false);
@@ -174,6 +182,26 @@ export function App() {
   });
 
   const applyRoute = (next: RouteState) => {
+    if (next.page === "hot") {
+      setHotPageData(null);
+      setHotPageError("");
+      setHotPageLoading(true);
+      setStory(null);
+      setStoryError("");
+      setStoryNotFound(false);
+      setStoryLoading(false);
+    } else if (next.page === "story") {
+      setStory(null);
+      setStoryError("");
+      setStoryNotFound(false);
+      setStoryLoading(true);
+      setHotPageData(null);
+      setHotPageError("");
+      setHotPageLoading(false);
+    } else {
+      setHotPageLoading(false);
+      setStoryLoading(false);
+    }
     setRoute(next);
     setMode(next.mode);
     setQuery(next.query);
@@ -315,6 +343,7 @@ export function App() {
     let cancelled = false;
     setStoryLoading(true);
     setStoryError("");
+    setStoryNotFound(false);
     setStory(null);
     api<StoryDetail>(`/api/public/stories/${encodeURIComponent(route.storyId)}`)
       .then((nextStory) => {
@@ -323,7 +352,10 @@ export function App() {
         setStory(nextStory);
       })
       .catch((err) => {
-        if (!cancelled) setStoryError(err instanceof Error ? err.message : "故事加载失败");
+        if (!cancelled) {
+          setStoryNotFound(err instanceof ApiError && err.status === 404);
+          setStoryError(err instanceof Error ? err.message : "故事加载失败");
+        }
       })
       .finally(() => {
         if (!cancelled) setStoryLoading(false);
@@ -612,11 +644,16 @@ export function App() {
         {route.page === "hot" ? (
           <HotPage data={hotPageData} loading={hotPageLoading} error={hotPageError} onOpenStory={(id) => navigate({ ...currentRoute(), page: "story", storyId: id })} onRetry={loadHotPage} />
         ) : route.page === "story" ? (
-          <StoryPage story={story} loading={storyLoading} error={storyError} onBack={closeWorkspace} onOpenItem={openStoryItem} onRetry={() => {
+          <StoryPage story={story} loading={storyLoading} error={storyError} notFound={storyNotFound} onBack={closeWorkspace} onOpenItem={openStoryItem} onRetry={() => {
             if (!route.storyId) return;
             setStoryLoading(true);
             setStoryError("");
-            api<StoryDetail>(`/api/public/stories/${encodeURIComponent(route.storyId)}`).then(setStory).catch((err) => setStoryError(err instanceof Error ? err.message : "故事加载失败")).finally(() => setStoryLoading(false));
+            setStoryNotFound(false);
+            setStory(null);
+            api<StoryDetail>(`/api/public/stories/${encodeURIComponent(route.storyId)}`).then(setStory).catch((err) => {
+              setStoryNotFound(err instanceof ApiError && err.status === 404);
+              setStoryError(err instanceof Error ? err.message : "故事加载失败");
+            }).finally(() => setStoryLoading(false));
           }} />
         ) : mode === "admin" ? (
           <AdminPanel onChanged={() => load(1, false)} />
@@ -841,7 +878,7 @@ export function App() {
           processed={Boolean(activeItem && processedItems.has(activeItem.id))}
           onClose={closeWorkspace}
           onRead={markRead}
-          onOpenRelated={(item) => openItem(item, activeRelatedItems)}
+          onOpenRelated={(item) => readerFromStoryPage ? openStoryItem(item) : openItem(item, activeRelatedItems)}
           onToggleSaved={toggleSaved}
           onToggleProcessed={toggleProcessed}
         />
