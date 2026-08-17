@@ -99,6 +99,10 @@ export function cumulativePageRequests(pageNumber: number, pageSize: number) {
   return Array.from({ length: page }, (_, index) => ({ page: index + 1, pageSize: size }));
 }
 
+export function listStateKey(route: RouteState): string {
+  return `aibaize-list:${toLocation({ ...route, page: "feed", storyId: "" })}`;
+}
+
 export function captureListState(key: string, snapshot: ListSnapshot): void {
   try {
     globalThis.sessionStorage?.setItem(key, JSON.stringify(snapshot));
@@ -135,6 +139,26 @@ export function readScrollState(key: string): number | null {
   } catch {
     return null;
   }
+}
+
+export function captureNavigationSnapshot(route: RouteState, scrollY: number, hotListKey = "aibaize-hot-list"): void {
+  if (route.page === "hot") {
+    captureScrollState(hotListKey, scrollY);
+    return;
+  }
+  if (route.page !== "feed") return;
+  captureListState(listStateKey(route), {
+    scrollY,
+    mode: route.mode,
+    query: route.query,
+    searchMode: route.searchMode,
+    activeChannel: route.activeChannel,
+    activeTag: route.activeTag,
+    category: route.category,
+    statusFilter: route.statusFilter,
+    sort: route.sort,
+    pageNumber: route.pageNumber,
+  });
 }
 
 export function storyBackLabel(origin?: string): "返回信息流" | "返回热点榜" {

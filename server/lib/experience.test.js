@@ -6,6 +6,7 @@ const { buildHotTopics, buildReport, buildStory } = require("./experience");
 function signal(id, eventId, sourceId, score = 90, extra = {}) {
   return {
     id,
+    url: `https://example.com/${id}`,
     eventId,
     sourceId,
     sourceName: sourceId,
@@ -15,6 +16,43 @@ function signal(id, eventId, sourceId, score = 90, extra = {}) {
     ...extra,
   };
 }
+
+test("public hot topics and stories exclude hidden and non-public cluster members", () => {
+  const publicOne = signal("public-1", "event-a", "public-one", 80);
+  const publicTwo = signal("public-2", "event-a", "public-two", 79);
+  const hiddenRepresentative = signal("hidden", "event-a", "private-source", 100, { hidden: true });
+  const invalidRepresentative = signal("invalid", "event-a", "invalid-source", 99, { url: "javascript:alert(1)" });
+  const hiddenOnlySecondSource = signal("single-hidden", "event-hidden", "private-second", 98, { hidden: true });
+  const invalidOnlySecondSource = signal("single-invalid", "event-invalid", "invalid-second", 98, { url: "/relative" });
+  const state = {
+    items: [
+      publicOne,
+      publicTwo,
+      hiddenRepresentative,
+      invalidRepresentative,
+      signal("single-public-hidden", "event-hidden", "only-public", 90),
+      hiddenOnlySecondSource,
+      signal("single-public-invalid", "event-invalid", "only-public", 90),
+      invalidOnlySecondSource,
+    ],
+    clusters: [
+      { id: "event-a", items: ["hidden", "invalid", "public-1", "public-2"] },
+      { id: "event-hidden", items: ["single-public-hidden", "single-hidden"] },
+      { id: "event-invalid", items: ["single-public-invalid", "single-invalid"] },
+    ],
+  };
+
+  const hot = buildHotTopics(state, { now: "2026-07-22T04:00:00.000Z" });
+  assert.deepEqual(hot.items.map((topic) => topic.id), ["event-a"]);
+  assert.equal(hot.items[0].representative.id, "public-1");
+  assert.deepEqual(hot.items[0].relatedItems.map((item) => item.id), ["public-1", "public-2"]);
+  assert.deepEqual(hot.items[0].sources, ["public-one", "public-two"]);
+
+  const story = buildStory(state, "event-a", { now: "2026-07-22T04:00:00.000Z" });
+  assert.deepEqual(story.timeline.map((item) => item.id), ["public-1", "public-2"]);
+  assert.equal(buildStory(state, "event-hidden", { now: "2026-07-22T04:00:00.000Z" }), null);
+  assert.equal(buildStory(state, "event-invalid", { now: "2026-07-22T04:00:00.000Z" }), null);
+});
 
 test("hot topics expose rank, heat, status, and a transparent rules version", () => {
   const result = buildHotTopics({

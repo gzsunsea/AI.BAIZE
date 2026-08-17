@@ -161,7 +161,7 @@ test("hot routes save and restore their own scroll only after matching data rend
   const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");
 
   assert.match(appSource, /const hotListStateKey = "aibaize-hot-list"/);
-  assert.match(appSource, /if \(current\.page === "hot"\) captureScrollState\(hotListStateKey, window\.scrollY\)/);
+  assert.match(appSource, /captureNavigationSnapshot\(current, window\.scrollY, hotListStateKey\)/);
   assert.match(appSource, /pendingHotScrollRestore\.current = next\.page === "hot" \? readScrollState\(hotListStateKey\) : null/);
   assert.match(appSource, /history\.scrollRestoration = "manual"/);
   assert.match(appSource, /route\.page !== "hot" \|\| hotPageLoading \|\| !hotPageData \|\| pendingHotScrollRestore\.current === null/);

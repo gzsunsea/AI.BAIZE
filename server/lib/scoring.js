@@ -127,6 +127,10 @@ function isOriginalHttpUrl(url = "") {
   }
 }
 
+function isPublicItem(item = {}) {
+  return !item.hidden && isOriginalHttpUrl(item.url);
+}
+
 function summarize(text = "", fallback = "") {
   const clean = stripHtml(text || fallback);
   if (clean.length <= 420) return clean;
@@ -355,6 +359,7 @@ module.exports = {
   isCoreAiCandidate,
   isNoiseCandidate,
   isOriginalHttpUrl,
+  isPublicItem,
   isQualityCandidate,
   isSelectedQualityCandidate,
   isWeakIndustryCandidate,

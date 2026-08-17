@@ -169,3 +169,35 @@ The remaining Important SSRF finding is addressed on top of `3fdf90b`. Redirect-
 - The IPv6 allocation allowlist intentionally tracks the IANA registry snapshot dated 2025-10-10; future IANA global-unicast allocations require a code update before the proxy will accept them.
 - The existing `MODULE_TYPELESS_PACKAGE_JSON` warning remains during the TypeScript navigation test; resolving it requires a broader CommonJS/ESM packaging decision.
 - Production deployment and production `data/db.json` changes were not performed.
+
+## Final Hot Privacy and Snapshot Follow-up — 2026-08-18
+
+### Status
+
+The final two Important findings are addressed on top of `36233c1`. No dependency or runtime-data changes were made.
+
+### Fixes
+
+1. **Public hotspot and story eligibility**
+   - Hot-topic construction now removes hidden items and items without original HTTP(S) URLs before source counting, representative selection, score/recency calculation, related-item output, and cluster eligibility.
+   - The predicate matches the existing `/api/public/items/:id` public eligibility semantics, so a hidden or invalid-URL second source can no longer make a single-public-source cluster eligible.
+   - Unit and live Express endpoint regressions cover hidden/invalid high-score representatives, hidden/invalid second-source eligibility, clean public topic output, public story timelines, and 404 responses for ineligible stories.
+
+2. **Feed and hotspot scroll snapshot isolation**
+   - Navigation snapshot capture is route-aware: feed routes write only their keyed list snapshot, hotspot routes write only the dedicated hotspot scroll snapshot, and story/item routes write neither.
+   - The feed list key remains unchanged for restoration, while leaving a story can no longer overwrite it with story scroll and feed-shaped state.
+   - A storage-level regression exercises feed -> hot -> story -> back -> back state and proves the original feed and hotspot snapshots remain independent.
+
+### Verification
+
+- Focused hot/API/navigation suite: `node --test server/lib/experience.test.js server/index.test.js src/lib/navigation.test.mts src/lib/experience.test.mts` — 58 passed, 0 failed.
+- Full suite: `npm test` — 78 passed, 0 failed.
+- No-emit frontend check: `npm run typecheck` — passed.
+- Production build: `npm run build` — passed.
+- Whitespace check: `git diff --check` — passed after this report append.
+
+### Remaining Concerns
+
+- The existing `MODULE_TYPELESS_PACKAGE_JSON` warning remains during the TypeScript navigation test; resolving it requires a broader CommonJS/ESM packaging decision.
+- No real-browser automation is configured, so browser history scroll behavior still benefits from a manual release click-through despite the route/storage regression coverage.
+- Production deployment and production `data/db.json` changes were not performed.

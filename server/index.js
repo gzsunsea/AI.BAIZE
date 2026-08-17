@@ -10,7 +10,7 @@ const { readState, writeState } = require("./lib/store");
 const { refreshAll } = require("./jobs/refresh");
 const { attachRelated, categoryLabel, enrichItem, itemCategory, serializePublicItem, sourceChannel } = require("./lib/editorial");
 const { enhanceRecentItems } = require("./lib/llmEnhancer");
-const { isOriginalHttpUrl, isQualityCandidate, isSelectedQualityCandidate, makeId } = require("./lib/scoring");
+const { isOriginalHttpUrl, isPublicItem, isQualityCandidate, isSelectedQualityCandidate, makeId } = require("./lib/scoring");
 const { canonicalUrl, titleFingerprint } = require("./lib/dedupe");
 const { answerQuestion } = require("./lib/askBaize");
 const { buildHotTopics, buildReport, buildStory } = require("./lib/experience");
@@ -19,6 +19,10 @@ const PORT = Number(process.env.PORT || 8080);
 const DEFAULT_ADMIN_TOKEN = "aihot-admin";
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || DEFAULT_ADMIN_TOKEN;
 const app = express();
+
+function readAppState() {
+  return typeof app.locals.readState === "function" ? app.locals.readState() : readState();
+}
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "1mb" }));
@@ -507,7 +511,7 @@ function itemsResponse(query, state = readState()) {
 }
 
 function publicItemDetail(state, id) {
-  const item = (state.items || []).find((candidate) => candidate.id === id && !candidate.hidden && isOriginalHttpUrl(candidate.url));
+  const item = (state.items || []).find((candidate) => candidate.id === id && isPublicItem(candidate));
   if (!item) return null;
   const [decorated] = attachRelated([enrichItem(item)], state.clusters || []);
   return { item: serializePublicItem(decorated) };
@@ -693,18 +697,18 @@ app.get("/api/public/items", (req, res) => {
 });
 
 app.get("/api/public/items/:id", (req, res) => {
-  const detail = publicItemDetail(readState(), String(req.params.id));
+  const detail = publicItemDetail(readAppState(), String(req.params.id));
   if (!detail) return res.status(404).json({ error: "item not found" });
   return res.json(detail);
 });
 
 app.get("/api/public/hot", (_req, res) => {
-  const state = readState();
+  const state = readAppState();
   res.json(publicHotTopics(state));
 });
 
 app.get("/api/public/stories/:id", (req, res) => {
-  const state = readState();
+  const state = readAppState();
   const story = buildStory(state, String(req.params.id), {
     selectedThreshold: state.settings?.rules?.selectedThreshold || 70,
     enrichItem,
@@ -722,7 +726,7 @@ app.get("/api/public/stories/:id", (req, res) => {
 });
 
 app.get("/api/public/hot-topics", (_req, res) => {
-  const state = readState();
+  const state = readAppState();
   res.json(publicHotTopics(state));
 });
 

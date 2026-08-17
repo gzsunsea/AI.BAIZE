@@ -1,3 +1,5 @@
+const { isPublicItem } = require("./scoring");
+
 function clusterItemIds(cluster = {}) {
   return (cluster.items || [])
     .map((item) => (typeof item === "string" ? item : item?.id))
@@ -69,6 +71,7 @@ function buildHotTopics(state = {}, options = {}) {
       const relatedItems = clusterItemIds(cluster)
         .map((id) => itemsById.get(id))
         .filter(Boolean)
+        .filter(isPublicItem)
         .filter((item) => nowMs - new Date(item.publishedAt || 0).getTime() <= 72 * 60 * 60 * 1000);
       const sourceNamesByIdentity = new Map();
       for (const item of relatedItems) {

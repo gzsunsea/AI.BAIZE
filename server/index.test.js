@@ -319,3 +319,61 @@ test("public experience endpoints expose hot topics, reports, and structured val
   assert.equal(invalidResponse.status, 400);
   assert.deepEqual(await invalidResponse.json(), { error: "invalid period" });
 });
+
+test("public hot and story APIs exclude hidden and non-public cluster evidence", async (t) => {
+  const publishedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const item = (id, eventId, sourceId, score, extra = {}) => ({
+    id,
+    eventId,
+    sourceId,
+    sourceName: sourceId,
+    title: `${eventId} ${id}`,
+    summary: `${eventId} summary`,
+    url: `https://example.com/${id}`,
+    score,
+    publishedAt,
+    priorityTier: "official_first_party",
+    ...extra,
+  });
+  const state = {
+    settings: { rules: { selectedThreshold: 70 } },
+    items: [
+      item("public-1", "event-public", "public-one", 90),
+      item("public-2", "event-public", "public-two", 89),
+      item("hidden-representative", "event-public", "private", 100, { hidden: true }),
+      item("invalid-representative", "event-public", "invalid", 99, { url: "javascript:alert(1)" }),
+      item("hidden-single-public", "event-hidden", "only-public", 90),
+      item("hidden-second-source", "event-hidden", "private-second", 99, { hidden: true }),
+      item("invalid-single-public", "event-invalid", "only-public", 90),
+      item("invalid-second-source", "event-invalid", "invalid-second", 99, { url: "/relative" }),
+    ],
+    clusters: [
+      { id: "event-public", items: ["hidden-representative", "invalid-representative", "public-1", "public-2"] },
+      { id: "event-hidden", items: ["hidden-single-public", "hidden-second-source"] },
+      { id: "event-invalid", items: ["invalid-single-public", "invalid-second-source"] },
+    ],
+  };
+  const previousReadState = app.locals.readState;
+  app.locals.readState = () => state;
+  t.after(() => { app.locals.readState = previousReadState; });
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => server.close());
+  await once(server, "listening");
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  const hotResponse = await fetch(`${base}/api/public/hot`);
+  assert.equal(hotResponse.status, 200);
+  const hot = await hotResponse.json();
+  assert.deepEqual(hot.items.map((topic) => topic.id), ["event-public"]);
+  assert.equal(hot.items[0].representative.id, "public-1");
+  assert.deepEqual(hot.items[0].relatedItems.map((entry) => entry.id), ["public-1", "public-2"]);
+  assert.deepEqual(hot.items[0].sources, ["public-one", "public-two"]);
+
+  const storyResponse = await fetch(`${base}/api/public/stories/event-public`);
+  assert.equal(storyResponse.status, 200);
+  const storyBody = await storyResponse.json();
+  assert.deepEqual(storyBody.timeline.map((entry) => entry.id), ["public-1", "public-2"]);
+  assert.equal((await fetch(`${base}/api/public/stories/event-hidden`)).status, 404);
+  assert.equal((await fetch(`${base}/api/public/stories/event-invalid`)).status, 404);
+});

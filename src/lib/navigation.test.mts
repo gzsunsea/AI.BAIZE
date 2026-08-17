@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { captureScrollState, cumulativePageRequests, parseLocation, readScrollState, shouldInterceptLinkClick, storyBackLabel, toLocation } from "./navigation.ts";
+import { captureNavigationSnapshot, captureScrollState, cumulativePageRequests, listStateKey, parseLocation, readListState, readScrollState, shouldInterceptLinkClick, storyBackLabel, toLocation } from "./navigation.ts";
 
 test("parses hot story and feed search state from URL", () => {
   assert.deepEqual(parseLocation(new URL("https://example.test/story/event-a?q=agent&search=full&channel=news").toString()), {
@@ -52,6 +52,33 @@ test("hot-list scroll snapshots round-trip independently from feed state", () =>
     captureScrollState("aibaize-hot-list", 640);
     assert.equal(readScrollState("aibaize-hot-list"), 640);
     assert.equal(readScrollState("aibaize-feed-list"), null);
+  } finally {
+    if (previous) Object.defineProperty(globalThis, "sessionStorage", previous);
+    else Reflect.deleteProperty(globalThis, "sessionStorage");
+  }
+});
+
+test("feed to hot to story navigation preserves independent back-stack snapshots", () => {
+  const values = new Map<string, string>();
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+  Object.defineProperty(globalThis, "sessionStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) || null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    },
+  });
+  const feed = parseLocation("/?mode=selected&q=agents&page=2");
+  const hot = parseLocation("/hot");
+  const story = parseLocation("/story/event-a");
+  try {
+    captureNavigationSnapshot(feed, 480);
+    captureNavigationSnapshot(hot, 920);
+    captureNavigationSnapshot(story, 0);
+
+    assert.equal(readListState(listStateKey(feed))?.scrollY, 480);
+    assert.equal(readScrollState("aibaize-hot-list"), 920);
+    assert.equal(values.size, 2);
   } finally {
     if (previous) Object.defineProperty(globalThis, "sessionStorage", previous);
     else Reflect.deleteProperty(globalThis, "sessionStorage");

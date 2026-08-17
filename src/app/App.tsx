@@ -48,7 +48,7 @@ import { StoryPage } from "../components/hot/StoryPage";
 import { BookmarkGuide, ThemeToggle } from "../components/shared";
 import { topicForMode, topicRequestUrls } from "../lib/experience.mts";
 import { filterAndSortFeedItems } from "../lib/feedSearch.mts";
-import { captureListState, captureScrollState, cumulativePageRequests, itemLocation, parseLocation, readListState, readScrollState, shouldInterceptLinkClick, storyBackLabel, toLocation, type RouteState } from "../lib/navigation";
+import { captureNavigationSnapshot, cumulativePageRequests, itemLocation, listStateKey, parseLocation, readListState, readScrollState, shouldInterceptLinkClick, storyBackLabel, toLocation, type RouteState } from "../lib/navigation";
 import type { ApiState, AskResult, DailyDigest, HotTopic, Item, MpArticle, MpDigest, SavedEntry, Stats, StoryDetail } from "../types";
 import "../styles.css";
 
@@ -243,23 +243,9 @@ export function App() {
     }
   };
 
-  const listStateKey = (next: RouteState) => `aibaize-list:${toLocation({ ...next, page: "feed", storyId: "" })}`;
-
   const navigate = (next: RouteState, replace = false) => {
     const current = currentRoute();
-    if (current.page === "hot") captureScrollState(hotListStateKey, window.scrollY);
-    captureListState(listStateKey(current), {
-      scrollY: window.scrollY,
-      mode: current.mode,
-      query: current.query,
-      searchMode: current.searchMode,
-      activeChannel: current.activeChannel,
-      activeTag: current.activeTag,
-      category: current.category,
-      statusFilter: current.statusFilter,
-      sort: current.sort,
-      pageNumber: current.pageNumber,
-    });
+    captureNavigationSnapshot(current, window.scrollY, hotListStateKey);
     const navigationState = { aibaizeNavigation: true, storyOrigin: next.page === "story" ? current.page : undefined };
     if (replace) history.replaceState(navigationState, "", toLocation(next));
     else history.pushState(navigationState, "", toLocation(next));
