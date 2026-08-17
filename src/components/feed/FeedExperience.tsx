@@ -47,6 +47,7 @@ export type FeedExperienceProps = {
   loading: boolean;
   error: string;
   query: string;
+  searchMode: "direct" | "full";
   activeTag: string;
   activeChannel: string;
   statusFilter: string;
@@ -57,6 +58,7 @@ export type FeedExperienceProps = {
   shareMessage: string;
   onQueryChange: (value: string) => void;
   onSearch: () => void;
+  onSearchModeChange: (value: "direct" | "full") => void;
   onTagChange: (value: string) => void;
   onChannelChange: (value: string) => void;
   onStatusChange: (value: string) => void;
@@ -234,6 +236,10 @@ export function FeedExperience(props: FeedExperienceProps) {
           </div>
         </details>
       </section>
+      <div className="search-mode-tabs" role="tablist" aria-label="搜索范围">
+        <button type="button" role="tab" aria-selected={props.searchMode === "direct"} className={props.searchMode === "direct" ? "active" : ""} onClick={() => props.onSearchModeChange("direct")}>直接匹配</button>
+        <button type="button" role="tab" aria-selected={props.searchMode === "full"} className={props.searchMode === "full" ? "active" : ""} onClick={() => props.onSearchModeChange("full")}>全文相关</button>
+      </div>
 
       {(props.mode === "selected" || props.mode === "all") && (
         <div className="primary-filters">

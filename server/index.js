@@ -342,6 +342,7 @@ function visibleItems(query) {
   const state = readState();
   const threshold = Number(state.settings?.rules?.selectedThreshold || 72);
   const q = String(query.q || "").trim().toLowerCase();
+  const searchMode = query.searchMode === "full" ? "full" : "direct";
   const mode = String(query.mode || "selected");
   const tag = String(query.tag || "");
   const channel = String(query.channel || "");
@@ -359,10 +360,31 @@ function visibleItems(query) {
     .filter((item) => (!tag ? true : item.tags?.includes(tag)))
     .filter((item) => {
       if (!q) return true;
-      return `${item.title} ${item.summary} ${item.sourceName} ${item.tags?.join(" ")}`.toLowerCase().includes(q);
+      const directFields = `${item.title} ${item.summary} ${item.sourceName} ${item.tags?.join(" ")}`;
+      const fullFields = `${item.content || ""} ${item.raw?.content || ""} ${item.raw?.description || ""} ${item.reason || ""} ${item.editorialBrief?.fact || ""} ${item.editorialBrief?.impact || ""} ${item.editorialBrief?.scenario || ""}`;
+      return `${directFields}${searchMode === "full" ? ` ${fullFields}` : ""}`.toLowerCase().includes(q);
     });
+  const searchRank = (item) => {
+    if (!q || searchMode !== "full") return 0;
+    const fields = [
+      [item.title, 8],
+      [item.summary, 6],
+      [item.reason, 5],
+      [item.editorialBrief?.fact, 5],
+      [item.editorialBrief?.impact, 4],
+      [item.editorialBrief?.scenario, 4],
+      [item.sourceName, 3],
+      [item.tags?.join(" "), 3],
+      [item.content, 2],
+      [item.raw?.content, 2],
+      [item.raw?.description, 2],
+    ];
+    return fields.reduce((score, [value, weight]) => score + (String(value || "").toLowerCase().includes(q) ? weight : 0), 0);
+  };
+  const compareByPublishedAt = (a, b) => new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime();
+  const compareBySearch = (a, b) => searchRank(b) - searchRank(a) || compareByPublishedAt(a, b);
   if (mode !== "selected") {
-    const sorted = filtered.sort((a, b) => new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
+    const sorted = filtered.sort(searchMode === "full" && q ? compareBySearch : compareByPublishedAt);
     if (mode !== "all") return sorted;
     const caps = { hn: 20, github: 16, arxiv: 16, devto: 0 };
     const counts = new Map();
@@ -375,7 +397,9 @@ function visibleItems(query) {
       return true;
     });
   }
-  return selectCuratedItems(filtered, state.settings?.rules);
+  const selected = selectCuratedItems(filtered, state.settings?.rules);
+  if (!q) return selected;
+  return selected.sort(searchMode === "full" ? compareBySearch : compareByPublishedAt);
 }
 
 function selectedRank(item) {
@@ -473,6 +497,11 @@ app.get("/api/items", (req, res) => {
     total: items.length,
     page,
     pageSize,
+    search: {
+      query: String(req.query.q || "").trim(),
+      mode: req.query.searchMode === "full" ? "full" : "direct",
+      sort: req.query.searchMode === "full" && String(req.query.q || "").trim() ? "relevance" : "published_desc",
+    },
   });
 });
 

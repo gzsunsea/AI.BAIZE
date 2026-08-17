@@ -71,6 +71,22 @@ test("mobile feed styles keep long labels and titles inside the viewport", () =>
   assert.match(baseCss, /html \{[^}]*-webkit-text-size-adjust: 100%;[^}]*text-size-adjust: 100%;/);
 });
 
+test("feed search exposes direct and full modes and keeps them in the shared URL state", () => {
+  const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");
+  const feedSource = readFileSync(new URL("../components/feed/FeedExperience.tsx", import.meta.url), "utf8");
+  const feedCss = readFileSync(new URL("../styles/feed.css", import.meta.url), "utf8");
+
+  assert.match(feedSource, /直接匹配/);
+  assert.match(feedSource, /全文相关/);
+  assert.match(feedSource, /role="tablist"/);
+  assert.match(feedSource, /aria-selected/);
+  assert.match(appSource, /searchMode/);
+  assert.match(appSource, /searchMode=\$\{encodeURIComponent\(searchMode\)\}/);
+  assert.match(appSource, /history\.replaceState/);
+  assert.match(appSource, /window\.requestAnimationFrame\(\(\) => window\.scrollTo\(0, snapshot\.scrollY\)\)/);
+  assert.match(feedCss, /\.search-mode-tabs \{[^}]*overflow-x: auto;/);
+});
+
 test("editorial feed renders available media and Chinese radar never falls through to the previous feed", () => {
   const feedSource = readFileSync(new URL("../components/feed/FeedExperience.tsx", import.meta.url), "utf8");
   const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");

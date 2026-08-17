@@ -177,6 +177,10 @@
   .hot-page,
   .story-page { width: 100%; gap: var(--space-4); }
 
+  .search-mode-tabs {
+    -webkit-overflow-scrolling: touch;
+  }
+
   .hot-page-head { align-items: flex-start; flex-wrap: wrap; }
 
   .hot-ranking-list button { grid-template-columns: 38px minmax(0, 1fr); gap: var(--space-3); padding: var(--space-3); }

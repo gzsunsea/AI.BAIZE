@@ -116,6 +116,7 @@ export function App() {
   const [mode, setMode] = useState(() => route.mode);
   const [themeMode, setThemeMode] = useState(localStorage.getItem("aihot-theme-mode") || "dark");
   const [query, setQuery] = useState(() => route.query);
+  const [searchMode, setSearchMode] = useState<"direct" | "full">(() => route.searchMode);
   const [activeTag, setActiveTag] = useState(() => route.activeTag);
   const [activeChannel, setActiveChannel] = useState(() => route.activeChannel);
   const [statusFilter, setStatusFilter] = useState(() => route.statusFilter);
@@ -175,6 +176,7 @@ export function App() {
     ...route,
     mode,
     query,
+    searchMode,
     activeTag,
     activeChannel,
     statusFilter,
@@ -205,6 +207,7 @@ export function App() {
     setRoute(next);
     setMode(next.mode);
     setQuery(next.query);
+    setSearchMode(next.searchMode);
     setActiveTag(next.activeTag);
     setActiveChannel(next.activeChannel);
     setStatusFilter(next.statusFilter);
@@ -232,12 +235,15 @@ export function App() {
       sort: current.sort,
       pageNumber: current.pageNumber,
     });
-    history[replace ? "replaceState" : "pushState"]({ aibaizeNavigation: true }, "", toLocation(next));
+    if (replace) history.replaceState({ aibaizeNavigation: true }, "", toLocation(next));
+    else history.pushState({ aibaizeNavigation: true }, "", toLocation(next));
     applyRoute(next);
   };
 
-  const updateFeedRoute = (changes: Partial<RouteState>, replace = false) => {
-    navigate({ ...currentRoute(), ...changes, page: "feed", storyId: "" }, replace);
+  const updateFeedRoute = (changes: Partial<RouteState>) => {
+    const changedKeys = Object.keys(changes);
+    const onlyPageChanged = changedKeys.length === 1 && changedKeys[0] === "pageNumber";
+    navigate({ ...currentRoute(), ...changes, page: "feed", storyId: "" }, !onlyPageChanged);
   };
 
   const closeWorkspace = () => {
@@ -312,7 +318,7 @@ export function App() {
         const apiMode = mode === "all" || categoryMode ? "all" : "selected";
         const pageSize = apiMode === "all" ? 120 : 80;
         const feed = await api<{ items: Item[]; total: number; page: number; pageSize: number }>(
-          `/api/items?mode=${apiMode}&q=${encodeURIComponent(query)}&tag=${encodeURIComponent(activeTag)}&channel=${encodeURIComponent(mode === "all" || mode === "selected" ? activeChannel : "")}&category=${encodeURIComponent(categoryMode)}&page=${page}&pageSize=${pageSize}`,
+          `/api/items?mode=${apiMode}&q=${encodeURIComponent(query)}&searchMode=${encodeURIComponent(searchMode)}&tag=${encodeURIComponent(activeTag)}&channel=${encodeURIComponent(mode === "all" || mode === "selected" ? activeChannel : "")}&category=${encodeURIComponent(categoryMode)}&page=${page}&pageSize=${pageSize}`,
         );
         nextItems = feed.items;
         nextFeedTotal = feed.total;
@@ -675,6 +681,7 @@ export function App() {
             loading={loading}
             error={error}
             query={query}
+            searchMode={searchMode}
             activeTag={activeTag}
             activeChannel={activeChannel}
             statusFilter={statusFilter}
@@ -685,6 +692,7 @@ export function App() {
             shareMessage={shareMessage}
             onQueryChange={setQuery}
             onSearch={() => updateFeedRoute({ query, pageNumber: 1 })}
+            onSearchModeChange={(searchMode) => updateFeedRoute({ searchMode, pageNumber: 1 })}
             onTagChange={(activeTag) => updateFeedRoute({ activeTag, pageNumber: 1 })}
             onChannelChange={(activeChannel) => updateFeedRoute({ activeChannel, pageNumber: 1 })}
             onStatusChange={(statusFilter) => updateFeedRoute({ statusFilter })}
@@ -715,6 +723,7 @@ export function App() {
               loading,
               error,
               query,
+              searchMode,
               activeTag,
               activeChannel,
               statusFilter,
@@ -725,6 +734,7 @@ export function App() {
               shareMessage,
               onQueryChange: setQuery,
               onSearch: () => updateFeedRoute({ query, pageNumber: 1 }),
+              onSearchModeChange: (searchMode) => updateFeedRoute({ searchMode, pageNumber: 1 }),
               onTagChange: (activeTag) => updateFeedRoute({ activeTag, pageNumber: 1 }),
               onChannelChange: (activeChannel) => updateFeedRoute({ activeChannel, pageNumber: 1 }),
               onStatusChange: (statusFilter) => updateFeedRoute({ statusFilter }),
