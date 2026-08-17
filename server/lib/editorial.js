@@ -100,6 +100,20 @@ function enrichItem(item) {
   };
 }
 
+// The public experience APIs must not expose fields used for moderation,
+// source management, ranking internals, or runtime bookkeeping.
+function serializePublicItem(item = {}) {
+  const fields = [
+    "id", "url", "title", "summary", "sourceName", "sourceKind", "author",
+    "publishedAt", "score", "tags", "reason", "media", "channel", "channelLabel",
+    "category", "categoryLabel", "scoreBreakdown", "mpMetrics", "mpTitle", "related",
+    "editorialBrief",
+  ];
+  return Object.fromEntries(fields
+    .filter((field) => item[field] !== undefined)
+    .map((field) => [field, item[field]]));
+}
+
 function attachRelated(items, clusters = []) {
   const byItem = new Map();
   for (const cluster of clusters || []) {
@@ -129,5 +143,6 @@ module.exports = {
   itemCategory,
   mpMetrics,
   scoreBreakdown,
+  serializePublicItem,
   sourceChannel,
 };

@@ -6,7 +6,7 @@ const express = require("express");
 const cron = require("node-cron");
 const { readState, writeState } = require("./lib/store");
 const { refreshAll } = require("./jobs/refresh");
-const { attachRelated, categoryLabel, enrichItem, itemCategory, sourceChannel } = require("./lib/editorial");
+const { attachRelated, categoryLabel, enrichItem, itemCategory, serializePublicItem, sourceChannel } = require("./lib/editorial");
 const { enhanceRecentItems } = require("./lib/llmEnhancer");
 const { isOriginalHttpUrl, isQualityCandidate, isSelectedQualityCandidate, makeId } = require("./lib/scoring");
 const { canonicalUrl, titleFingerprint } = require("./lib/dedupe");
@@ -481,6 +481,21 @@ function publicItems(query) {
   return attachRelated(visibleItems(query).map(enrichItem), state.clusters || []);
 }
 
+function publicHotTopics(state) {
+  const result = buildHotTopics(state, {
+    selectedThreshold: state.settings?.rules?.selectedThreshold || 70,
+    enrichItem,
+  });
+  return {
+    ...result,
+    items: result.items.map((topic) => ({
+      ...topic,
+      representative: serializePublicItem(topic.representative),
+      relatedItems: topic.relatedItems.map(serializePublicItem),
+    })),
+  };
+}
+
 function localDateKey(value = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Shanghai",
@@ -638,10 +653,7 @@ app.get("/api/public/items", (req, res) => {
 
 app.get("/api/public/hot", (_req, res) => {
   const state = readState();
-  res.json(buildHotTopics(state, {
-    selectedThreshold: state.settings?.rules?.selectedThreshold || 70,
-    enrichItem,
-  }));
+  res.json(publicHotTopics(state));
 });
 
 app.get("/api/public/stories/:id", (req, res) => {
@@ -651,15 +663,20 @@ app.get("/api/public/stories/:id", (req, res) => {
     enrichItem,
   });
   if (!story) return res.status(404).json({ error: "story not found" });
-  return res.json(story);
+  return res.json({
+    ...story,
+    event: {
+      ...story.event,
+      representative: serializePublicItem(story.event.representative),
+    },
+    latestUpdates: story.latestUpdates.map(serializePublicItem),
+    timeline: story.timeline.map(serializePublicItem),
+  });
 });
 
 app.get("/api/public/hot-topics", (_req, res) => {
   const state = readState();
-  res.json(buildHotTopics(state, {
-    selectedThreshold: state.settings?.rules?.selectedThreshold || 70,
-    enrichItem,
-  }));
+  res.json(publicHotTopics(state));
 });
 
 app.get("/api/public/reports", (req, res) => {

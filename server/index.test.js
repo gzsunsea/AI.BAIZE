@@ -220,6 +220,15 @@ test("public experience endpoints expose hot topics, reports, and structured val
   const hot = await hotResponse.json();
   assert.equal(Array.isArray(hot.items), true);
   assert.equal(typeof hot.generatedAt, "string");
+  const assertPublicItem = (item) => {
+    for (const field of ["hidden", "pinned", "priorityTier", "sourceId", "mpMeta", "raw", "canonicalUrl", "updatedAt"]) {
+      assert.equal(Object.hasOwn(item, field), false, `public item leaked ${field}`);
+    }
+  };
+  for (const topic of hot.items) {
+    assertPublicItem(topic.representative);
+    topic.relatedItems.forEach(assertPublicItem);
+  }
 
   const hotListResponse = await fetch(`${base}/api/public/hot`);
   assert.equal(hotListResponse.status, 200);
@@ -232,7 +241,15 @@ test("public experience endpoints expose hot topics, reports, and structured val
     assert.equal(storyResponse.status, 200);
     const story = await storyResponse.json();
     assert.equal(Array.isArray(story.timeline), true);
+    assertPublicItem(story.event.representative);
+    story.latestUpdates.forEach(assertPublicItem);
+    story.timeline.forEach(assertPublicItem);
   }
+
+  hotList.items.forEach((topic) => {
+    assertPublicItem(topic.representative);
+    topic.relatedItems.forEach(assertPublicItem);
+  });
 
   const missingStory = await fetch(`${base}/api/public/stories/missing-story-id`);
   assert.equal(missingStory.status, 404);

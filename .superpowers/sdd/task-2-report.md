@@ -18,3 +18,14 @@
 ## Concerns
 
 - No known concerns. Production runtime data was not modified.
+
+## Fix: public item serialization
+
+- Added a focused public item serializer and applied it to representative items, related items, story timelines, latest updates, and the legacy hot-topics route.
+- Added endpoint assertions covering management/runtime fields (`hidden`, `pinned`, `priorityTier`, `sourceId`, `mpMeta`, and related internals).
+
+## Fix Verification
+
+- `node --test server/index.test.js server/lib/experience.test.js` — 28 passed.
+- `npm test` — 40 passed.
+- `npm run build` — passed.
