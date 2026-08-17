@@ -6,23 +6,34 @@ function clusterItemIds(cluster = {}) {
 
 const HOT_RULES = { version: 1, windowHours: 72, trendAvailable: false };
 
+const HOT_TIER_WEIGHTS = {
+  first_party: 12,
+  official_first_party: 12,
+  preferred_x: 11,
+  expert: 10,
+  expert_rss: 10,
+  research: 9,
+  cn_media: 8,
+  education: 7,
+  culture: 7,
+  media: 6,
+  social: 5,
+  community: 4,
+  community_fallback: 4,
+  reference: 3,
+  custom: 2,
+};
+
+function itemTierWeight(item = {}) {
+  for (const tier of [item.priorityTier, item.sourceTier, item.tier]) {
+    if (Object.hasOwn(HOT_TIER_WEIGHTS, tier)) return HOT_TIER_WEIGHTS[tier];
+  }
+  return 1;
+}
+
 function hotHeat(topic) {
-  const tierWeight = {
-    first_party: 12,
-    preferred_x: 11,
-    expert: 10,
-    research: 9,
-    cn_media: 8,
-    education: 7,
-    culture: 7,
-    media: 6,
-    social: 5,
-    community: 4,
-    reference: 3,
-    custom: 2,
-  };
   const sourceQualityScore = Math.min(30, topic.relatedItems.reduce((sum, item) => (
-    sum + (tierWeight[item.priorityTier || item.sourceTier || item.tier] || 1)
+    sum + itemTierWeight(item)
   ), 0));
   const sourceCountBonus = Math.min(25, Math.max(0, topic.sourceCount - 1) * 8);
   const freshnessBonus = Math.max(0, Math.round(20 - topic.ageHours / 4));

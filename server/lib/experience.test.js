@@ -122,6 +122,81 @@ test("hot topics return at most five eligible clusters", () => {
   assert.deepEqual(result.items.map((item) => item.id), ["event-0", "event-1", "event-2", "event-3", "event-4"]);
 });
 
+test("hot topics default to ten eligible clusters", () => {
+  const items = [];
+  const clusters = [];
+  for (let index = 0; index < 12; index += 1) {
+    const first = signal(`${index}-1`, `default-${index}`, `${index}-source-1`, 90 - index);
+    const second = signal(`${index}-2`, `default-${index}`, `${index}-source-2`, 89 - index);
+    items.push(first, second);
+    clusters.push({ id: `default-${index}`, items: [first.id, second.id] });
+  }
+
+  const result = buildHotTopics({ items, clusters }, { now: "2026-07-22T04:00:00.000Z" });
+
+  assert.equal(result.items.length, 10);
+});
+
+test("story lookup bypasses the hot-list limit", () => {
+  const items = [];
+  const clusters = [];
+  for (let index = 0; index < 11; index += 1) {
+    const first = signal(`${index}-1`, `story-${index}`, `${index}-source-1`, 90 - index);
+    const second = signal(`${index}-2`, `story-${index}`, `${index}-source-2`, 89 - index);
+    items.push(first, second);
+    clusters.push({ id: `story-${index}`, items: [first.id, second.id] });
+  }
+
+  const story = buildStory({ items, clusters }, "story-10", {
+    now: "2026-07-22T04:00:00.000Z",
+    enrichItem: (item) => item,
+  });
+
+  assert.equal(story.event.id, "story-10");
+});
+
+test("story event omits related items and caps latest updates at three", () => {
+  const items = Array.from({ length: 4 }, (_, index) => signal(
+    `update-${index}`,
+    "updates",
+    `source-${index}`,
+    90 - index,
+    { publishedAt: `2026-07-22T0${index}:00:00.000Z` },
+  ));
+  const story = buildStory({ items, clusters: [{ id: "updates", items: items.map((item) => item.id) }] }, "updates", {
+    now: "2026-07-22T04:00:00.000Z",
+    enrichItem: (item) => item,
+  });
+
+  assert.equal(Object.hasOwn(story.event, "relatedItems"), false);
+  assert.equal(story.latestUpdates.length, 3);
+  assert.equal(story.timeline.length, 4);
+});
+
+test("recognized priority tiers and fallback source tiers affect heat", () => {
+  const items = [
+    signal("fallback", "fallback", "fallback-source", 80, {
+      pinned: true,
+      sourceTier: "community",
+      priorityTier: "unknown-tier",
+    }),
+    signal("official", "official", "official-source", 80, {
+      pinned: true,
+      priorityTier: "official_first_party",
+    }),
+  ];
+  const result = buildHotTopics({
+    items,
+    clusters: [
+      { id: "fallback", items: ["fallback"] },
+      { id: "official", items: ["official"] },
+    ],
+  }, { now: "2026-07-22T04:00:00.000Z", selectedThreshold: 80 });
+
+  const byId = new Map(result.items.map((item) => [item.id, item.heat]));
+  assert.ok(byId.get("official") > byId.get("fallback"));
+});
+
 function digest(generatedAt, items, key = "product", title = "产品") {
   return { generatedAt, sections: [{ key, title, items }] };
 }

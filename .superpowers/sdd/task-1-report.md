@@ -24,3 +24,18 @@ DONE
 ## Concerns
 
 The existing five-item test now passes an explicit `limit: 5`; the new default is the specified ten-item hot-list limit, while story detail uses an unlimited eligible-cluster query.
+
+## Fixes After Review
+
+- Updated `server/lib/experience.js` to recognize production tier names (`official_first_party`, `expert_rss`, and `community_fallback`) and to fall through from an unknown `priorityTier` to `sourceTier` and `tier` before applying the default weight.
+- Added behavior tests in `server/lib/experience.test.js` covering the default ten-item hot-list limit, story lookup beyond the top ten, omission of `event.relatedItems`, the three-item `latestUpdates` cap, and tier/priority fallback heat differences.
+
+### Verification
+
+- `node --test server/lib/experience.test.js` — 19 passed.
+- `npm test` — 40 passed.
+- `git diff --check` — passed.
+
+### Fix Commit
+
+`fix: normalize hot topic source tiers` (commit hash supplied in handoff).
