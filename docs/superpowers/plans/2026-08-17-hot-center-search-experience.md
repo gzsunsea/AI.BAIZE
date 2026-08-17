@@ -4,7 +4,7 @@
 
 **Goal:** 在不引入付费数据源或覆盖生产运行数据的前提下，为 AI.BAIZE 增加可分享的热点中心、事件时间线，并让搜索与浏览器返回恢复完整上下文。
 
-**Architecture:** 后端继续以 `server/lib/experience.js` 的事件聚类为唯一热点计算入口，新增统一的热点列表和事件详情公开 API；前端在现有单页 App 中加入 pathname/query 驱动的轻量路由，新增独立 `HotPage`/`StoryPage`，并将信息流筛选状态序列化到 URL。首期热度只使用本站已有来源数、来源质量、分数和时效，不声称外部讨论量，也不生成历史曲线。
+**Architecture:** 后端继续以 `server/lib/experience.js` 的事件聚类为唯一热点计算入口，新增统一的热点列表和事件详情公开 API；热点列表限制展示数量，但事件详情从完整候选聚类中查询，保证直接打开任意有效事件链接都能工作。前端在现有单页 App 中加入 pathname/query 驱动的轻量路由，新增独立 `HotPage`/`StoryPage`，并将信息流筛选状态序列化到 URL。首期热度使用本站已有来源数、来源层级、分数和时效，不声称外部讨论量，也不生成历史曲线。
 
 **Tech Stack:** Node.js `node:test`、Express 5、React 19、TypeScript 5、Vite 7、现有 CSS 与 `lucide-react`。
 
@@ -12,6 +12,7 @@
 
 - 不引入付费 API 或新的运行时依赖。
 - 不覆盖生产 `data/db.json`；热点从当前状态实时计算。
+- 热度质量分必须使用现有 `sourceTier/priorityTier` 层级权重，并通过 `rules.version` 公开规则版本。
 - 保留 `/api/public/hot-topics` 兼容现有精选页。
 - 中键、⌘/Ctrl 点击和右键新开页保持原生行为。
 - 移动端 390px 宽度不得产生横向溢出。
@@ -89,7 +90,8 @@ Expected: FAIL，因为当前热点返回没有 `windowHours/rules/rank/heat/sta
 const HOT_RULES = { version: 1, windowHours: 72, trendAvailable: false };
 
 function hotHeat(topic) {
-  const sourceQualityScore = Math.min(30, topic.sourceCount * 10);
+  const tierWeight = { first_party: 12, preferred_x: 11, expert: 10, research: 9, cn_media: 8, education: 7, culture: 7, media: 6, social: 5, community: 4, reference: 3, custom: 2 };
+  const sourceQualityScore = Math.min(30, topic.relatedItems.reduce((sum, item) => sum + (tierWeight[item.priorityTier || item.sourceTier || item.tier] || 1), 0));
   const sourceCountBonus = Math.min(25, Math.max(0, topic.sourceCount - 1) * 8);
   const freshnessBonus = Math.max(0, Math.round(20 - topic.ageHours / 4));
   const selectedScoreBonus = Math.min(25, Math.round(topic.topScore / 4));
@@ -102,13 +104,13 @@ function hotStatus(topic) {
 }
 ```
 
-`buildHotTopics` 保留原有“至少两个独立来源，或 pinned 且达到 selectedThreshold”的门槛，先构造内部 `topic`，计算 `ageHours`，再按 `heat`、`sourceCount`、`topScore`、`publishedAt` 排序并添加 `rank`。返回 `windowHours: 72` 和 `rules: HOT_RULES`，最多返回 10 项。
+`buildHotTopics` 保留原有“至少两个独立来源，或 pinned 且达到 selectedThreshold”的门槛，先构造内部 `topic`，计算 `ageHours`，再按 `heat`、`sourceCount`、`topScore`、`publishedAt` 排序并添加 `rank`。函数读取 `options.limit`，默认 10；当传入 `Number.POSITIVE_INFINITY` 时不截断，供详情查询使用。返回 `windowHours: 72` 和 `rules: HOT_RULES`。
 
 - [ ] **Step 4: 实现 `buildStory` 并过滤公开字段**
 
 ```js
 function buildStory(state = {}, id, options = {}) {
-  const topics = buildHotTopics(state, options).items;
+  const topics = buildHotTopics(state, { ...options, limit: Number.POSITIVE_INFINITY }).items;
   const topic = topics.find((item) => item.id === id);
   if (!topic) return null;
   const timeline = [...(topic.relatedItems || [])].sort((a, b) => new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0));
@@ -201,7 +203,7 @@ app.get("/api/public/stories/:id", (req, res) => {
 });
 ```
 
-让旧路由直接返回新构建结果的 `items`，并保留 `generatedAt`，使精选页无需立刻迁移字段。
+让旧路由直接返回新构建结果的 `items`，并保留 `generatedAt`，使精选页无需立刻迁移字段。`buildStory` 不复用热点列表的数量截断，而是从完整的合格聚类中定位事件。
 
 - [ ] **Step 4: 扩展类型并运行 API 测试**
 
@@ -228,7 +230,7 @@ git commit -m "feat: expose hot center and story APIs"
 - Modify: `src/app/App.tsx`
 
 **Interfaces:**
-- `parseLocation(location: Location): RouteState`
+- `parseLocation(location: string | Location): RouteState`
 - `toLocation(route: RouteState): string`
 - `captureListState(key: string, snapshot: ListSnapshot): void`
 - `readListState(key: string): ListSnapshot | null`
@@ -238,12 +240,12 @@ git commit -m "feat: expose hot center and story APIs"
 ```ts
 test("parses hot story and feed search state from URL", () => {
   assert.deepEqual(parseLocation(new URL("https://example.test/story/event-a?q=agent&search=full&channel=news").toString()), {
-    page: "story", storyId: "event-a", mode: "selected", query: "agent", searchMode: "full", activeChannel: "news", activeTag: "", category: "", sort: "published_desc", pageNumber: 1,
+    page: "story", storyId: "event-a", mode: "selected", query: "agent", searchMode: "full", activeChannel: "news", activeTag: "", category: "", statusFilter: "all", sort: "published_desc", pageNumber: 1,
   });
 });
 
 test("omits empty query parameters and round-trips hot route", () => {
-  const path = toLocation({ page: "hot", storyId: "", mode: "selected", query: "", searchMode: "direct", activeChannel: "", activeTag: "", category: "", sort: "published_desc", pageNumber: 1 });
+  const path = toLocation({ page: "hot", storyId: "", mode: "selected", query: "", searchMode: "direct", activeChannel: "", activeTag: "", category: "", statusFilter: "all", sort: "published_desc", pageNumber: 1 });
   assert.equal(path, "/hot");
 });
 ```
@@ -266,6 +268,7 @@ export type RouteState = {
   activeChannel: string;
   activeTag: string;
   category: string;
+  statusFilter: string;
   sort: "published_desc" | "relevance";
   pageNumber: number;
 };
@@ -274,7 +277,7 @@ export function toLocation(route: RouteState) {
   const path = route.page === "hot" ? "/hot" : route.page === "story" ? `/story/${encodeURIComponent(route.storyId)}` : "/";
   const params = new URLSearchParams();
   if (route.page === "feed") {
-    for (const [key, value] of [["mode", route.mode], ["q", route.query], ["search", route.searchMode === "direct" ? "" : route.searchMode], ["channel", route.activeChannel], ["tag", route.activeTag], ["category", route.category], ["sort", route.sort === "published_desc" ? "" : route.sort], ["page", route.pageNumber > 1 ? String(route.pageNumber) : ""]]) {
+    for (const [key, value] of [["mode", route.mode], ["q", route.query], ["search", route.searchMode === "direct" ? "" : route.searchMode], ["channel", route.activeChannel], ["tag", route.activeTag], ["category", route.category], ["status", route.statusFilter === "all" ? "" : route.statusFilter], ["sort", route.sort === "published_desc" ? "" : route.sort], ["page", route.pageNumber > 1 ? String(route.pageNumber) : ""]]) {
       if (value) params.set(key, value);
     }
   }
@@ -283,7 +286,7 @@ export function toLocation(route: RouteState) {
 }
 ```
 
-`parseLocation` 用 `new URL(input, window.location.origin)`，缺失参数回退到规格中的默认值；列表快照写入 `sessionStorage`，只存 `scrollY` 和筛选字段，不存整页内容。
+`parseLocation` 接受 `string | Location`，内部统一使用 `new URL(input, window.location.origin)`；缺失参数回退到规格中的默认值。列表快照写入 `sessionStorage`，只存 `scrollY` 和筛选字段，不存整页内容。
 
 - [ ] **Step 4: 接入 App 的 `pushState`/`popstate`**
 
@@ -395,7 +398,7 @@ assert.match(appSource, /searchMode/);
 
 - [ ] **Step 4: 将状态同步到 URL 并恢复滚动**
 
-每次 query/tag/channel/searchMode/status/density 变化后使用 `replaceState` 更新当前列表 URL；分页变化只更新 `page`。详情打开前保存 `{ scrollY, query, activeTag, activeChannel, searchMode, page }`，`popstate` 后在 `requestAnimationFrame` 中 `window.scrollTo(0, snapshot.scrollY)`。避免在 `scroll` 事件中写 URL。
+每次 query/tag/channel/searchMode/status 变化后使用 `replaceState` 更新当前列表 URL；分页变化只更新 `page`。详情打开前保存 `{ scrollY, query, activeTag, activeChannel, searchMode, statusFilter, page }`，`popstate` 后在 `requestAnimationFrame` 中 `window.scrollTo(0, snapshot.scrollY)`。`density` 是本地显示偏好，不写入分享 URL。避免在 `scroll` 事件中写 URL。
 
 - [ ] **Step 5: 运行前端与后端回归测试**
 
