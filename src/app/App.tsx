@@ -111,6 +111,45 @@ class ApiError extends Error {
   }
 }
 
+function searchField(value: unknown) {
+  return String(value || "").toLowerCase();
+}
+
+function directSearchFields(item: Item) {
+  return [item.title, item.summary, item.sourceName, (item.tags || []).join(" ")].map(searchField);
+}
+
+function fullSearchFields(item: Item) {
+  return [
+    ...directSearchFields(item),
+    item.content,
+    item.raw?.content,
+    item.raw?.description,
+    item.reason,
+    item.editorialBrief?.fact,
+    item.editorialBrief?.impact,
+    item.editorialBrief?.scenario,
+  ].map(searchField);
+}
+
+function topicSearchHaystack(item: Item, searchMode: "direct" | "full") {
+  return (searchMode === "full" ? fullSearchFields(item) : directSearchFields(item)).join(" ");
+}
+
+function readingSearchHaystack(item: Item, searchMode: "direct" | "full") {
+  return topicSearchHaystack(item, searchMode);
+}
+
+function fullSearchRank(item: Item, query: string) {
+  if (!query) return 0;
+  const fields: Array<[unknown, number]> = [
+    [item.title, 8], [item.summary, 6], [item.reason, 5], [item.editorialBrief?.fact, 5],
+    [item.editorialBrief?.impact, 4], [item.editorialBrief?.scenario, 4], [item.sourceName, 3],
+    [(item.tags || []).join(" "), 3], [item.content, 2], [item.raw?.content, 2], [item.raw?.description, 2],
+  ];
+  return fields.reduce((score, [value, weight]) => score + (searchField(value).includes(query) ? weight : 0), 0);
+}
+
 export function App() {
   const [route, setRoute] = useState<RouteState>(() => parseLocation(window.location.href));
   const [mode, setMode] = useState(() => route.mode);
@@ -171,6 +210,7 @@ export function App() {
   const [story, setStory] = useState<StoryDetail | null>(null);
   const [readerFromStoryPage, setReaderFromStoryPage] = useState(false);
   const appendNextRouteLoad = useRef(false);
+  const loadVersion = useRef(0);
 
   const currentRoute = (): RouteState => ({
     ...route,
@@ -184,6 +224,7 @@ export function App() {
   });
 
   const applyRoute = (next: RouteState) => {
+    loadVersion.current += 1;
     if (next.page === "hot") {
       setHotPageData(null);
       setHotPageError("");
@@ -275,6 +316,7 @@ export function App() {
   }, []);
 
   const load = async (page = 1, append = false) => {
+    const requestVersion = ++loadVersion.current;
     setLoading(true);
     setError("");
     try {
@@ -310,8 +352,8 @@ export function App() {
         const normalizedQuery = query.trim().toLowerCase();
         nextItems = [...merged.values()]
           .filter((item) => !activeTag || item.tags?.includes(activeTag))
-          .filter((item) => !normalizedQuery || `${item.title} ${item.summary} ${item.sourceName} ${(item.tags || []).join(" ")}`.toLowerCase().includes(normalizedQuery))
-          .sort((a, b) => (b.score || 0) - (a.score || 0) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
+          .filter((item) => !normalizedQuery || topicSearchHaystack(item, searchMode).includes(normalizedQuery))
+          .sort((a, b) => (normalizedQuery && searchMode === "full" ? fullSearchRank(b, normalizedQuery) - fullSearchRank(a, normalizedQuery) : 0) || (b.score || 0) - (a.score || 0) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
         nextFeedTotal = nextItems.length;
       } else {
         const categoryMode = mode === "education" ? "education" : mode === "culture" ? "culture" : "";
@@ -323,6 +365,7 @@ export function App() {
         nextItems = feed.items;
         nextFeedTotal = feed.total;
       }
+      if (requestVersion !== loadVersion.current) return;
       setItems((current) => (append ? [...current, ...nextItems] : nextItems));
       setFeedPage(page);
       setFeedTotal(nextFeedTotal);
@@ -331,9 +374,10 @@ export function App() {
       setMp(nextMp);
       setStats(nextStats);
     } catch (err) {
+      if (requestVersion !== loadVersion.current) return;
       setError(err instanceof Error ? err.message : "加载失败");
     } finally {
-      setLoading(false);
+      if (requestVersion === loadVersion.current) setLoading(false);
     }
   };
 
@@ -423,16 +467,21 @@ export function App() {
   const hotItems = useMemo(() => buildHotItems(items), [items]);
   const savedIds = useMemo(() => new Set(savedEntries.map((entry) => entry.item.id)), [savedEntries]);
   const activeTopic = topicForMode(mode);
-  const visibleItems = useMemo(() => items.filter((item) => {
-    if (mode === "reading" && query.trim()) {
-      const haystack = `${item.title} ${item.summary} ${item.sourceName} ${(item.tags || []).join(" ")}`.toLowerCase();
-      if (!haystack.includes(query.trim().toLowerCase())) return false;
-    }
+  const visibleItems = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    const searchFiltered = mode === "reading" && normalizedQuery
+      ? items.filter((item) => readingSearchHaystack(item, searchMode).includes(normalizedQuery))
+      : items;
+    const searchSorted = mode === "reading" && normalizedQuery && searchMode === "full"
+      ? [...searchFiltered].sort((a, b) => fullSearchRank(b, normalizedQuery) - fullSearchRank(a, normalizedQuery) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime())
+      : searchFiltered;
+    return searchSorted.filter((item) => {
     if (statusFilter === "unread") return !readItems.has(item.id);
     if (statusFilter === "saved") return savedIds.has(item.id);
     if (statusFilter === "processed") return processedItems.has(item.id);
     return true;
-  }), [items, mode, query, statusFilter, readItems, savedIds, processedItems]);
+    });
+  }, [items, mode, query, searchMode, statusFilter, readItems, savedIds, processedItems]);
 
   const saveReadItems = (next: Set<string>) => {
     const compact = [...next].slice(-500);

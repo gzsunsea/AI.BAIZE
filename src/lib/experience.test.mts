@@ -87,6 +87,17 @@ test("feed search exposes direct and full modes and keeps them in the shared URL
   assert.match(feedCss, /\.search-mode-tabs \{[^}]*overflow-x: auto;/);
 });
 
+test("topic and reading feeds apply full search fields and ignore stale loads", () => {
+  const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");
+
+  assert.match(appSource, /topicSearchHaystack\(item, searchMode\)/);
+  assert.match(appSource, /readingSearchHaystack\(item, searchMode\)/);
+  assert.match(appSource, /const loadVersion = useRef\(0\)/);
+  assert.match(appSource, /const requestVersion = \+\+loadVersion\.current/);
+  assert.match(appSource, /if \(requestVersion !== loadVersion\.current\) return;/);
+  assert.match(appSource, /const applyRoute = \(next: RouteState\) => \{\s*loadVersion\.current \+= 1;/);
+});
+
 test("editorial feed renders available media and Chinese radar never falls through to the previous feed", () => {
   const feedSource = readFileSync(new URL("../components/feed/FeedExperience.tsx", import.meta.url), "utf8");
   const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");

@@ -338,8 +338,7 @@ function buildMpItems(state, query = {}) {
     });
 }
 
-function visibleItems(query) {
-  const state = readState();
+function visibleItems(query, state = readState()) {
   const threshold = Number(state.settings?.rules?.selectedThreshold || 72);
   const q = String(query.q || "").trim().toLowerCase();
   const searchMode = query.searchMode === "full" ? "full" : "direct";
@@ -360,8 +359,8 @@ function visibleItems(query) {
     .filter((item) => (!tag ? true : item.tags?.includes(tag)))
     .filter((item) => {
       if (!q) return true;
-      const directFields = `${item.title} ${item.summary} ${item.sourceName} ${item.tags?.join(" ")}`;
-      const fullFields = `${item.content || ""} ${item.raw?.content || ""} ${item.raw?.description || ""} ${item.reason || ""} ${item.editorialBrief?.fact || ""} ${item.editorialBrief?.impact || ""} ${item.editorialBrief?.scenario || ""}`;
+      const directFields = [item.title, item.summary, item.sourceName, item.tags?.join(" ")].map((value) => String(value || "")).join(" ");
+      const fullFields = [item.content, item.raw?.content, item.raw?.description, item.reason, item.editorialBrief?.fact, item.editorialBrief?.impact, item.editorialBrief?.scenario].map((value) => String(value || "")).join(" ");
       return `${directFields}${searchMode === "full" ? ` ${fullFields}` : ""}`.toLowerCase().includes(q);
     });
   const searchRank = (item) => {
@@ -487,22 +486,25 @@ function selectCuratedItems(items = [], rules = {}) {
   return [...pinned, ...interleaved];
 }
 
-app.get("/api/items", (req, res) => {
-  const page = Math.max(1, Number(req.query.page || 1));
-  const pageSize = Math.min(200, Math.max(10, Number(req.query.pageSize || 40)));
-  const items = visibleItems(req.query);
-  const state = readState();
-  res.json({
+function itemsResponse(query, state = readState()) {
+  const page = Math.max(1, Number(query.page || 1));
+  const pageSize = Math.min(200, Math.max(10, Number(query.pageSize || 40)));
+  const items = visibleItems(query, state);
+  return {
     items: attachRelated(items.slice((page - 1) * pageSize, page * pageSize).map(enrichItem), state.clusters || []),
     total: items.length,
     page,
     pageSize,
     search: {
-      query: String(req.query.q || "").trim(),
-      mode: req.query.searchMode === "full" ? "full" : "direct",
-      sort: req.query.searchMode === "full" && String(req.query.q || "").trim() ? "relevance" : "published_desc",
+      query: String(query.q || "").trim(),
+      mode: query.searchMode === "full" ? "full" : "direct",
+      sort: query.searchMode === "full" && String(query.q || "").trim() ? "relevance" : "published_desc",
     },
-  });
+  };
+}
+
+app.get("/api/items", (req, res) => {
+  res.json(itemsResponse(req.query));
 });
 
 function publicItems(query) {
@@ -1304,6 +1306,7 @@ module.exports = {
   dailyIssueMeta,
   digestItemKeys,
   generateDailyDigest,
+  itemsResponse,
   localDateKey,
   selectCuratedItems,
   startServer,

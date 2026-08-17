@@ -8,8 +8,43 @@ const {
   buildDailyDigest,
   collectDailyDigestItemKeys,
   dailyIssueMeta,
+  itemsResponse,
   selectCuratedItems,
 } = require("./index");
+
+test("items API keeps direct search scoped, ranks full matches, and echoes search metadata", () => {
+  const item = (id, publishedAt, extra = {}) => ({
+    id,
+    url: `https://example.com/search-${id}`,
+    title: "AI release",
+    summary: "Product update",
+    sourceName: "Official",
+    sourceKind: "rss",
+    priorityTier: "official_first_party",
+    score: 99,
+    publishedAt,
+    tags: ["产品更新"],
+    ...extra,
+  });
+  const state = {
+    clusters: [],
+    settings: { rules: { selectedThreshold: 72 } },
+    items: [
+      item("newest-direct", "2026-08-17T09:00:00.000Z", { title: "Needle AI model release" }),
+      item("older-direct", "2026-08-16T09:00:00.000Z", { title: "Needle AI model archive" }),
+      item("full-top", "2026-08-15T09:00:00.000Z", { title: "Needle AI model details", editorialBrief: { fact: "needle" } }),
+      item("full-content", "2026-08-14T09:00:00.000Z", { title: "AI model release", content: "needle appears only in full text" }),
+    ],
+  };
+
+  const direct = itemsResponse({ mode: "all", q: "needle" }, state);
+  assert.deepEqual(direct.items.map((entry) => entry.id), ["newest-direct", "older-direct", "full-top"]);
+  assert.deepEqual(direct.search, { query: "needle", mode: "direct", sort: "published_desc" });
+
+  const full = itemsResponse({ mode: "all", q: "needle", searchMode: "full" }, state);
+  assert.deepEqual(full.items.map((entry) => entry.id), ["full-top", "newest-direct", "older-direct", "full-content"]);
+  assert.deepEqual(full.search, { query: "needle", mode: "full", sort: "relevance" });
+});
 
 function story(id, title, score = 99) {
   return {
