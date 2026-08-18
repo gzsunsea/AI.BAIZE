@@ -138,7 +138,7 @@ function externalUrlsFromHtml(html = "", base = "") {
 }
 
 function preferredOriginalUrl(html = "", base = "") {
-  const urls = externalUrlsFromHtml(html, base);
+  const urls = externalUrlsFromHtml(html, base).filter((url) => !/https?:\/\/beian\.miit\.gov\.cn\/?/i.test(url));
   const statusUrl = urls.find((url) => /https?:\/\/(x|twitter)\.com\/[^"'\s<>\\]+\/status\//i.test(url));
   if (statusUrl) return statusUrl;
   return urls.find((url) => !/https?:\/\/(x|twitter)\.com\//i.test(url)) || "";
@@ -253,16 +253,98 @@ async function scrapeWebList(source) {
   return items;
 }
 
+function findJsonArrayAfterMarker(text = "", marker = '"initialItems":') {
+  const start = text.indexOf(marker);
+  if (start < 0) return "";
+  const arrStart = text.indexOf("[", start + marker.length);
+  if (arrStart < 0) return "";
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = arrStart; index < text.length; index += 1) {
+    const char = text[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === "[") depth += 1;
+    if (char === "]") {
+      depth -= 1;
+      if (depth === 0) return text.slice(arrStart, index + 1);
+    }
+  }
+  return "";
+}
+
 function parseAihotJson(html) {
-  const marker = '"initialItems":';
-  const start = html.indexOf(marker);
-  if (start < 0) return [];
-  const arrStart = html.indexOf("[", start + marker.length);
-  const endMarker = ',"initialHasNext"';
-  const arrEnd = html.indexOf(endMarker, arrStart);
-  if (arrStart < 0 || arrEnd < 0) return [];
-  const raw = html.slice(arrStart, arrEnd);
-  return JSON.parse(raw);
+  const candidates = [
+    String(html || ""),
+    String(html || "")
+      .replace(/\\"/g, '"')
+      .replace(/\\u002F/g, "/")
+      .replace(/\\u0026/g, "&")
+      .replace(/\\n/g, " "),
+  ];
+  for (const candidate of candidates) {
+    const raw = findJsonArrayAfterMarker(candidate);
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      continue;
+    }
+  }
+  return [];
+}
+
+function normalizeAihotCard($, node, source) {
+  const card = $(node);
+  const isMobileRow = card.is(".m-row-wrap");
+  const link = isMobileRow ? card.find(".m-row[href], a[href]").first() : card.find(".timeline-title, a[href]").first();
+  const bodyText = isMobileRow
+    ? card.find(".m-row-title").first().text() || card.find(".m-row-summary").first().text()
+    : card.find(".timeline-title").text() || card.find(".uc-body, .uc-body-p").text() || card.find(".timeline-summary").text();
+  const title = bodyText.replace(/\s+/g, " ").trim();
+  const summary = (isMobileRow
+    ? card.find(".m-row-summary").first().text() || card.find(".m-row-reason-clamp").first().text()
+    : card.find(".timeline-summary").text() || card.find(".uc-quoted").text() || title)
+    .replace(/\s+/g, " ")
+    .trim();
+  const reason = (isMobileRow ? card.find(".m-row-reason-clamp").first().text() : card.find(".timeline-reason").text())
+    .replace("推荐理由：", "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const scoreText = isMobileRow ? card.find(".m-score").first().text() : card.find(".timeline-score").text();
+  const tagNodes = isMobileRow ? card.find(".m-row-tags .tag, .m-tag, .m-chip") : card.find(".timeline-tags .tag");
+  return normalizeItem({
+    url: link.attr("href"),
+    title: title.length > 96 ? `${title.slice(0, 96)}...` : title,
+    summary: summary || title,
+    sourceName: (isMobileRow ? card.find(".m-row-src").first().text() : card.find(".timeline-source").text()) || source.name,
+    sourceKind: "aihot",
+    ...sourceMeta(source),
+    publishedAt: new Date().toISOString(),
+    finalScore: Number(scoreText) || undefined,
+    tags: tagNodes
+      .toArray()
+      .map((tag) => $(tag).text().trim())
+      .filter(Boolean),
+    reason,
+    media: compactMedia([
+      ...card.find("img").toArray().map((img) => ({ url: $(img).attr("src") || $(img).attr("data-src"), type: "image", alt: $(img).attr("alt") || "" })),
+      ...card.find("video, video source").toArray().map((video) => ({ url: $(video).attr("src") || $(video).attr("poster"), thumbnail: $(video).attr("poster"), type: "video" })),
+    ]),
+  });
 }
 
 async function scrapeAihot(source) {
@@ -282,34 +364,10 @@ async function scrapeAihot(source) {
   }
 
   const $ = cheerio.load(html);
-  const items = $(".timeline-card")
+  const items = $(".timeline-card, .m-row-wrap")
     .toArray()
-    .map((node) => {
-      const card = $(node);
-      const bodyText = card.find(".timeline-title").text() || card.find(".uc-body, .uc-body-p").text() || card.find(".timeline-summary").text();
-      const title = bodyText.replace(/\s+/g, " ").trim();
-      const summary = card.find(".timeline-summary").text() || card.find(".uc-quoted").text() || title;
-      return normalizeItem({
-        url: card.find(".timeline-title").attr("href") || card.find("a[href]").first().attr("href"),
-        title: title.length > 96 ? `${title.slice(0, 96)}...` : title,
-        summary,
-        sourceName: card.find(".timeline-source").text() || source.name,
-        sourceKind: "aihot",
-        ...sourceMeta(source),
-        publishedAt: new Date().toISOString(),
-        finalScore: Number(card.find(".timeline-score").text()) || undefined,
-        tags: card
-          .find(".timeline-tags .tag")
-          .toArray()
-          .map((tag) => $(tag).text().trim())
-          .filter(Boolean),
-        reason: card.find(".timeline-reason").text().replace("推荐理由：", "").trim(),
-        media: compactMedia([
-          ...card.find("img").toArray().map((img) => ({ url: $(img).attr("src") || $(img).attr("data-src"), type: "image", alt: $(img).attr("alt") || "" })),
-          ...card.find("video, video source").toArray().map((video) => ({ url: $(video).attr("src") || $(video).attr("poster"), thumbnail: $(video).attr("poster"), type: "video" })),
-        ]),
-      });
-    });
+    .map((node) => normalizeAihotCard($, node, source))
+    .filter((item) => item.title && item.url);
   return (await resolveAihotItemUrls(items, source)).filter((item) => isOriginalHttpUrl(item.url));
 }
 

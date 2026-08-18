@@ -273,6 +273,19 @@ The four Important source-quality review findings are addressed on top of `f98cb
 - The existing `MODULE_TYPELESS_PACKAGE_JSON` warning remains during the TypeScript navigation test; resolving it requires a broader CommonJS/ESM packaging decision.
 - Production deployment and production `data/db.json` changes were not performed.
 
+## AIHOT Source-Bridge Compatibility Follow-up — 2026-08-18
+
+### Fixes
+
+- AIHOT scraping now supports both legacy timeline cards and the current mobile row-card markup.
+- Embedded Next flight `initialItems` are parsed when the public page does not render cards in server HTML.
+- Detail-page original-link resolution ignores `beian.miit.gov.cn` footer links so备案页不会被误当成原文。
+
+### Verification
+
+- Focused scraper suite: `node --test server/lib/scrapers.test.js` — 7 passed, 0 failed.
+- Full suite and production checks are rerun before release.
+
 ## Refresh Merge Preservation Follow-up — 2026-08-18
 
 ### Status
