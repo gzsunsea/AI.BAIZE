@@ -4,6 +4,14 @@ const { isOriginalHttpUrl, normalizeItem, stripHtml } = require("./scoring");
 
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+let arxivNextRequestAt = 0;
+
+async function waitForArxivSlot(delayMs = 1500) {
+  const now = Date.now();
+  const waitMs = Math.max(0, arxivNextRequestAt - now);
+  arxivNextRequestAt = Math.max(now, arxivNextRequestAt) + delayMs;
+  if (waitMs) await new Promise((resolve) => setTimeout(resolve, waitMs));
+}
 
 function sourceMeta(source) {
   return {
@@ -425,6 +433,7 @@ async function scrapeGithub(source) {
 }
 
 async function scrapeArxiv(source) {
+  await waitForArxivSlot(Number(source.requestDelayMs || 1500));
   const xml = await fetchText(source.url, { accept: "application/atom+xml" }, fetchTimeout(source, 9000));
   const parser = new XMLParser({ ignoreAttributes: false });
   const data = parser.parse(xml);

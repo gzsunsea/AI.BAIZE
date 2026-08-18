@@ -83,6 +83,33 @@ test("rss media hydration fills missing images from article metadata when opted 
   assert.ok(requested.includes("https://openai.com/news/agent-launch"));
 });
 
+test("arxiv requests are serialized to avoid provider rate limits", async (t) => {
+  const originalFetch = global.fetch;
+  const requestedAt = [];
+  const atom = `<?xml version="1.0"?><feed><entry><id>https://arxiv.org/abs/1</id><title>AI agent research</title><summary>AI agent benchmark research</summary><published>2026-06-16T10:00:00Z</published><link href="https://arxiv.org/abs/1" /></entry></feed>`;
+  global.fetch = async () => {
+    requestedAt.push(Date.now());
+    return { ok: true, text: async () => atom };
+  };
+  t.after(() => {
+    global.fetch = originalFetch;
+  });
+
+  const source = {
+    id: "arxiv-test",
+    name: "arXiv Test",
+    kind: "arxiv",
+    enabled: true,
+    url: "https://export.arxiv.org/api/query?search_query=cat:cs.AI",
+    priorityTier: "community_fallback",
+    tier: "research",
+    requestDelayMs: 20,
+  };
+  await Promise.all([scrapeSource(source), scrapeSource(source)]);
+  assert.equal(requestedAt.length, 2);
+  assert.ok(Math.abs(requestedAt[1] - requestedAt[0]) >= 18);
+});
+
 test("aihot reference cards resolve relative item pages to original X links", async (t) => {
   const originalFetch = global.fetch;
   global.fetch = async (url) => {
