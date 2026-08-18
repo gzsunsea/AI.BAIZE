@@ -58,7 +58,8 @@ function readState() {
       preferred: Boolean(source.preferred),
       noisePenalty: Number(source.noisePenalty || 0),
     };
-    if (!next.pinned) {
+    const hasStoredScore = Number.isFinite(Number(item.score));
+    if (!hasStoredScore && !next.pinned) {
       next.score = scoreItem({
         title: next.title,
         summary: next.summary,

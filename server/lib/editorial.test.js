@@ -29,3 +29,16 @@ test("expert rss tier wins over broad social and Chinese name heuristics", () =>
 
   assert.equal(sourceChannel(item), "expert_analysis");
 });
+
+test("source tier falls back to expert analysis when priority tier is absent", () => {
+  const item = {
+    url: "https://example.com/fallback",
+    title: "Agent workflow teardown",
+    summary: "A deep expert breakdown of AI agent deployment and eval loops.",
+    sourceName: "Independent expert blog",
+    sourceKind: "rss",
+    sourceTier: "expert_rss",
+  };
+
+  assert.equal(sourceChannel(item), "expert_analysis");
+});

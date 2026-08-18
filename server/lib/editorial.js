@@ -2,18 +2,23 @@ function textOf(item) {
   return `${item.sourceName || ""} ${item.sourceKind || ""} ${item.url || ""} ${item.title || ""} ${item.summary || ""} ${(item.tags || []).join(" ")}`;
 }
 
+function tierOf(item = {}) {
+  return item.priorityTier || item.sourceTier || item.tier || "";
+}
+
 function sourceChannel(item) {
   const text = textOf(item);
-  if (item.priorityTier === "expert_rss") {
+  const tier = tierOf(item);
+  if (tier === "expert_rss") {
     return "expert_analysis";
   }
-  if (item.priorityTier === "official_first_party") {
+  if (tier === "official_first_party") {
     return "first_party";
   }
-  if (item.priorityTier === "preferred_x" || /X · @|x\.com|twitter|推文/i.test(text)) {
+  if (tier === "preferred_x" || /X · @|x\.com|twitter|推文/i.test(text)) {
     return "social";
   }
-  if (item.priorityTier === "cn_media" || /IT之家|量子位|机器之心|新智元|爱范儿|极客公园|公众号|微信|中文|国内|火山|字节|豆包|商汤|智谱|月之暗面|百度|阿里|腾讯|华为|MiniMax|DeepSeek/i.test(`${item.sourceName || ""} ${item.sourceKind || ""}`)) {
+  if (tier === "cn_media" || /IT之家|量子位|机器之心|新智元|爱范儿|极客公园|公众号|微信|中文|国内|火山|字节|豆包|商汤|智谱|月之暗面|百度|阿里|腾讯|华为|MiniMax|DeepSeek/i.test(`${item.sourceName || ""} ${item.sourceKind || ""}`)) {
     return "cn_media";
   }
   if (/OpenAI|Anthropic|DeepMind|Google|xAI|Mistral|Meta|Hugging Face|NVIDIA|Apple|Cloudflare|官方|Newsroom/i.test(text)) {
