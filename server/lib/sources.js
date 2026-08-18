@@ -155,9 +155,10 @@ const DEFAULT_SOURCES = [
     tier: "first_party",
     limit: 30,
     timeoutMs: 30000,
+    retries: 1,
     mediaHydrationLimit: 2,
     articleTimeoutMs: 3000,
-    healthRevision: "2026-08-18-live-rss-v2",
+    healthRevision: "2026-08-18-live-rss-v3",
   }, "official_first_party"),
   withMeta({
     id: "huggingface-blog",
