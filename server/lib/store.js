@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { compactDuplicates, enrichDedupe, eventClusters } = require("./dedupe");
 const { mergeDefaultSources } = require("./sources");
-const { isQualityCandidate, scoreItem } = require("./scoring");
+const { explicitReasonFor, isQualityCandidate, scoreItem } = require("./scoring");
 
 const DATA_DIR = path.resolve(process.cwd(), "data");
 const DB_FILE = path.join(DATA_DIR, "db.json");
@@ -104,11 +104,15 @@ function upsertItems(nextItems) {
   for (const item of nextItems.map(enrichDedupe)) {
     const key = item.canonicalUrl || item.url || item.id;
     const prev = byKey.get(key);
+    const incomingExplicitReason = explicitReasonFor(item.raw || item);
+    const storedReason = explicitReasonFor(prev);
     byKey.set(key, {
       ...prev,
       ...item,
       id: prev?.id || item.id,
       publishedAt: prev?.publishedAt || item.publishedAt,
+      score: prev?.score ?? item.score,
+      reason: prev && !incomingExplicitReason && storedReason ? storedReason : item.reason,
       hidden: prev?.hidden ?? false,
       pinned: prev?.pinned ?? false,
       updatedAt: new Date().toISOString(),

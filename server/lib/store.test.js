@@ -5,7 +5,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 const { itemsResponse } = require("../index");
-const { selectedRankingScore } = require("./scoring");
+const { normalizeItem, selectedRankingScore } = require("./scoring");
 
 function loadStoreFresh() {
   const modulePath = require.resolve("./store");
@@ -65,4 +65,56 @@ test("readState backfills legacy source metadata without overwriting stored disp
   assert.ok(selectedRankingScore(official) < 99);
   assert.deepEqual(selected.items.map((item) => item.id), ["legacy-official"]);
   assert.equal(selected.items[0].score, 99);
+});
+
+test("upsertItems preserves stored display score and editorial reason during refresh", (t) => {
+  const originalCwd = process.cwd();
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aibaize-store-upsert-"));
+  t.after(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  process.chdir(tempDir);
+  fs.mkdirSync(path.join(tempDir, "data"), { recursive: true });
+  const url = "https://openai.com/index/agent-api-migration";
+  const storedReason = "编辑核验：迁移截止日期已经确认，现有 API 集成团队需要提前完成兼容性检查。";
+  fs.writeFileSync(path.join(tempDir, "data", "db.json"), JSON.stringify({
+    items: [{
+      id: "stored-agent-api",
+      url,
+      title: "OpenAI publishes an AI agent API migration timeline",
+      summary: "The official release documents API migration dates, model compatibility, and deployment guidance.",
+      sourceName: "OpenAI",
+      sourceKind: "rss",
+      sourceId: "openai-news",
+      priorityTier: "official_first_party",
+      publishedAt: "2026-08-18T00:00:00.000Z",
+      score: 99,
+      reason: storedReason,
+    }],
+    sources: [],
+    settings: { rules: { selectedThreshold: 72, selectedFeedLimit: 20 } },
+  }, null, 2));
+
+  const refreshed = normalizeItem({
+    url,
+    title: "OpenAI publishes an AI agent API migration timeline",
+    summary: "The refreshed official release documents API migration dates, model compatibility, and deployment guidance.",
+    sourceName: "OpenAI",
+    sourceKind: "rss",
+    sourceId: "openai-news",
+    priorityTier: "official_first_party",
+    publishedAt: "2026-08-18T01:00:00.000Z",
+    reason: "系统按优先信源、时效、主题相关性和可操作性入选。",
+  });
+  assert.notEqual(refreshed.score, 99);
+  assert.notEqual(refreshed.reason, storedReason);
+
+  const { readState, upsertItems } = loadStoreFresh();
+  upsertItems([refreshed]);
+  const stored = readState().items.find((item) => item.id === "stored-agent-api");
+
+  assert.equal(stored.score, 99);
+  assert.equal(stored.reason, storedReason);
 });

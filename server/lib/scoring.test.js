@@ -156,3 +156,18 @@ test("normalizeItem preserves explicit editor judgment and uses neutral automati
   assert.doesNotMatch(automatic.reason, /Newsletter Mirror(?:拆解|分析|发布|报道)/);
   assert.match(automatic.reason, /Newsletter Mirror|OpenAI announces/);
 });
+
+test("normalizeItem treats a validated raw reason as authoritative", () => {
+  const sourceReason = "原文明确给出迁移截止日期和兼容范围，现有 API 集成团队需要据此安排升级。";
+  const item = normalizeItem({
+    url: "https://example.com/verified-source-reason",
+    title: "OpenAI publishes an API migration deadline",
+    summary: "The official release documents the migration deadline and compatibility details.",
+    sourceName: "Verified Brief",
+    sourceKind: "rss",
+    priorityTier: "expert_rss",
+    reason: sourceReason,
+  });
+
+  assert.equal(item.reason, sourceReason);
+});

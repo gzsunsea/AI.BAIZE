@@ -263,7 +263,37 @@ The four Important source-quality review findings are addressed on top of `f98cb
 
 - TDD RED: the focused suite initially failed on legacy reference admission, Ask citations, stored-score thresholding, editor-reason overwrite, and expert-channel precedence.
 - Focused suite: `node --test server/lib/scoring.test.js server/lib/askBaize.test.js server/lib/editorial.test.js server/index.test.js` — 28 passed, 0 failed.
-- Full suite: `npm test` — 92 passed, 0 failed.
+- Full suite: `npm test` — 94 passed, 0 failed.
+- No-emit frontend check: `npm run typecheck` — passed.
+- Production build: `npm run build` — passed.
+- Whitespace check: `git diff --check` — passed before this report append and will be repeated before commit.
+
+### Remaining Concerns
+
+- The existing `MODULE_TYPELESS_PACKAGE_JSON` warning remains during the TypeScript navigation test; resolving it requires a broader CommonJS/ESM packaging decision.
+- Production deployment and production `data/db.json` changes were not performed.
+
+## Refresh Merge Preservation Follow-up — 2026-08-18
+
+### Status
+
+The two Important refresh-merge findings are addressed on top of `78e66c5`. No dependency, deployment, or runtime-data changes were made.
+
+### Fixes
+
+1. **Stored display score preservation**
+   - Refresh upserts keep an existing stored score while selected ranking remains calibrated only at read time.
+   - A filesystem-backed regression exercises the real `upsertItems` path and proves a legacy display score is not replaced by the newly normalized score.
+
+2. **Explicit and stored recommendation reason preservation**
+   - Valid `reason`, `aiSelectedReason`, and `editorialJudgment` inputs share one authoritative validation path.
+   - Refresh-generated automatic or rejected template copy cannot replace a valid stored editor or LLM reason; a new validated explicit reason remains eligible to replace it.
+
+### Verification
+
+- TDD RED: the focused suite first failed on both raw-reason normalization and real refresh upsert preservation.
+- Focused suite: `node --test server/lib/scoring.test.js server/lib/store.test.js` — 11 passed, 0 failed.
+- Full suite: `npm test` — 96 passed, 0 failed.
 - No-emit frontend check: `npm run typecheck` — passed.
 - Production build: `npm run build` — passed.
 - Whitespace check: `git diff --check` — passed before this report append and will be repeated before commit.

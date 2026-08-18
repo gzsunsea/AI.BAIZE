@@ -366,6 +366,12 @@ function validatedEditorialReason(value) {
   return clean;
 }
 
+function explicitReasonFor(raw = {}) {
+  return validatedEditorialReason(raw.aiSelectedReason)
+    || validatedEditorialReason(raw.editorialJudgment)
+    || validatedEditorialReason(raw.reason);
+}
+
 function isQualityCandidate(item) {
   if (!item || isNoiseCandidate(item)) return false;
   if (isWeakIndustryCandidate(item)) return false;
@@ -392,7 +398,7 @@ function normalizeItem(raw) {
   const internalScore = scoreItem({ title, summary, sourceKind, publishedAt, stars: raw.stars, comments: raw.comments, priorityTier, preferred, noisePenalty, topicBoosts });
   const externalScore = raw.finalScore ?? raw.qualityScore;
   const score = externalScore === undefined ? internalScore : blendScore(internalScore, Number(externalScore || 0));
-  const editorReason = validatedEditorialReason(raw.aiSelectedReason) || validatedEditorialReason(raw.editorialJudgment);
+  const explicitReason = explicitReasonFor(raw);
   const item = {
     id: raw.id || makeId(stableUrlKey(url) || title),
     url,
@@ -411,11 +417,11 @@ function normalizeItem(raw) {
     publishedAt,
     score,
     tags: [...new Set(tags)].slice(0, 6),
-    reason: editorReason || validatedEditorialReason(raw.reason),
+    reason: explicitReason,
     media: raw.media || raw.rawJson?.media || (raw.image || raw.thumbnail ? [{ url: raw.image || raw.thumbnail, type: "image" }] : []),
     raw,
   };
-  if (!editorReason) item.reason = reasonFor(item);
+  if (!explicitReason) item.reason = reasonFor(item);
   return item;
 }
 
@@ -427,6 +433,7 @@ module.exports = {
   isPublicItem,
   isQualityCandidate,
   canAppearInSelectedFeed,
+  explicitReasonFor,
   isSelectedFeedEligible,
   isSelectedQualityCandidate,
   isWeakIndustryCandidate,
