@@ -42,6 +42,8 @@ function withMeta(source, priorityTier) {
     ...preferredSourceMeta[priorityTier],
     ...source,
     priorityTier,
+    hydrateMedia: source.hydrateMedia ?? ["official_first_party", "expert_rss"].includes(priorityTier),
+    mediaHydrationLimit: source.mediaHydrationLimit ?? 4,
   };
 }
 

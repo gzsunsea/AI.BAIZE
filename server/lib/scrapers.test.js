@@ -47,6 +47,42 @@ test("x profile scraping continues to later handles after one handle exhausts mi
   assert.equal(requested.some((url) => url.includes("/second/")), true);
 });
 
+test("rss media hydration fills missing images from article metadata when opted in", async (t) => {
+  const originalFetch = global.fetch;
+  const requested = [];
+  global.fetch = async (url) => {
+    requested.push(String(url));
+    if (String(url) === "https://feed.example/rss.xml") {
+      return { ok: true, text: async () => rss("OpenAI launches an AI agent model", "https://openai.com/news/agent-launch") };
+    }
+    if (String(url) === "https://openai.com/news/agent-launch") {
+      return {
+        ok: true,
+        text: async () => '<html><head><meta property="og:image" content="https://cdn.example/agent.png"></head></html>',
+      };
+    }
+    return { ok: false, status: 404, statusText: "Not Found", text: async () => "" };
+  };
+  t.after(() => {
+    global.fetch = originalFetch;
+  });
+
+  const items = await scrapeSource({
+    id: "official-feed",
+    name: "Official Feed",
+    kind: "rss",
+    enabled: true,
+    url: "https://feed.example/rss.xml",
+    priorityTier: "official_first_party",
+    tier: "official",
+    hydrateMedia: true,
+    mediaHydrationLimit: 1,
+  });
+
+  assert.equal(items[0].media[0].url, "https://cdn.example/agent.png");
+  assert.ok(requested.includes("https://openai.com/news/agent-launch"));
+});
+
 test("aihot reference cards resolve relative item pages to original X links", async (t) => {
   const originalFetch = global.fetch;
   global.fetch = async (url) => {

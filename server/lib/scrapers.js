@@ -465,7 +465,27 @@ async function scrapeDevto(source) {
 
 async function scrapeRss(source) {
   const xml = await fetchText(source.url, { accept: "application/rss+xml,application/xml" }, fetchTimeout(source, 9000));
-  return rssEntriesToItems(xml, source);
+  const items = rssEntriesToItems(xml, source);
+  if (!source.hydrateMedia || !Number(source.mediaHydrationLimit || 0)) return items;
+  const candidates = items
+    .filter((item) => !item.media?.length && isOriginalHttpUrl(item.url))
+    .slice(0, Math.max(0, Number(source.mediaHydrationLimit || 0)));
+  const concurrency = Math.max(1, Math.min(3, Number(source.mediaHydrationConcurrency || 2)));
+  const queue = [...candidates];
+  const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+    while (queue.length) {
+      const item = queue.shift();
+      try {
+        const html = await fetchText(item.url, {}, Number(source.articleTimeoutMs || 4500));
+        const media = articleMediaFromHtml(html, item.url);
+        if (media.length) item.media = media;
+      } catch {
+        // RSS remains usable when an article page blocks or times out.
+      }
+    }
+  });
+  await Promise.all(workers);
+  return items;
 }
 
 function feedEntriesFromXml(xml) {
