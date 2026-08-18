@@ -34,6 +34,20 @@ test("source metadata changes clear stale endpoint health", () => {
   assert.equal(sourceFrom(merged, "deepmind-blog").health, null);
 });
 
+test("source health revision clears stale failures after an in-place fix", () => {
+  const merged = mergeDefaultSources([
+    {
+      id: "openrouter-announcements",
+      url: "https://openrouter.ai/announcements",
+      kind: "web_list",
+      healthRevision: "old",
+      enabled: true,
+      health: { ok: false, consecutiveFailures: 3335, checkedAt: new Date().toISOString() },
+    },
+  ]);
+  assert.equal(sourceFrom(merged, "openrouter-announcements").health, null);
+});
+
 function sourceFrom(list, id) {
   return list.find((item) => item.id === id);
 }

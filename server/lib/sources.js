@@ -142,6 +142,7 @@ const DEFAULT_SOURCES = [
     limit: 30,
     timeoutMs: 20000,
     retries: 1,
+    healthRevision: "2026-08-18-media-health",
   }, "official_first_party"),
   withMeta({
     id: "deepmind-blog",
@@ -151,6 +152,7 @@ const DEFAULT_SOURCES = [
     enabled: true,
     tier: "first_party",
     limit: 30,
+    healthRevision: "2026-08-18-live-rss",
   }, "official_first_party"),
   withMeta({
     id: "huggingface-blog",
@@ -247,6 +249,7 @@ const DEFAULT_SOURCES = [
     limit: 20,
     timeoutMs: 20000,
     retries: 1,
+    healthRevision: "2026-08-18-timeout-retry",
   }, "official_first_party"),
   withMeta({
     id: "github-blog-ai",
@@ -283,6 +286,7 @@ const DEFAULT_SOURCES = [
     enabled: true,
     tier: "first_party",
     limit: 25,
+    healthRevision: "2026-08-18-live-list",
   }, "official_first_party"),
   withMeta({
     id: "bair-blog",
@@ -368,6 +372,7 @@ const DEFAULT_SOURCES = [
     tier: "research",
     fetchTimeoutMs: 20000,
     requestDelayMs: 2000,
+    healthRevision: "2026-08-18-rate-limit",
   }, "community_fallback"),
   withMeta({
     id: "arxiv-ai-education",
@@ -378,6 +383,7 @@ const DEFAULT_SOURCES = [
     tier: "education",
     fetchTimeoutMs: 20000,
     requestDelayMs: 2000,
+    healthRevision: "2026-08-18-rate-limit",
   }, "community_fallback"),
   withMeta({
     id: "arxiv-ai-culture",
@@ -388,6 +394,7 @@ const DEFAULT_SOURCES = [
     tier: "culture",
     fetchTimeoutMs: 20000,
     requestDelayMs: 2000,
+    healthRevision: "2026-08-18-rate-limit",
   }, "community_fallback"),
   withMeta({
     id: "devto-ai",
@@ -490,10 +497,11 @@ function mergeDefaultSources(existing = []) {
   for (const source of DEFAULT_SOURCES) {
     const current = byId.get(source.id);
     const endpointChanged = current && (current.url !== source.url || current.kind !== source.kind);
+    const healthRevisionChanged = current && source.healthRevision && current.healthRevision !== source.healthRevision;
     byId.set(source.id, {
       ...source,
       enabled: source.deprecated ? false : current?.enabled ?? source.enabled,
-      health: endpointChanged ? null : current?.health || null,
+      health: endpointChanged || healthRevisionChanged ? null : current?.health || null,
     });
   }
   return [...byId.values()];
