@@ -19,6 +19,8 @@ test("source registry disables feeds with no reachable production endpoint", () 
     assert.equal(item.enabled, false, id);
     assert.equal(item.deprecated, true, id);
   }
+  const merged = mergeDefaultSources([{ id: "huggingface-blog", enabled: true, health: { ok: false, consecutiveFailures: 4400 } }]);
+  assert.equal(sourceFrom(merged, "huggingface-blog").health, null);
 });
 
 test("source metadata changes clear stale endpoint health", () => {

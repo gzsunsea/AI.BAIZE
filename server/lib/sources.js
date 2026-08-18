@@ -508,7 +508,7 @@ function mergeDefaultSources(existing = []) {
     byId.set(source.id, {
       ...source,
       enabled: source.deprecated ? false : current?.enabled ?? source.enabled,
-      health: endpointChanged || healthRevisionChanged ? null : current?.health || null,
+      health: source.deprecated || endpointChanged || healthRevisionChanged ? null : current?.health || null,
     });
   }
   return [...byId.values()];
