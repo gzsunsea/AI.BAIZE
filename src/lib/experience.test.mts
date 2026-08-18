@@ -126,8 +126,11 @@ test("editorial feed renders available media and Chinese radar never falls throu
 
   assert.match(feedSource, /function FeedMediaPreview/);
   assert.match(feedSource, /<FeedMediaPreview item=\{item\}/);
+  assert.match(feedSource, /暂无配图/);
   assert.match(feedSource, /\/api\/media\?url=/);
   assert.match(feedCss, /\.feed-card-media/);
+  assert.match(feedCss, /\.feed-card-media\.placeholder/);
+  assert.match(appSource, /暂无配图/);
   assert.match(appSource, /mode === "mp" \? \(\s*mp \? <MpTable mp=\{mp\} \/> : <div className="mp-loading-state"/);
 });
 

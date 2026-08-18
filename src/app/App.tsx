@@ -1759,7 +1759,9 @@ function mediaProxyUrl(src = "") {
 
 function MediaPreview({ item }: { item: Item }) {
   const media = (item.media || []).filter((asset) => asset.url || asset.thumbnail).slice(0, 2);
-  if (!media.length) return null;
+  if (!media.length) {
+    return <div className="media-strip media-placeholder" aria-label="暂无配图"><span>暂无配图</span><small>{item.channelLabel || item.categoryLabel || "AI.BAIZE"}</small></div>;
+  }
   return (
     <div className={`media-strip ${media.length > 1 ? "multi" : ""}`}>
       {media.map((asset, index) => {
