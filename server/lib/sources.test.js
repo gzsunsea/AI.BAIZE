@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { DEFAULT_SOURCES } = require("./sources");
+const { DEFAULT_SOURCES, mergeDefaultSources } = require("./sources");
 
 function source(id) {
   return DEFAULT_SOURCES.find((item) => item.id === id);
@@ -20,3 +20,20 @@ test("source registry disables feeds with no reachable production endpoint", () 
     assert.equal(item.deprecated, true, id);
   }
 });
+
+test("source metadata changes clear stale endpoint health", () => {
+  const merged = mergeDefaultSources([
+    {
+      id: "deepmind-blog",
+      url: "https://deepmind.google/discover/blog/rss.xml",
+      kind: "rss",
+      enabled: true,
+      health: { ok: false, consecutiveFailures: 4400, checkedAt: new Date().toISOString() },
+    },
+  ]);
+  assert.equal(sourceFrom(merged, "deepmind-blog").health, null);
+});
+
+function sourceFrom(list, id) {
+  return list.find((item) => item.id === id);
+}

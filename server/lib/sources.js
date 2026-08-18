@@ -489,10 +489,11 @@ function mergeDefaultSources(existing = []) {
   const byId = new Map(existing.map((source) => [source.id, source]));
   for (const source of DEFAULT_SOURCES) {
     const current = byId.get(source.id);
+    const endpointChanged = current && (current.url !== source.url || current.kind !== source.kind);
     byId.set(source.id, {
       ...source,
       enabled: source.deprecated ? false : current?.enabled ?? source.enabled,
-      health: current?.health || null,
+      health: endpointChanged ? null : current?.health || null,
     });
   }
   return [...byId.values()];
