@@ -66,6 +66,7 @@ const WEAK_GITHUB_RE = /awesome[-_\s]|curated list|course list|summer ?school|bo
 const BROAD_OFFICIAL_RE = /GitHub Changelog|GitHub Blog|Cloudflare|Apple Machine Learning Research|NVIDIA AI Blog/i;
 const LOW_INFORMATION_TITLE_RE = /^\s*(?:未命名动态|(?:release\s*)?v?\d+(?:\.\d+){1,4}(?:[-+][\w.-]+)?)\s*$/i;
 const BROKEN_SUMMARY_RE = /\[object Object\]/i;
+const GENERIC_SELECTED_REASON_RE = /(?:(?:基于|按照|按|综合)(?:[^。；\n]{0,40})?(?:信源(?:优先级)?|优先信源)(?:[^。；\n]{0,30})?(?:时效|新鲜度)(?:[^。；\n]{0,30})?(?:主题相关性|相关性)(?:[^。；\n]{0,30})?(?:可操作性|可执行性)(?:[^。；\n]{0,20})?(?:入选|判断))|(?:系统按.+入选)/i;
 const SELECTED_EXCLUDED_TIERS = new Set(["reference"]);
 const LEGACY_REFERENCE_SOURCE_KINDS = new Set(["aihot", "reference"]);
 const LEGACY_REFERENCE_SOURCE_IDS = new Set(["aihot-public"]);
@@ -290,6 +291,25 @@ function blendScore(internalScore, externalScore) {
   return clampScore(internalScore * 0.6 + clampScore(externalScore) * 0.4);
 }
 
+function selectionConfirmationCount(item = {}) {
+  const duplicateSources = new Set((item.duplicateSources || []).filter(Boolean));
+  const duplicateCount = Math.max(0, Number(item.duplicateCount || 0));
+  return Math.max(duplicateSources.size, duplicateCount > 0 ? 1 : 0);
+}
+
+function selectionAuthorityCredit(item = {}) {
+  const tier = String(item.priorityTier || item.sourceTier || "").toLowerCase();
+  const sourceKind = String(item.sourceKind || "").toLowerCase();
+  if (tier === "official_first_party") return 10;
+  if (tier === "preferred_x") return 9;
+  if (tier === "expert_rss") return 7;
+  if (tier === "cn_media") return 4;
+  if (tier === "reference" || sourceKind === "aihot" || sourceKind === "reference") return -4;
+  if (tier === "community_fallback") return 0;
+  if (sourceKind === "x") return 8;
+  return 2;
+}
+
 function selectedRankingScore(item = {}) {
   if (item.pinned) return 99;
   const internalScore = scoreItem({
@@ -305,7 +325,13 @@ function selectedRankingScore(item = {}) {
     topicBoosts: item.topicBoosts ?? item.raw?.topicBoosts,
   });
   const storedScore = Number.isFinite(Number(item.score)) ? clampScore(Number(item.score)) : internalScore;
-  return clampScore(internalScore * 0.75 + storedScore * 0.25);
+  const confirmationCount = selectionConfirmationCount(item);
+  const confirmationBoost = Math.min(12, confirmationCount * 4);
+  const authorityCredit = selectionAuthorityCredit(item);
+  const saturationPenalty = storedScore >= 95
+    ? Math.max(0, 12 - Math.max(0, authorityCredit) - Math.min(8, confirmationCount * 4))
+    : 0;
+  return clampScore(internalScore * 0.75 + storedScore * 0.25 + confirmationBoost - saturationPenalty);
 }
 
 function isSelectedFeedEligible(item = {}, selectedThreshold = 72) {
@@ -362,7 +388,7 @@ function reasonFor(item) {
 function validatedEditorialReason(value) {
   if (typeof value !== "string") return "";
   const clean = stripHtml(value).slice(0, 600);
-  if (clean.length < 8 || BROKEN_SUMMARY_RE.test(clean) || /系统按.+入选/i.test(clean)) return "";
+  if (clean.length < 8 || BROKEN_SUMMARY_RE.test(clean) || GENERIC_SELECTED_REASON_RE.test(clean)) return "";
   return clean;
 }
 

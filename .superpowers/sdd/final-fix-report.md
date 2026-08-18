@@ -106,6 +106,18 @@ The final three review findings are addressed on top of `eb069bd`. No dependency
 - No browser automation is configured, so the 390 px visual click-through remains a manual release check.
 - Production deployment and production `data/db.json` changes were not performed.
 
+## Selection Confirmation and Reason Hygiene Follow-up — 2026-08-18
+
+### Fixes
+
+- Read-time selected ranking now rewards independent duplicate-source confirmation and discounts saturated stored scores without changing display scores.
+- Generic ranking boilerplate is rejected as an authoritative editorial reason and replaced by the neutral evidence fallback.
+
+### Verification
+
+- Focused scoring suite: `node --test server/lib/scoring.test.js` — 12 passed, 0 failed.
+- Full suite, typecheck, build, and diff checks are rerun before release.
+
 ## Final Review Follow-up — 2026-08-18
 
 ### Status

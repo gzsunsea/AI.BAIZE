@@ -3,6 +3,7 @@ const test = require("node:test");
 
 const {
   canAppearInSelectedFeed,
+  explicitReasonFor,
   isNoiseCandidate,
   isSelectedQualityCandidate,
   normalizeItem,
@@ -160,6 +161,34 @@ test("read-time ranking falls back to raw engagement and topic boosts at the sel
   assert.ok(selectedRankingScore({ ...base, raw: {} }) < 72);
   assert.equal(selectedRankingScore(rawOnly), selectedRankingScore(normalized));
   assert.ok(selectedRankingScore(rawOnly) >= 72);
+});
+
+test("selected ranking rewards independent confirmation when display scores tie", () => {
+  const publishedAt = new Date().toISOString();
+  const mirrored = {
+    title: "AI agent API migration timeline",
+    summary: "A newsletter repost of the migration dates and API compatibility details.",
+    sourceName: "Mirror Weekly",
+    sourceKind: "rss",
+    priorityTier: "expert_rss",
+    publishedAt,
+    score: 99,
+  };
+  const confirmed = {
+    ...mirrored,
+    duplicateCount: 2,
+    duplicateSources: ["OpenAI", "Simon Willison Blog"],
+  };
+
+  assert.equal(mirrored.score, confirmed.score);
+  assert.ok(selectedRankingScore(confirmed) > selectedRankingScore(mirrored));
+});
+
+test("templated selected reasons are not treated as authoritative editorial reasons", () => {
+  const genericReason = "基于信源优先级、时效、主题相关性和可操作性综合判断入选。";
+
+  assert.equal(explicitReasonFor({ reason: genericReason }), "");
+  assert.equal(explicitReasonFor({ editorialJudgment: genericReason }), "");
 });
 
 test("normalizeItem preserves explicit editor judgment and uses neutral automatic fallback", () => {
