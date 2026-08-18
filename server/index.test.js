@@ -220,6 +220,38 @@ test("curated feed excludes unpinned reference items but preserves pinned except
   assert.deepEqual(selected.map((item) => item.id), ["reference-pinned", "official-primary"]);
 });
 
+test("selected API calibrates legacy 99 scores at read time for threshold and ordering", () => {
+  const publishedAt = new Date().toISOString();
+  const state = {
+    clusters: [],
+    settings: { rules: { selectedThreshold: 72, selectedFeedLimit: 20 } },
+    items: [
+      {
+        ...story("community-saturated", "AI agent model discussion", 99),
+        summary: "A community post about an AI agent model.",
+        sourceName: "Hacker News",
+        sourceKind: "hn",
+        sourceId: "hn",
+        priorityTier: "community_fallback",
+        publishedAt,
+      },
+      {
+        ...story("official-saturated", "OpenAI launches a new multimodal AI agent API", 99),
+        summary: "The official release documents the model, API, evals, deployment workflow, and developer migration guidance.",
+        sourceName: "OpenAI",
+        sourceId: "openai-news",
+        priorityTier: "official_first_party",
+        publishedAt,
+      },
+    ],
+  };
+
+  const result = itemsResponse({ mode: "selected", pageSize: 20 }, state);
+
+  assert.deepEqual(result.items.map((entry) => entry.id), ["official-saturated"]);
+  assert.equal(result.items[0].score, 99);
+});
+
 test("curated feed reserves slots for preferred X signals", () => {
   const official = Array.from({ length: 24 }, (_, index) => ({
     ...story(`official-x-quota-${index}`, `Official AI model release ${index}`, 99 - (index % 3)),

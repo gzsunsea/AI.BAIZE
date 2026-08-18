@@ -1,7 +1,13 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { isNoiseCandidate, isSelectedQualityCandidate, normalizeItem } = require("./scoring");
+const {
+  canAppearInSelectedFeed,
+  isNoiseCandidate,
+  isSelectedQualityCandidate,
+  normalizeItem,
+  selectedRankingScore,
+} = require("./scoring");
 
 function cnMediaItem(title, summary = "") {
   return {
@@ -83,4 +89,70 @@ test("normalizeItem produces source-specific reasons without generic ranking boi
 
   assert.match(item.reason, /Latent Space|Agent stacks|生产团队|工作流/);
   assert.doesNotMatch(item.reason, /系统按/);
+});
+
+test("legacy AIHOT records without priorityTier stay out of selected unless pinned", () => {
+  const legacyIdentifiers = [
+    { sourceKind: "aihot" },
+    { sourceId: "aihot-public" },
+    { sourceTier: "reference" },
+    { sourceName: "AIHOT 公开页" },
+  ];
+
+  for (const legacy of legacyIdentifiers) {
+    assert.equal(canAppearInSelectedFeed(legacy), false);
+    assert.equal(canAppearInSelectedFeed({ ...legacy, pinned: true }), true);
+  }
+});
+
+test("read-time ranking calibrates saturated stored scores without changing display scores", () => {
+  const publishedAt = new Date().toISOString();
+  const official = {
+    title: "OpenAI launches a new multimodal AI agent API",
+    summary: "The official release documents the model, API, evals, deployment workflow, and developer migration guidance.",
+    sourceName: "OpenAI",
+    sourceKind: "rss",
+    priorityTier: "official_first_party",
+    publishedAt,
+    score: 99,
+  };
+  const community = {
+    title: "AI agent model discussion",
+    summary: "A community post about an AI agent model.",
+    sourceName: "Hacker News",
+    sourceKind: "hn",
+    priorityTier: "community_fallback",
+    publishedAt,
+    score: 99,
+  };
+
+  assert.equal(official.score, community.score);
+  assert.ok(selectedRankingScore(official) > selectedRankingScore(community));
+  assert.ok(selectedRankingScore(official) < 99);
+  assert.ok(selectedRankingScore(community) < 72);
+});
+
+test("normalizeItem preserves explicit editor judgment and uses neutral automatic fallback", () => {
+  const editorReason = "编辑核验：原文公布了 API 迁移时间表，直接影响现有集成。";
+  const explicit = normalizeItem({
+    url: "https://example.com/editor-checked",
+    title: "OpenAI API migration timeline",
+    summary: "The release includes migration dates and compatibility details.",
+    sourceName: "Verified Brief",
+    sourceKind: "rss",
+    priorityTier: "expert_rss",
+    editorialJudgment: editorReason,
+  });
+  const automatic = normalizeItem({
+    url: "https://example.com/mirror",
+    title: "OpenAI announces a new AI model",
+    summary: "The official release describes model availability and API access.",
+    sourceName: "Newsletter Mirror",
+    sourceKind: "rss",
+    priorityTier: "expert_rss",
+  });
+
+  assert.equal(explicit.reason, editorReason);
+  assert.doesNotMatch(automatic.reason, /Newsletter Mirror(?:拆解|分析|发布|报道)/);
+  assert.match(automatic.reason, /Newsletter Mirror|OpenAI announces/);
 });

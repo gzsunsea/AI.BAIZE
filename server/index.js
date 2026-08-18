@@ -10,7 +10,16 @@ const { readState, writeState } = require("./lib/store");
 const { refreshAll } = require("./jobs/refresh");
 const { attachRelated, categoryLabel, enrichItem, itemCategory, serializePublicItem, sourceChannel } = require("./lib/editorial");
 const { enhanceRecentItems } = require("./lib/llmEnhancer");
-const { canAppearInSelectedFeed, isOriginalHttpUrl, isPublicItem, isQualityCandidate, isSelectedQualityCandidate, makeId } = require("./lib/scoring");
+const {
+  canAppearInSelectedFeed,
+  isOriginalHttpUrl,
+  isPublicItem,
+  isQualityCandidate,
+  isSelectedFeedEligible,
+  isSelectedQualityCandidate,
+  makeId,
+  selectedRankingScore,
+} = require("./lib/scoring");
 const { canonicalUrl, titleFingerprint } = require("./lib/dedupe");
 const { answerQuestion } = require("./lib/askBaize");
 const { buildHotTopics, buildReport, buildStory } = require("./lib/experience");
@@ -354,10 +363,9 @@ function visibleItems(query, state = readState()) {
   const category = String(query.category || "");
   const sort = searchMode === "full" && q && query.sort !== "published_desc" ? "relevance" : "published_desc";
   const filtered = state.items
-    .filter((item) => !item.hidden)
-    .filter((item) => isOriginalHttpUrl(item.url))
     .filter((item) => {
-      if (mode === "selected") return canAppearInSelectedFeed(item) && (item.pinned || item.score >= threshold) && isSelectedQualityCandidate(item);
+      if (mode === "selected") return isSelectedFeedEligible(item, threshold);
+      if (item.hidden || !isOriginalHttpUrl(item.url)) return false;
       if (mode === "mp") return isChineseMedia(item) && isQualityCandidate(item);
       return isQualityCandidate(item);
     })
@@ -419,7 +427,7 @@ function selectedRank(item) {
   }[item.priorityTier] || 0;
   const ageHours = Math.max(0, (Date.now() - new Date(item.publishedAt || 0).getTime()) / 36e5);
   const freshness = Math.max(0, 18 - Math.min(18, ageHours / 4));
-  return Number(Boolean(item.pinned)) * 1000 + Number(item.score || 0) + tierBoost + freshness;
+  return Number(Boolean(item.pinned)) * 1000 + selectedRankingScore(item) + tierBoost + freshness;
 }
 
 function isXStatusSignal(item) {
@@ -443,6 +451,7 @@ function selectCuratedItems(items = [], rules = {}) {
   const sourceCounts = new Map();
   let communityCount = 0;
   let cnMediaCount = 0;
+  let xCount = 0;
 
   const isPreferred = (item) => ["preferred_x", "official_first_party", "expert_rss"].includes(item.priorityTier);
   const isPreferredX = (item) => item.priorityTier === "preferred_x" || item.sourceKind === "x" || isXStatusSignal(item);
@@ -452,6 +461,7 @@ function selectCuratedItems(items = [], rules = {}) {
     if (!item.pinned && (sourceCounts.get(sourceKey) || 0) >= sourceLimit) return false;
     const community = item.priorityTier === "community_fallback" || ["hn", "github", "devto", "arxiv"].includes(item.sourceKind);
     if (!item.pinned && community && communityCount >= communityLimit) return false;
+    if (!item.pinned && isPreferredX(item) && xCount >= xTarget) return false;
     const cnMedia = item.priorityTier === "cn_media";
     if (!item.pinned && cnMedia && (sourceCounts.get(sourceKey) || 0) >= cnSourceLimit) return false;
     if (!item.pinned && cnMedia && cnMediaCount >= cnMediaLimit) return false;
@@ -465,6 +475,7 @@ function selectCuratedItems(items = [], rules = {}) {
     sourceCounts.set(sourceKey, (sourceCounts.get(sourceKey) || 0) + 1);
     if (item.priorityTier === "community_fallback" || ["hn", "github", "devto", "arxiv"].includes(item.sourceKind)) communityCount += 1;
     if (item.priorityTier === "cn_media") cnMediaCount += 1;
+    if (isPreferredX(item)) xCount += 1;
     return true;
   };
 

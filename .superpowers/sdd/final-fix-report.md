@@ -232,3 +232,43 @@ The final three release-review findings are addressed on top of `55068eb`. No de
 
 - The existing `MODULE_TYPELESS_PACKAGE_JSON` warning remains during the TypeScript navigation test; resolving it requires a broader CommonJS/ESM packaging decision.
 - Production deployment, pushing, and production `data/db.json` changes were not performed.
+
+## Source Quality Storage-Gap Follow-up — 2026-08-18
+
+### Status
+
+The four Important source-quality review findings are addressed on top of `f98cb30`. No dependency, deployment, or runtime-data changes were made.
+
+### Fixes
+
+1. **Legacy reference-source exclusion**
+   - Selected eligibility now recognizes legacy AIHOT/reference records by `sourceKind`, `sourceId`, `sourceTier`, or the canonical source name even when `priorityTier` is absent.
+   - Explicitly pinned records keep their editorial exception, while hidden or non-HTTP(S) pinned records remain ineligible through the complete public predicate.
+
+2. **One complete selected boundary for Ask Baize and the feed**
+   - A shared scoring-layer predicate now enforces visibility, original HTTP(S) URL, pinned semantics, calibrated selected threshold, reference exclusion, and selected-quality rules.
+   - Ask Baize uses the same boundary as the selected feed, reports `grounded: false` when no eligible evidence exists, and cannot cite hidden, invalid-URL, low-score, or legacy reference records.
+
+3. **Read-time calibration for stored saturated scores**
+   - Existing stored `score` values remain unchanged for display and persistence.
+   - Selected thresholding and ordering use a separate read-time score that blends the current quality model with the stored score, so legacy `99` values no longer flatten ranking or admit weak community records automatically.
+   - The X share is enforced as a cap during curated selection so the new ordering cannot overflow the configured mix.
+
+4. **Evidence-safe recommendation reasons and channel precedence**
+   - Valid `aiSelectedReason` and `editorialJudgment` strings are preserved instead of being overwritten.
+   - Automatic fallback copy is neutral and limited to source, title, topic hints, and summary evidence; it no longer invents claims that a source published, reported, analyzed, or broke down an event.
+   - Explicit `expert_rss` classification now wins before broad social and Chinese-source name heuristics.
+
+### Verification
+
+- TDD RED: the focused suite initially failed on legacy reference admission, Ask citations, stored-score thresholding, editor-reason overwrite, and expert-channel precedence.
+- Focused suite: `node --test server/lib/scoring.test.js server/lib/askBaize.test.js server/lib/editorial.test.js server/index.test.js` — 28 passed, 0 failed.
+- Full suite: `npm test` — 92 passed, 0 failed.
+- No-emit frontend check: `npm run typecheck` — passed.
+- Production build: `npm run build` — passed.
+- Whitespace check: `git diff --check` — passed before this report append and will be repeated before commit.
+
+### Remaining Concerns
+
+- The existing `MODULE_TYPELESS_PACKAGE_JSON` warning remains during the TypeScript navigation test; resolving it requires a broader CommonJS/ESM packaging decision.
+- Production deployment and production `data/db.json` changes were not performed.

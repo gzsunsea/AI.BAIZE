@@ -16,3 +16,16 @@ test("expert rss sources stay in expert analysis channel even when source names 
   assert.equal(sourceChannel(item), "expert_analysis");
   assert.equal(channelLabel("expert_analysis"), "专家解读");
 });
+
+test("expert rss tier wins over broad social and Chinese name heuristics", () => {
+  const item = {
+    url: "https://example.com/expert",
+    title: "AI agent deployment notes",
+    summary: "An expert analysis of production evals.",
+    sourceName: "X · @expert 豆包研究博客",
+    sourceKind: "rss",
+    priorityTier: "expert_rss",
+  };
+
+  assert.equal(sourceChannel(item), "expert_analysis");
+});

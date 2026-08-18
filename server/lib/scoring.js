@@ -67,6 +67,8 @@ const BROAD_OFFICIAL_RE = /GitHub Changelog|GitHub Blog|Cloudflare|Apple Machine
 const LOW_INFORMATION_TITLE_RE = /^\s*(?:未命名动态|(?:release\s*)?v?\d+(?:\.\d+){1,4}(?:[-+][\w.-]+)?)\s*$/i;
 const BROKEN_SUMMARY_RE = /\[object Object\]/i;
 const SELECTED_EXCLUDED_TIERS = new Set(["reference"]);
+const LEGACY_REFERENCE_SOURCE_KINDS = new Set(["aihot", "reference"]);
+const LEGACY_REFERENCE_SOURCE_IDS = new Set(["aihot-public"]);
 
 const tagRules = [
   ["Agent", ["agent", "智能体", "browser use", "operator"]],
@@ -245,7 +247,14 @@ function isSelectedQualityCandidate(item = {}) {
 
 function canAppearInSelectedFeed(item = {}) {
   if (item.pinned) return true;
-  return !SELECTED_EXCLUDED_TIERS.has(item.priorityTier);
+  const priorityTier = String(item.priorityTier || "").toLowerCase();
+  const sourceTier = String(item.sourceTier || "").toLowerCase();
+  const sourceKind = String(item.sourceKind || "").toLowerCase();
+  const sourceId = String(item.sourceId || "").toLowerCase();
+  const sourceName = String(item.sourceName || "").trim();
+  if (SELECTED_EXCLUDED_TIERS.has(priorityTier) || SELECTED_EXCLUDED_TIERS.has(sourceTier)) return false;
+  if (LEGACY_REFERENCE_SOURCE_KINDS.has(sourceKind) || LEGACY_REFERENCE_SOURCE_IDS.has(sourceId)) return false;
+  return !/^AIHOT(?:\s*公开页)?$/i.test(sourceName);
 }
 
 function sourcePriorityScore(raw = {}) {
@@ -279,6 +288,32 @@ function keywordCoverageScore(text = "") {
 
 function blendScore(internalScore, externalScore) {
   return clampScore(internalScore * 0.6 + clampScore(externalScore) * 0.4);
+}
+
+function selectedRankingScore(item = {}) {
+  if (item.pinned) return 99;
+  const internalScore = scoreItem({
+    title: item.title,
+    summary: item.summary,
+    sourceKind: item.sourceKind,
+    publishedAt: item.publishedAt,
+    stars: item.stars,
+    comments: item.comments,
+    priorityTier: item.priorityTier || item.sourceTier,
+    preferred: item.preferred,
+    noisePenalty: item.noisePenalty,
+    topicBoosts: item.topicBoosts,
+  });
+  const storedScore = Number.isFinite(Number(item.score)) ? clampScore(Number(item.score)) : internalScore;
+  return clampScore(internalScore * 0.75 + storedScore * 0.25);
+}
+
+function isSelectedFeedEligible(item = {}, selectedThreshold = 72) {
+  if (!item || item.hidden || !isOriginalHttpUrl(item.url)) return false;
+  if (item.pinned) return true;
+  return canAppearInSelectedFeed(item)
+    && selectedRankingScore(item) >= Number(selectedThreshold || 72)
+    && isSelectedQualityCandidate(item);
 }
 
 function enrichSummary(title = "", summary = "", sourceName = "") {
@@ -321,17 +356,14 @@ function reasonFor(item) {
   const snippet = summarize(item.summary || "", item.title).replace(/\s+/g, " ").trim();
   const evidence = snippet && snippet !== item.title ? `摘要提到：${snippet}` : `标题直接指向：${item.title}`;
   const source = item.sourceName || "该信源";
-  const verb = item.priorityTier === "official_first_party"
-    ? "发布了"
-    : item.priorityTier === "expert_rss"
-      ? "拆解了"
-      : item.priorityTier === "preferred_x"
-        ? "给出了一线线索："
-        : "报道了";
-  if (item.priorityTier === "preferred_x") {
-    return `${source}${verb}${item.title}，${focus}。${evidence}`;
-  }
-  return `${source}${verb}《${item.title}》，${focus}。${evidence}`;
+  return `来自${source}的《${item.title}》。${focus}。${evidence}`;
+}
+
+function validatedEditorialReason(value) {
+  if (typeof value !== "string") return "";
+  const clean = stripHtml(value).slice(0, 600);
+  if (clean.length < 8 || BROKEN_SUMMARY_RE.test(clean) || /系统按.+入选/i.test(clean)) return "";
+  return clean;
 }
 
 function isQualityCandidate(item) {
@@ -360,6 +392,7 @@ function normalizeItem(raw) {
   const internalScore = scoreItem({ title, summary, sourceKind, publishedAt, stars: raw.stars, comments: raw.comments, priorityTier, preferred, noisePenalty, topicBoosts });
   const externalScore = raw.finalScore ?? raw.qualityScore;
   const score = externalScore === undefined ? internalScore : blendScore(internalScore, Number(externalScore || 0));
+  const editorReason = validatedEditorialReason(raw.aiSelectedReason) || validatedEditorialReason(raw.editorialJudgment);
   const item = {
     id: raw.id || makeId(stableUrlKey(url) || title),
     url,
@@ -378,11 +411,11 @@ function normalizeItem(raw) {
     publishedAt,
     score,
     tags: [...new Set(tags)].slice(0, 6),
-    reason: raw.aiSelectedReason || raw.editorialJudgment || raw.reason || "",
+    reason: editorReason || validatedEditorialReason(raw.reason),
     media: raw.media || raw.rawJson?.media || (raw.image || raw.thumbnail ? [{ url: raw.image || raw.thumbnail, type: "image" }] : []),
     raw,
   };
-  item.reason = reasonFor(item);
+  if (!editorReason) item.reason = reasonFor(item);
   return item;
 }
 
@@ -394,12 +427,14 @@ module.exports = {
   isPublicItem,
   isQualityCandidate,
   canAppearInSelectedFeed,
+  isSelectedFeedEligible,
   isSelectedQualityCandidate,
   isWeakIndustryCandidate,
   makeId,
   normalizeItem,
   qualityClass,
   scoreItem,
+  selectedRankingScore,
   stripHtml,
   summarize,
 };
