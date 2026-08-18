@@ -83,6 +83,41 @@ test("rss media hydration fills missing images from article metadata when opted 
   assert.ok(requested.includes("https://openai.com/news/agent-launch"));
 });
 
+test("rss drops GitHub account avatars that are reused as generic release images", async (t) => {
+  const originalFetch = global.fetch;
+  global.fetch = async (url) => {
+    if (String(url) === "https://github.com/example/repo/releases.atom") {
+      return {
+        ok: true,
+        text: async () => `<?xml version="1.0"?><feed><entry>
+          <title>v2.1.234</title>
+          <link href="https://github.com/example/repo/releases/tag/v2.1.234" />
+          <summary>Added an AI agent release update with benchmark details.</summary>
+          <updated>2026-06-16T10:00:00Z</updated>
+          <media:thumbnail xmlns:media="http://search.yahoo.com/mrss/" url="https://avatars.githubusercontent.com/u/123?s=60&amp;v=4" />
+        </entry></feed>`,
+      };
+    }
+    return { ok: false, status: 404, statusText: "Not Found", text: async () => "" };
+  };
+  t.after(() => {
+    global.fetch = originalFetch;
+  });
+
+  const items = await scrapeSource({
+    id: "github-release-feed",
+    name: "GitHub Releases",
+    kind: "rss",
+    enabled: true,
+    url: "https://github.com/example/repo/releases.atom",
+    priorityTier: "official_first_party",
+    tier: "official",
+  });
+
+  assert.equal(items.length, 1);
+  assert.deepEqual(items[0].media, []);
+});
+
 test("arxiv requests are serialized to avoid provider rate limits", async (t) => {
   const originalFetch = global.fetch;
   const requestedAt = [];

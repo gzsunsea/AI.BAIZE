@@ -104,6 +104,10 @@ function absolutizeUrl(url = "", base = "") {
   }
 }
 
+function isGenericMediaUrl(url = "") {
+  return /^https?:\/\/avatars\.githubusercontent\.com\//i.test(String(url));
+}
+
 function compactMedia(media = []) {
   const seen = new Set();
   return media
@@ -114,6 +118,7 @@ function compactMedia(media = []) {
       alt: asset.alt || "",
     }))
     .filter((asset) => /^https?:\/\//i.test(asset.url))
+    .filter((asset) => !isGenericMediaUrl(asset.url))
     .filter((asset) => {
       if (seen.has(asset.url)) return false;
       seen.add(asset.url);
