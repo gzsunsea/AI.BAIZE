@@ -10,7 +10,7 @@ const { readState, writeState } = require("./lib/store");
 const { refreshAll } = require("./jobs/refresh");
 const { attachRelated, categoryLabel, enrichItem, itemCategory, serializePublicItem, sourceChannel } = require("./lib/editorial");
 const { enhanceRecentItems } = require("./lib/llmEnhancer");
-const { isOriginalHttpUrl, isPublicItem, isQualityCandidate, isSelectedQualityCandidate, makeId } = require("./lib/scoring");
+const { canAppearInSelectedFeed, isOriginalHttpUrl, isPublicItem, isQualityCandidate, isSelectedQualityCandidate, makeId } = require("./lib/scoring");
 const { canonicalUrl, titleFingerprint } = require("./lib/dedupe");
 const { answerQuestion } = require("./lib/askBaize");
 const { buildHotTopics, buildReport, buildStory } = require("./lib/experience");
@@ -357,7 +357,7 @@ function visibleItems(query, state = readState()) {
     .filter((item) => !item.hidden)
     .filter((item) => isOriginalHttpUrl(item.url))
     .filter((item) => {
-      if (mode === "selected") return (item.pinned || item.score >= threshold) && isSelectedQualityCandidate(item);
+      if (mode === "selected") return canAppearInSelectedFeed(item) && (item.pinned || item.score >= threshold) && isSelectedQualityCandidate(item);
       if (mode === "mp") return isChineseMedia(item) && isQualityCandidate(item);
       return isQualityCandidate(item);
     })
@@ -434,7 +434,10 @@ function selectCuratedItems(items = [], rules = {}) {
   const cnSourceLimit = Math.min(sourceLimit, Math.max(1, Number(rules?.selectedCnSourceLimit || 5)));
   const preferredTarget = Math.ceil(limit * Number(rules?.selectedPreferredShare || 0.6));
   const xTarget = Math.ceil(limit * Number(rules?.selectedXShare || 0.2));
-  const ranked = items.filter((item) => isOriginalHttpUrl(item.url)).sort((a, b) => selectedRank(b) - selectedRank(a) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
+  const ranked = items
+    .filter((item) => isOriginalHttpUrl(item.url))
+    .filter((item) => canAppearInSelectedFeed(item))
+    .sort((a, b) => selectedRank(b) - selectedRank(a) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
   const selected = [];
   const selectedIds = new Set();
   const sourceCounts = new Map();

@@ -196,6 +196,30 @@ test("curated feed excludes items without original http links", () => {
   assert.deepEqual(selected.map((item) => item.id), ["external-original"]);
 });
 
+test("curated feed excludes unpinned reference items but preserves pinned exceptions", () => {
+  const selected = selectCuratedItems([
+    story("official-primary", "Official AI platform release", 88),
+    {
+      ...story("reference-unpinned", "Reference bridge copy of the same release", 96),
+      sourceName: "AIHOT 公开页",
+      sourceKind: "aihot",
+      priorityTier: "reference",
+    },
+    {
+      ...story("reference-pinned", "Pinned analyst note", 84),
+      sourceName: "AIHOT 公开页",
+      sourceKind: "aihot",
+      priorityTier: "reference",
+      pinned: true,
+    },
+  ], {
+    selectedFeedLimit: 20,
+    selectedPreferredShare: 0.6,
+  });
+
+  assert.deepEqual(selected.map((item) => item.id), ["reference-pinned", "official-primary"]);
+});
+
 test("curated feed reserves slots for preferred X signals", () => {
   const official = Array.from({ length: 24 }, (_, index) => ({
     ...story(`official-x-quota-${index}`, `Official AI model release ${index}`, 99 - (index % 3)),
@@ -229,7 +253,7 @@ test("curated feed reserves slots for preferred X signals", () => {
   assert.equal(selected.slice(0, 8).filter((item) => item.priorityTier === "preferred_x").length, 2);
 });
 
-test("curated feed treats X status URLs as X signals after dedupe metadata merges", () => {
+test("curated feed keeps reference-tier X status URLs out until they are explicitly promoted", () => {
   const official = Array.from({ length: 24 }, (_, index) => ({
     ...story(`official-x-url-${index}`, `Official AI model release ${index}`, 99 - (index % 3)),
     sourceId: `official-x-url-${index}`,
@@ -258,7 +282,7 @@ test("curated feed treats X status URLs as X signals after dedupe metadata merge
     selectedXShare: 0.25,
   });
 
-  assert.equal(selected.filter((item) => /https:\/\/x\.com\/.+\/status\//.test(item.url)).length, 5);
+  assert.equal(selected.filter((item) => /https:\/\/x\.com\/.+\/status\//.test(item.url)).length, 0);
 });
 
 test("daily issue metadata distinguishes same-day midday and evening updates", () => {

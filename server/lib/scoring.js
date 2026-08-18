@@ -66,6 +66,7 @@ const WEAK_GITHUB_RE = /awesome[-_\s]|curated list|course list|summer ?school|bo
 const BROAD_OFFICIAL_RE = /GitHub Changelog|GitHub Blog|Cloudflare|Apple Machine Learning Research|NVIDIA AI Blog/i;
 const LOW_INFORMATION_TITLE_RE = /^\s*(?:未命名动态|(?:release\s*)?v?\d+(?:\.\d+){1,4}(?:[-+][\w.-]+)?)\s*$/i;
 const BROKEN_SUMMARY_RE = /\[object Object\]/i;
+const SELECTED_EXCLUDED_TIERS = new Set(["reference"]);
 
 const tagRules = [
   ["Agent", ["agent", "智能体", "browser use", "operator"]],
@@ -242,6 +243,11 @@ function isSelectedQualityCandidate(item = {}) {
   return true;
 }
 
+function canAppearInSelectedFeed(item = {}) {
+  if (item.pinned) return true;
+  return !SELECTED_EXCLUDED_TIERS.has(item.priorityTier);
+}
+
 function sourcePriorityScore(raw = {}) {
   const tier = raw.priorityTier || raw.sourceTier || raw.tier || "";
   const base = {
@@ -260,6 +266,19 @@ function sourcePriorityScore(raw = {}) {
   const sample = { title: raw.title, summary: raw.summary || raw.description, tags: raw.tags || [], priorityTier: tier };
   const qualityBoost = isCoreAiCandidate(sample) ? 8 : isWeakIndustryCandidate(sample) ? -16 : -8;
   return Math.round(base + preferred + topicBoost + qualityBoost - penalty);
+}
+
+function clampScore(value) {
+  return Math.max(1, Math.min(99, Math.round(value)));
+}
+
+function keywordCoverageScore(text = "") {
+  const hits = AI_KEYWORDS.reduce((count, word) => count + (text.includes(word) ? 1 : 0), 0);
+  return Math.min(18, hits * 2);
+}
+
+function blendScore(internalScore, externalScore) {
+  return clampScore(internalScore * 0.6 + clampScore(externalScore) * 0.4);
 }
 
 function enrichSummary(title = "", summary = "", sourceName = "") {
@@ -283,24 +302,36 @@ function inferTags(title = "", summary = "") {
 
 function scoreItem({ title = "", summary = "", sourceKind = "", publishedAt, stars = 0, comments = 0, priorityTier = "", preferred = false, noisePenalty = 0, topicBoosts = {} }) {
   const text = `${title} ${summary}`.toLowerCase();
-  const keywordScore = AI_KEYWORDS.reduce((score, word) => score + (text.includes(word) ? 5 : 0), 0);
+  const keywordScore = keywordCoverageScore(text);
   const ageHours = Math.max(0, (Date.now() - new Date(publishedAt || Date.now()).getTime()) / 36e5);
-  const freshness = Math.max(0, 24 - Math.min(24, ageHours));
-  const authority = sourceKind === "aihot" ? 25 : sourceKind === "x" ? 20 : sourceKind === "arxiv" ? 12 : sourceKind === "github" ? 6 : sourceKind === "hn" || sourceKind === "devto" ? 2 : 10;
-  const social = Math.min(20, Math.log10(Math.max(1, stars + comments + 1)) * 8);
-  const sourceScore = sourcePriorityScore({ title, summary, priorityTier, preferred, noisePenalty, topicBoosts });
+  const freshness = Math.max(0, Math.round(18 - Math.min(18, ageHours / 3)));
+  const authority = sourceKind === "aihot" ? 6 : sourceKind === "x" ? 7 : sourceKind === "arxiv" ? 5 : sourceKind === "github" ? 3 : sourceKind === "hn" || sourceKind === "devto" ? 1 : 4;
+  const social = Math.min(6, Math.log10(Math.max(1, stars + comments + 1)) * 3);
+  const sourceScore = Math.round(sourcePriorityScore({ title, summary, priorityTier, preferred, noisePenalty, topicBoosts }) * 0.45);
   const sample = { title, summary, sourceKind, priorityTier };
-  const qualityScore = isCoreAiCandidate(sample) ? 14 : isWeakIndustryCandidate(sample) ? -24 : -18;
-  return Math.max(1, Math.min(99, Math.round(24 + keywordScore + freshness + authority + social + sourceScore + qualityScore)));
+  const qualityScore = isCoreAiCandidate(sample) ? 10 : isWeakIndustryCandidate(sample) ? -20 : -12;
+  return clampScore(28 + keywordScore + freshness + authority + social + sourceScore + qualityScore);
 }
 
 function reasonFor(item) {
   const tags = item.tags?.length ? item.tags.join("、") : "AI";
   if (item.sourceKind === "aihot" && item.reason) return item.reason;
   const hints = topicHints(`${item.title} ${item.summary}`);
-  const focus = hints.length ? `重点看${hints.join("、")}` : `与 ${tags} 相关`;
-  const sourceSignal = item.preferred ? "优先信源" : item.priorityTier === "community_fallback" ? "社区热度补充" : "公开信源";
-  return `来自 ${item.sourceName} 的最新 ${tags} 动态，${focus}。系统按${sourceSignal}、时效、主题相关性和可操作性入选，适合判断它是否会影响产品、研究、教育/文化应用或开发实践。`;
+  const focus = hints.length ? `重点看${hints.join("、")}` : `重点看${tags}`;
+  const snippet = summarize(item.summary || "", item.title).replace(/\s+/g, " ").trim();
+  const evidence = snippet && snippet !== item.title ? `摘要提到：${snippet}` : `标题直接指向：${item.title}`;
+  const source = item.sourceName || "该信源";
+  const verb = item.priorityTier === "official_first_party"
+    ? "发布了"
+    : item.priorityTier === "expert_rss"
+      ? "拆解了"
+      : item.priorityTier === "preferred_x"
+        ? "给出了一线线索："
+        : "报道了";
+  if (item.priorityTier === "preferred_x") {
+    return `${source}${verb}${item.title}，${focus}。${evidence}`;
+  }
+  return `${source}${verb}《${item.title}》，${focus}。${evidence}`;
 }
 
 function isQualityCandidate(item) {
@@ -326,8 +357,9 @@ function normalizeItem(raw) {
   const preferred = Boolean(raw.preferred || raw.source?.preferred);
   const noisePenalty = Number(raw.noisePenalty || raw.source?.noisePenalty || 0);
   const topicBoosts = raw.topicBoosts || raw.source?.topicBoosts || {};
-  const baseScore = raw.finalScore || raw.qualityScore || scoreItem({ title, summary, sourceKind, publishedAt, stars: raw.stars, comments: raw.comments, priorityTier, preferred, noisePenalty, topicBoosts });
-  const score = Math.max(1, Math.min(99, Math.round(baseScore + (raw.finalScore || raw.qualityScore ? sourcePriorityScore({ title, summary, priorityTier, preferred, noisePenalty, topicBoosts }) : 0))));
+  const internalScore = scoreItem({ title, summary, sourceKind, publishedAt, stars: raw.stars, comments: raw.comments, priorityTier, preferred, noisePenalty, topicBoosts });
+  const externalScore = raw.finalScore ?? raw.qualityScore;
+  const score = externalScore === undefined ? internalScore : blendScore(internalScore, Number(externalScore || 0));
   const item = {
     id: raw.id || makeId(stableUrlKey(url) || title),
     url,
@@ -361,6 +393,7 @@ module.exports = {
   isOriginalHttpUrl,
   isPublicItem,
   isQualityCandidate,
+  canAppearInSelectedFeed,
   isSelectedQualityCandidate,
   isWeakIndustryCandidate,
   makeId,

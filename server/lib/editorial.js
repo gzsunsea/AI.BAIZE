@@ -13,7 +13,10 @@ function sourceChannel(item) {
   if (item.priorityTier === "official_first_party") {
     return "first_party";
   }
-  if (/OpenAI|Anthropic|DeepMind|Google|xAI|Mistral|Meta|Hugging Face|NVIDIA|Apple|Cloudflare|官方|Newsroom|Research|Blog/i.test(text)) {
+  if (item.priorityTier === "expert_rss") {
+    return "expert_analysis";
+  }
+  if (/OpenAI|Anthropic|DeepMind|Google|xAI|Mistral|Meta|Hugging Face|NVIDIA|Apple|Cloudflare|官方|Newsroom/i.test(text)) {
     return "first_party";
   }
   if (/github|dev\.to|hacker news|hn|arxiv|repository|开源|论文/i.test(text)) {
@@ -50,6 +53,7 @@ function categoryLabel(category) {
 function channelLabel(channel) {
   return {
     first_party: "一手信源",
+    expert_analysis: "专家解读",
     cn_media: "中文资讯",
     community: "社区/开源",
     social: "推文替代",
@@ -62,7 +66,7 @@ function scoreBreakdown(item) {
   const category = itemCategory(item);
   const ageHours = Math.max(0, (Date.now() - new Date(item.publishedAt || Date.now()).getTime()) / 36e5);
   const fresh = Math.max(0, Math.round(18 - Math.min(18, ageHours / 2)));
-  const source = channel === "first_party" ? 26 : channel === "social" ? 24 : channel === "cn_media" ? 16 : channel === "community" ? 8 : 12;
+  const source = channel === "first_party" ? 26 : channel === "social" ? 24 : channel === "expert_analysis" ? 22 : channel === "cn_media" ? 16 : channel === "community" ? 8 : 12;
   const actionable = /API|代码|开源|GitHub|教程|部署|使用|上线|支持|接入|发布/i.test(textOf(item)) ? 14 : 8;
   const novelty = /首次|首款|新|发布|推出|open-source|benchmark|正式/i.test(textOf(item)) ? 14 : 8;
   const relevance = Math.max(10, Math.min(20, Math.round((item.tags?.length || 1) * 4 + (category === "model" || category === "product" || category === "education" || category === "culture" ? 8 : 4))));

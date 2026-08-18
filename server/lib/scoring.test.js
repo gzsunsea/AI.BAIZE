@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { isNoiseCandidate, isSelectedQualityCandidate } = require("./scoring");
+const { isNoiseCandidate, isSelectedQualityCandidate, normalizeItem } = require("./scoring");
 
 function cnMediaItem(title, summary = "") {
   return {
@@ -33,4 +33,54 @@ test("substantive local-model hardware remains eligible", () => {
 
   assert.equal(isNoiseCandidate(item), false);
   assert.equal(isSelectedQualityCandidate(item), true);
+});
+
+test("normalizeItem keeps high-signal scores distributed instead of saturating at 99", () => {
+  const official = normalizeItem({
+    url: "https://openai.com/index/new-agents",
+    title: "OpenAI launches new agent workflow tools",
+    summary: "New API, agent orchestration, deployment guidance, and multimodal automation updates for developers.",
+    sourceName: "OpenAI",
+    sourceKind: "rss",
+    priorityTier: "official_first_party",
+    publishedAt: "2026-08-18T00:00:00.000Z",
+  });
+  const expert = normalizeItem({
+    url: "https://simonwillison.net/2026/08/18/agents",
+    title: "Simon Willison breaks down new agent workflow patterns",
+    summary: "Detailed implementation notes for LLM agents, evals, deployment trade-offs, and production workflows.",
+    sourceName: "Simon Willison Blog",
+    sourceKind: "rss",
+    priorityTier: "expert_rss",
+    publishedAt: "2026-08-18T00:00:00.000Z",
+  });
+  const community = normalizeItem({
+    url: "https://github.com/example/agent-demo",
+    title: "Agent demo repository",
+    summary: "Open source example repository for AI agent experiments.",
+    sourceName: "GitHub",
+    sourceKind: "github",
+    priorityTier: "community_fallback",
+    publishedAt: "2026-08-18T00:00:00.000Z",
+  });
+
+  assert.ok(official.score < 99);
+  assert.ok(expert.score < 99);
+  assert.ok(official.score > expert.score);
+  assert.ok(expert.score > community.score);
+});
+
+test("normalizeItem produces source-specific reasons without generic ranking boilerplate", () => {
+  const item = normalizeItem({
+    url: "https://latent.space/p/agent-stacks",
+    title: "Agent stacks for production teams",
+    summary: "Explains how agent orchestration, evals, and deployment workflows differ between research demos and product teams.",
+    sourceName: "Latent Space",
+    sourceKind: "rss",
+    priorityTier: "expert_rss",
+    publishedAt: "2026-08-18T00:00:00.000Z",
+  });
+
+  assert.match(item.reason, /Latent Space|Agent stacks|生产团队|工作流/);
+  assert.doesNotMatch(item.reason, /系统按/);
 });
