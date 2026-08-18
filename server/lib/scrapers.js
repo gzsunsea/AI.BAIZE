@@ -310,7 +310,9 @@ function parseAihotJson(html) {
 function normalizeAihotCard($, node, source) {
   const card = $(node);
   const isMobileRow = card.is(".m-row-wrap");
-  const link = isMobileRow ? card.find(".m-row[href], a[href]").first() : card.find(".timeline-title, a[href]").first();
+  const link = isMobileRow
+    ? card.find(".m-row[href], a[href]").first()
+    : card.find(".timeline-title[href], .timeline-title a[href], a[href]").first();
   const bodyText = isMobileRow
     ? card.find(".m-row-title").first().text() || card.find(".m-row-summary").first().text()
     : card.find(".timeline-title").text() || card.find(".uc-body, .uc-body-p").text() || card.find(".timeline-summary").text();

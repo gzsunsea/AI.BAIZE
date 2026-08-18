@@ -315,3 +315,37 @@ The two Important refresh-merge findings are addressed on top of `78e66c5`. No d
 
 - The existing `MODULE_TYPELESS_PACKAGE_JSON` warning remains during the TypeScript navigation test; resolving it requires a broader CommonJS/ESM packaging decision.
 - Production deployment and production `data/db.json` changes were not performed.
+
+## Final Enhancer, Legacy Link, and Ranking Follow-up — 2026-08-18
+
+### Status
+
+The final three source-quality regressions are addressed on top of `8b4894a`. No dependency, deployment, or runtime-data changes were made.
+
+### Fixes
+
+1. **Enhancement reason authority**
+   - Rules and Ollama enhancement continue to refresh summaries and editorial briefs, but preserve validated `aiSelectedReason`, `editorialJudgment`, raw source reasons, and stored editor reasons.
+   - Existing rule/Ollama reasons and deterministic normalization fallback copy remain replaceable, so automatic enhancement can still improve automatic text without overwriting editorial judgment.
+
+2. **Legacy timeline title links**
+   - Legacy AIHOT cards now prefer `.timeline-title[href]`, then nested `.timeline-title a[href]`, then the first generic anchor.
+   - The existing mobile-row and embedded Next-flight parsing paths remain unchanged.
+
+3. **Raw ranking-signal fallback**
+   - Read-time selected ranking now falls back to normalized-item `raw.stars`, `raw.comments`, and `raw.topicBoosts` when the corresponding top-level value is absent.
+   - A threshold-boundary regression proves raw-only signals produce the same selected score as their top-level normalized equivalents.
+
+### Verification
+
+- TDD RED: the focused suite first failed on explicit-reason overwrite, the nested legacy title link producing no item, and raw-only ranking signals falling below the selected boundary.
+- Focused suite: `node --test server/lib/llmEnhancer.test.js server/lib/scrapers.test.js server/lib/scoring.test.js` — 19 passed, 0 failed.
+- Full suite: `npm test` — 102 passed, 0 failed.
+- No-emit frontend check: `npm run typecheck` — passed.
+- Production build: `npm run build` — passed.
+- Whitespace check: `git diff --check` — passed before this report append and will be repeated before commit.
+
+### Remaining Concerns
+
+- The existing `MODULE_TYPELESS_PACKAGE_JSON` warning remains during the TypeScript navigation test; resolving it requires a broader CommonJS/ESM packaging decision.
+- Production deployment and production `data/db.json` changes were not performed.

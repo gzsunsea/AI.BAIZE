@@ -132,6 +132,36 @@ test("read-time ranking calibrates saturated stored scores without changing disp
   assert.ok(selectedRankingScore(community) < 72);
 });
 
+test("read-time ranking falls back to raw engagement and topic boosts at the selected boundary", () => {
+  const publishedAt = new Date().toISOString();
+  const base = {
+    title: "OpenAI launches an AI agent model API",
+    summary: "The AI agent model API includes benchmark, inference, deployment, and workflow details.",
+    sourceKind: "rss",
+    priorityTier: "community_fallback",
+    publishedAt,
+    score: 72,
+  };
+  const rawOnly = {
+    ...base,
+    raw: {
+      stars: 10_000,
+      comments: 1_000,
+      topicBoosts: { agent: 12 },
+    },
+  };
+  const normalized = {
+    ...base,
+    stars: 10_000,
+    comments: 1_000,
+    topicBoosts: { agent: 12 },
+  };
+
+  assert.ok(selectedRankingScore({ ...base, raw: {} }) < 72);
+  assert.equal(selectedRankingScore(rawOnly), selectedRankingScore(normalized));
+  assert.ok(selectedRankingScore(rawOnly) >= 72);
+});
+
 test("normalizeItem preserves explicit editor judgment and uses neutral automatic fallback", () => {
   const editorReason = "编辑核验：原文公布了 API 迁移时间表，直接影响现有集成。";
   const explicit = normalizeItem({

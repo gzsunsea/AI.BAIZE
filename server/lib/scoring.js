@@ -297,12 +297,12 @@ function selectedRankingScore(item = {}) {
     summary: item.summary,
     sourceKind: item.sourceKind,
     publishedAt: item.publishedAt,
-    stars: item.stars,
-    comments: item.comments,
+    stars: item.stars ?? item.raw?.stars,
+    comments: item.comments ?? item.raw?.comments,
     priorityTier: item.priorityTier || item.sourceTier,
     preferred: item.preferred,
     noisePenalty: item.noisePenalty,
-    topicBoosts: item.topicBoosts,
+    topicBoosts: item.topicBoosts ?? item.raw?.topicBoosts,
   });
   const storedScore = Number.isFinite(Number(item.score)) ? clampScore(Number(item.score)) : internalScore;
   return clampScore(internalScore * 0.75 + storedScore * 0.25);
@@ -372,6 +372,13 @@ function explicitReasonFor(raw = {}) {
     || validatedEditorialReason(raw.reason);
 }
 
+function isAutomaticReason(item = {}) {
+  const reason = validatedEditorialReason(item.reason);
+  if (!reason) return true;
+  if (item.llmProvider === "rules" || String(item.llmProvider || "").startsWith("ollama:")) return true;
+  return reason === reasonFor({ ...item, reason: "" });
+}
+
 function isQualityCandidate(item) {
   if (!item || isNoiseCandidate(item)) return false;
   if (isWeakIndustryCandidate(item)) return false;
@@ -434,6 +441,7 @@ module.exports = {
   isQualityCandidate,
   canAppearInSelectedFeed,
   explicitReasonFor,
+  isAutomaticReason,
   isSelectedFeedEligible,
   isSelectedQualityCandidate,
   isWeakIndustryCandidate,

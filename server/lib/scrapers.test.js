@@ -89,6 +89,47 @@ test("aihot reference cards resolve relative item pages to original X links", as
   assert.equal(items[0].url, "https://x.com/OpenAI/status/123");
 });
 
+test("aihot legacy cards use a nested timeline title anchor as the detail link", async (t) => {
+  const originalFetch = global.fetch;
+  global.fetch = async (url) => {
+    if (String(url) === "https://aihot.example/") {
+      return {
+        ok: true,
+        text: async () => `
+          <article class="timeline-card">
+            <div class="timeline-title"><a href="/items/nested-title-link">OpenAI agent API migration</a></div>
+            <p class="timeline-summary">OpenAI documents the AI agent API migration timeline.</p>
+            <span class="timeline-source">OpenAI</span>
+          </article>
+        `,
+      };
+    }
+    if (String(url) === "https://aihot.example/items/nested-title-link") {
+      return {
+        ok: true,
+        text: async () => `<a href="https://openai.com/index/agent-api-migration">Original article</a>`,
+      };
+    }
+    return { ok: false, status: 404, statusText: "Not Found", text: async () => "" };
+  };
+  t.after(() => {
+    global.fetch = originalFetch;
+  });
+
+  const items = await scrapeSource({
+    id: "aihot-public",
+    name: "AIHOT 公开页",
+    kind: "aihot",
+    enabled: true,
+    url: "https://aihot.example/",
+    priorityTier: "reference",
+    tier: "reference",
+  });
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].url, "https://openai.com/index/agent-api-migration");
+});
+
 test("aihot detail resolution ignores generic X profile links", async (t) => {
   const originalFetch = global.fetch;
   global.fetch = async (url) => {
