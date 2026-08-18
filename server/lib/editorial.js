@@ -1,3 +1,5 @@
+const { editorialReasonFor } = require("./scoring");
+
 function textOf(item) {
   return `${item.sourceName || ""} ${item.sourceKind || ""} ${item.url || ""} ${item.title || ""} ${item.summary || ""} ${(item.tags || []).join(" ")}`;
 }
@@ -100,6 +102,7 @@ function enrichItem(item) {
   const category = itemCategory(item);
   return {
     ...item,
+    reason: editorialReasonFor(item),
     channel,
     channelLabel: channelLabel(channel),
     category,
@@ -112,6 +115,7 @@ function enrichItem(item) {
 // The public experience APIs must not expose fields used for moderation,
 // source management, ranking internals, or runtime bookkeeping.
 function serializePublicItem(item = {}) {
+  const publicItem = { ...item, reason: editorialReasonFor(item) };
   const fields = [
     "id", "url", "title", "summary", "sourceName", "sourceKind", "author",
     "publishedAt", "score", "tags", "reason", "media", "channel", "channelLabel",
@@ -119,8 +123,8 @@ function serializePublicItem(item = {}) {
     "editorialBrief",
   ];
   return Object.fromEntries(fields
-    .filter((field) => item[field] !== undefined)
-    .map((field) => [field, item[field]]));
+    .filter((field) => publicItem[field] !== undefined)
+    .map((field) => [field, publicItem[field]]));
 }
 
 function attachRelated(items, clusters = []) {

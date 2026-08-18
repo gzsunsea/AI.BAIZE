@@ -361,3 +361,34 @@ The final three source-quality regressions are addressed on top of `8b4894a`. No
 
 - The existing `MODULE_TYPELESS_PACKAGE_JSON` warning remains during the TypeScript navigation test; resolving it requires a broader CommonJS/ESM packaging decision.
 - Production deployment and production `data/db.json` changes were not performed.
+
+## Final Independent-Confirmation and Legacy-Reason Follow-up — 2026-08-18
+
+### Status
+
+The final two Important review findings are addressed on top of `4a6422d`. No dependency, deployment, or runtime-data changes were made.
+
+### Fixes
+
+1. **Independent confirmation counting**
+   - Selected ranking normalizes duplicate source names, excludes the current `sourceName`, and counts only distinct remaining sources.
+   - `duplicateCount` no longer creates confirmation credit when no independent source identity is available; case and whitespace variants of the current source also receive no credit.
+
+2. **Legacy template reason fallback**
+   - A shared editorial-reason resolver preserves validated selected/editor/raw reasons and replaces rejected legacy ranking templates with neutral source/title/summary evidence copy.
+   - Read-time inventory hydration, feed decoration, and public serialization all apply the resolver, while the persisted `data/db.json` remains untouched.
+   - Refresh upserts distinguish deterministic/LLM automatic copy from stored editor judgment so a read-time fallback is not misclassified as an authoritative stored reason.
+
+### Verification
+
+- TDD RED: the focused suite first failed on duplicate-count-only credit, same-source duplicate credit, read-time legacy reason exposure, and public serialization exposure.
+- Focused suite: `node --test server/lib/scoring.test.js server/lib/editorial.test.js server/lib/store.test.js server/lib/llmEnhancer.test.js server/index.test.js` — 36 passed, 0 failed.
+- Full suite: `npm test` — 107 passed, 0 failed.
+- No-emit frontend check: `npm run typecheck` — passed.
+- Production build: `npm run build` — passed.
+- Whitespace check: `git diff --check` — passed before this report append and will be repeated before commit.
+
+### Remaining Concerns
+
+- The existing `MODULE_TYPELESS_PACKAGE_JSON` warning remains during the TypeScript navigation test; resolving it requires a broader CommonJS/ESM packaging decision.
+- Production deployment and production `data/db.json` changes were not performed.

@@ -184,6 +184,33 @@ test("selected ranking rewards independent confirmation when display scores tie"
   assert.ok(selectedRankingScore(confirmed) > selectedRankingScore(mirrored));
 });
 
+test("selected ranking ignores same-source duplicates and unproven duplicate counts", () => {
+  const publishedAt = new Date().toISOString();
+  const base = {
+    title: "AI agent API migration timeline",
+    summary: "A newsletter copy of the migration dates and API compatibility details.",
+    sourceName: "Mirror Weekly",
+    sourceKind: "rss",
+    priorityTier: "expert_rss",
+    publishedAt,
+    score: 99,
+  };
+  const unproven = { ...base, duplicateCount: 4 };
+  const sameSource = {
+    ...base,
+    duplicateCount: 4,
+    duplicateSources: ["Mirror Weekly", " mirror weekly ", "MIRROR WEEKLY"],
+  };
+  const independentlyConfirmed = {
+    ...sameSource,
+    duplicateSources: [...sameSource.duplicateSources, "OpenAI"],
+  };
+
+  assert.equal(selectedRankingScore(unproven), selectedRankingScore(base));
+  assert.equal(selectedRankingScore(sameSource), selectedRankingScore(base));
+  assert.ok(selectedRankingScore(independentlyConfirmed) > selectedRankingScore(base));
+});
+
 test("templated selected reasons are not treated as authoritative editorial reasons", () => {
   const genericReason = "基于信源优先级、时效、主题相关性和可操作性综合判断入选。";
 

@@ -292,9 +292,12 @@ function blendScore(internalScore, externalScore) {
 }
 
 function selectionConfirmationCount(item = {}) {
-  const duplicateSources = new Set((item.duplicateSources || []).filter(Boolean));
-  const duplicateCount = Math.max(0, Number(item.duplicateCount || 0));
-  return Math.max(duplicateSources.size, duplicateCount > 0 ? 1 : 0);
+  const currentSource = String(item.sourceName || "").trim().toLowerCase();
+  const independentSources = new Set((item.duplicateSources || [])
+    .map((source) => String(source || "").trim().toLowerCase())
+    .filter(Boolean)
+    .filter((source) => !currentSource || source !== currentSource));
+  return independentSources.size;
 }
 
 function selectionAuthorityCredit(item = {}) {
@@ -398,6 +401,12 @@ function explicitReasonFor(raw = {}) {
     || validatedEditorialReason(raw.reason);
 }
 
+function editorialReasonFor(item = {}) {
+  return explicitReasonFor(item)
+    || explicitReasonFor(item.raw || {})
+    || reasonFor({ ...item, reason: "" });
+}
+
 function isAutomaticReason(item = {}) {
   const reason = validatedEditorialReason(item.reason);
   if (!reason) return true;
@@ -454,7 +463,7 @@ function normalizeItem(raw) {
     media: raw.media || raw.rawJson?.media || (raw.image || raw.thumbnail ? [{ url: raw.image || raw.thumbnail, type: "image" }] : []),
     raw,
   };
-  if (!explicitReason) item.reason = reasonFor(item);
+  if (!explicitReason) item.reason = editorialReasonFor(item);
   return item;
 }
 
@@ -466,6 +475,7 @@ module.exports = {
   isPublicItem,
   isQualityCandidate,
   canAppearInSelectedFeed,
+  editorialReasonFor,
   explicitReasonFor,
   isAutomaticReason,
   isSelectedFeedEligible,

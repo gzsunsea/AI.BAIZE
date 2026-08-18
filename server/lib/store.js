@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { compactDuplicates, enrichDedupe, eventClusters } = require("./dedupe");
 const { mergeDefaultSources } = require("./sources");
-const { explicitReasonFor, isQualityCandidate, scoreItem } = require("./scoring");
+const { editorialReasonFor, explicitReasonFor, isAutomaticReason, isQualityCandidate, scoreItem } = require("./scoring");
 
 const DATA_DIR = path.resolve(process.cwd(), "data");
 const DB_FILE = path.join(DATA_DIR, "db.json");
@@ -48,17 +48,18 @@ function readState() {
   const sourceById = new Map(parsed.sources.map((source) => [source.id, source]));
   const sourceByNameKind = new Map(parsed.sources.map((source) => [`${source.name}::${source.kind}`, source]));
   parsed.items = (parsed.items || []).map((item) => {
-    const source = sourceById.get(item.sourceId) || sourceByNameKind.get(`${item.sourceName}::${item.sourceKind}`) || null;
-    if (!source || item.priorityTier) return item;
+    const readItem = { ...item, reason: editorialReasonFor(item) };
+    const source = sourceById.get(readItem.sourceId) || sourceByNameKind.get(`${readItem.sourceName}::${readItem.sourceKind}`) || null;
+    if (!source || readItem.priorityTier) return readItem;
     const next = {
-      ...item,
+      ...readItem,
       sourceId: source.id,
       sourceTier: source.tier,
       priorityTier: source.priorityTier || source.tier,
       preferred: Boolean(source.preferred),
       noisePenalty: Number(source.noisePenalty || 0),
     };
-    const hasStoredScore = Number.isFinite(Number(item.score));
+    const hasStoredScore = Number.isFinite(Number(readItem.score));
     if (!hasStoredScore && !next.pinned) {
       next.score = scoreItem({
         title: next.title,
@@ -105,7 +106,7 @@ function upsertItems(nextItems) {
     const key = item.canonicalUrl || item.url || item.id;
     const prev = byKey.get(key);
     const incomingExplicitReason = explicitReasonFor(item.raw || item);
-    const storedReason = explicitReasonFor(prev);
+    const storedReason = isAutomaticReason(prev) ? "" : explicitReasonFor(prev);
     byKey.set(key, {
       ...prev,
       ...item,

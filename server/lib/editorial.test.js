@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { channelLabel, sourceChannel } = require("./editorial");
+const { channelLabel, serializePublicItem, sourceChannel } = require("./editorial");
 
 test("expert rss sources stay in expert analysis channel even when source names contain research or blog terms", () => {
   const item = {
@@ -41,4 +41,22 @@ test("source tier falls back to expert analysis when priority tier is absent", (
   };
 
   assert.equal(sourceChannel(item), "expert_analysis");
+});
+
+test("public serialization replaces legacy selected-reason templates with neutral evidence copy", () => {
+  const genericReason = "基于信源优先级、时效、主题相关性和可操作性综合判断入选。";
+  const item = serializePublicItem({
+    id: "legacy-template-reason",
+    url: "https://openai.com/index/agent-api-migration",
+    title: "OpenAI publishes an AI agent API migration timeline",
+    summary: "The official release documents migration dates and model compatibility.",
+    sourceName: "OpenAI",
+    sourceKind: "rss",
+    priorityTier: "official_first_party",
+    reason: genericReason,
+  });
+
+  assert.notEqual(item.reason, genericReason);
+  assert.doesNotMatch(item.reason, /信源优先级|主题相关性|可操作性/);
+  assert.match(item.reason, /OpenAI|migration timeline/);
 });
