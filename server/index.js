@@ -12,6 +12,7 @@ const { attachRelated, categoryLabel, enrichItem, itemCategory, serializePublicI
 const { enhanceRecentItems } = require("./lib/llmEnhancer");
 const {
   canAppearInSelectedFeed,
+  isCuratedSourceAllowed,
   isOriginalHttpUrl,
   isPublicItem,
   isQualityCandidate,
@@ -649,6 +650,7 @@ function buildDailyDigest(state, query = {}, options = {}) {
   const pool = state.items
     .filter((item) => !item.hidden)
     .filter((item) => isSelectedQualityCandidate(item))
+    .filter((item) => isCuratedSourceAllowed(item))
     .filter((item) => {
       if (!excludeKeys.size) return true;
       const alreadyCovered = digestItemKeys(item).some((key) => excludeKeys.has(key));

@@ -258,6 +258,12 @@ function canAppearInSelectedFeed(item = {}) {
   return !/^AIHOT(?:\s*公开页)?$/i.test(sourceName);
 }
 
+function isCuratedSourceAllowed(item = {}) {
+  if (item.pinned) return true;
+  const tier = String(item.priorityTier || item.sourceTier || item.tier || "").toLowerCase();
+  return tier !== "reference" && canAppearInSelectedFeed(item);
+}
+
 function sourcePriorityScore(raw = {}) {
   const tier = raw.priorityTier || raw.sourceTier || raw.tier || "";
   const base = {
@@ -474,6 +480,7 @@ module.exports = {
   isOriginalHttpUrl,
   isPublicItem,
   isQualityCandidate,
+  isCuratedSourceAllowed,
   canAppearInSelectedFeed,
   editorialReasonFor,
   explicitReasonFor,
