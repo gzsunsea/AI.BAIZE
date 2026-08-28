@@ -118,6 +118,19 @@ test("mobile feed styles keep long labels and titles inside the viewport", () =>
   assert.match(baseCss, /html \{[^}]*-webkit-text-size-adjust: 100%;[^}]*text-size-adjust: 100%;/);
 });
 
+test("evidence-first surfaces have dedicated responsive style contracts", () => {
+  const feedCss = readFileSync(new URL("../styles/feed.css", import.meta.url), "utf8");
+  const readerCss = readFileSync(new URL("../styles/reader.css", import.meta.url), "utf8");
+  const responsiveCss = readFileSync(new URL("../styles/responsive.css", import.meta.url), "utf8");
+
+  assert.match(feedCss, /\.today-signals/);
+  assert.match(feedCss, /\.today-signal-card/);
+  assert.match(feedCss, /\.evidence-badge/);
+  assert.match(readerCss, /\.reader-evidence-boundary/);
+  assert.match(readerCss, /\.creator-card/);
+  assert.match(responsiveCss, /today-signals|today-signal-card/);
+});
+
 test("feed search exposes direct and full modes and keeps them in the shared URL state", () => {
   const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");
   const feedSource = readFileSync(new URL("../components/feed/FeedExperience.tsx", import.meta.url), "utf8");
