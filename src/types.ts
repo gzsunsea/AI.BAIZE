@@ -1,3 +1,11 @@
+export type EvidenceMeta = {
+  evidenceLevel: "first_party" | "multi_source" | "expert_analysis" | "single_source" | "unverified";
+  evidenceLabel: string;
+  evidenceGaps: string[];
+  creatorValue: string;
+  generatedBy: "rules" | "local_llm" | "editor";
+};
+
 export type Item = {
   id: string;
   url: string;
@@ -38,8 +46,26 @@ export type Item = {
   };
   related?: { count: number; sources: string[]; topScore: number };
   editorialBrief?: { fact?: string; impact?: string; scenario?: string } | null;
+  evidenceMeta?: EvidenceMeta;
   hidden?: boolean;
   pinned?: boolean;
+};
+
+export type TodaySignal = Item & {
+  latestAt: string;
+  sourceCount: number;
+  sources: string[];
+  status: "new" | "active";
+  creatorValue: string;
+  evidenceMeta: EvidenceMeta;
+  representative: Item;
+  relatedItems: Item[];
+};
+
+export type TodaySignalsResponse = {
+  generatedAt: string;
+  limit: number;
+  items: TodaySignal[];
 };
 
 export type Stats = {

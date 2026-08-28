@@ -2,8 +2,17 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { coverageLabel, groupItemsByLocalDate, itemToMarkdown, topicForMode, topicRequestUrls } from "./experience.mts";
+import { coverageLabel, groupItemsByLocalDate, itemToMarkdown, todaySignalLabel, todaySignalSummary, topicForMode, topicRequestUrls } from "./experience.mts";
 import { filterAndSortFeedItems } from "./feedSearch.mts";
+
+test("today signal copy prefers evidence label and creator value", () => {
+  const signal = {
+    evidenceMeta: { evidenceLabel: "多源确认", creatorValue: "适合拆解工作流变化。" },
+    summary: "官方发布了新能力。",
+  } as never;
+  assert.equal(todaySignalLabel(signal), "多源确认");
+  assert.equal(todaySignalSummary(signal), "适合拆解工作流变化。");
+});
 
 test("all client-rendered feeds share direct/full matching, category filtering, and URL sort", () => {
   const items = [
@@ -132,6 +141,18 @@ test("editorial feed renders available media and Chinese radar never falls throu
   assert.match(feedCss, /\.feed-card-media\.placeholder/);
   assert.match(appSource, /暂无配图/);
   assert.match(appSource, /mode === "mp" \? \(\s*mp \? <MpTable mp=\{mp\} \/> : <div className="mp-loading-state"/);
+});
+
+test("selected feed loads todays signals independently and exposes evidence states", () => {
+  const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");
+  const feedSource = readFileSync(new URL("../components/feed/FeedExperience.tsx", import.meta.url), "utf8");
+
+  assert.match(appSource, /api<TodaySignalsResponse>\("\/api\/public\/today\?limit=5"\)/);
+  assert.match(appSource, /今日先看加载失败/);
+  assert.match(feedSource, /今日先看/);
+  assert.match(feedSource, /today-signals/);
+  assert.match(feedSource, /evidence-badge/);
+  assert.match(feedSource, /完整时间线仍可浏览/);
 });
 
 test("hot center and story pages retain their semantic editorial landmarks", () => {

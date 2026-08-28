@@ -1,4 +1,4 @@
-import type { Item } from "../types";
+import type { Item, TodaySignal } from "../types";
 
 export function shanghaiDateKey(value: string | Date) {
   return new Date(value).toLocaleDateString("en-CA", {
@@ -83,6 +83,14 @@ export function topicRequestUrls(topic: TopicDefinition) {
     return topic.query.categories.map((category) => `${base}&category=${encodeURIComponent(category)}&page=1&pageSize=80`);
   }
   return (topic.query.terms || []).slice(0, 3).map((term) => `${base}&q=${encodeURIComponent(term)}&page=1&pageSize=80`);
+}
+
+export function todaySignalLabel(signal: Pick<TodaySignal, "evidenceMeta">) {
+  return signal.evidenceMeta?.evidenceLabel || "待验证线索";
+}
+
+export function todaySignalSummary(signal: Pick<TodaySignal, "evidenceMeta" | "summary" | "creatorValue">) {
+  return signal.evidenceMeta?.creatorValue || signal.creatorValue || signal.summary;
 }
 
 export function coverageLabel(coverage: { complete: boolean; days: number; requiredDays: number; start: string | null; end: string | null }) {
