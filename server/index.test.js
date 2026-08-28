@@ -391,6 +391,11 @@ test("public experience endpoints expose hot topics, reports, and structured val
     topic.relatedItems.forEach(assertPublicItem);
   }
 
+  const publicItemsResponse = await fetch(`${base}/api/public/items?mode=selected&page=1&pageSize=1`);
+  assert.equal(publicItemsResponse.status, 200);
+  const publicItems = await publicItemsResponse.json();
+  publicItems.items.forEach(assertPublicItem);
+
   const hotListResponse = await fetch(`${base}/api/public/hot`);
   assert.equal(hotListResponse.status, 200);
   const hotList = await hotListResponse.json();

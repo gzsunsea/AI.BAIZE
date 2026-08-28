@@ -560,7 +560,7 @@ app.get("/api/items", (req, res) => {
 
 function publicItems(query) {
   const state = readState();
-  return attachRelated(visibleItems(query).map(enrichItem), state.clusters || []);
+  return attachRelated(visibleItems(query).map(enrichItem), state.clusters || []).map(serializePublicItem);
 }
 
 function publicToday(query = {}, state = readState()) {
