@@ -13,7 +13,7 @@ import {
   X,
 } from "lucide-react";
 import type { AskResult, Item } from "../../types";
-import { itemToMarkdown } from "../../lib/experience.mts";
+import { creatorCardForItem, itemToMarkdown } from "../../lib/experience.mts";
 
 function formatTime(value?: string | null) {
   if (!value) return "暂无";
@@ -29,6 +29,34 @@ function EditorialBrief({ item }: { item: Item }) {
       {brief.impact && <section><span>影响</span><p>{brief.impact}</p></section>}
       {brief.scenario && <section><span>场景</span><p>{brief.scenario}</p></section>}
     </div>
+  );
+}
+
+function EvidenceBoundary({ item }: { item: Item }) {
+  const evidence = item.evidenceMeta;
+  if (!evidence) return null;
+  const generatedByLabel = evidence.generatedBy === "local_llm" ? "本地模型整理" : evidence.generatedBy === "editor" ? "人工编辑" : "规则整理";
+  return (
+    <section className="reader-evidence-boundary">
+      <header><span>证据边界</span><b className={`evidence-badge ${evidence.evidenceLevel}`}>{evidence.evidenceLabel}</b></header>
+      <p>{evidence.evidenceGaps.length ? evidence.evidenceGaps.join("；") : "已有多个独立来源交叉确认，仍建议阅读原文了解上下文。"}</p>
+      <small>{generatedByLabel} · 事实与建议分开呈现</small>
+    </section>
+  );
+}
+
+function CreatorCard({ item }: { item: Item }) {
+  const card = creatorCardForItem(item);
+  if (!card) return null;
+  const generatedByLabel = card.generatedBy === "local_llm" ? "本地模型整理" : card.generatedBy === "editor" ? "人工编辑" : "系统整理/生成建议";
+  return (
+    <section className="creator-card">
+      <header><span>创作卡片</span><small>{generatedByLabel}</small></header>
+      <strong>{card.angle}</strong>
+      <div><span>可引用事实</span>{card.facts.map((fact) => <p key={fact}>{fact}</p>)}</div>
+      <div><span>建议补证</span><p>{card.gaps.join("；")}</p></div>
+      <small>适合形式：{card.format}</small>
+    </section>
   );
 }
 
@@ -160,10 +188,13 @@ export function ReadingWorkspace({ item, relatedItems = [], initialTab, saved, p
         {tab === "reader" && item ? (
           <>
             <div className="reader-scroll">
-              <header className="reader-story-head"><span>{item.sourceName} · {formatTime(item.publishedAt)}</span><h2>{item.title}</h2><div><b>{item.categoryLabel || "行业动态"}</b><b>{item.channelLabel || "资讯聚合"}</b><strong>{item.score}</strong></div></header>
+              <header className="reader-story-head"><span>{item.sourceName} · {formatTime(item.publishedAt)}</span><h2>{item.title}</h2><div><b>{item.categoryLabel || "行业动态"}</b><b>{item.channelLabel || "资讯聚合"}</b>{item.evidenceMeta && <b className={`evidence-badge ${item.evidenceMeta.evidenceLevel}`}>{item.evidenceMeta.evidenceLabel}</b>}<strong>{item.score}</strong></div></header>
               <EditorialBrief item={item} />
               {item.reason && <section className="reader-reason"><span>推荐理由</span><p>{item.reason}</p></section>}
+              {item.evidenceMeta?.creatorValue && <section className="reader-creator-value"><span>对创作者的用处</span><p>{item.evidenceMeta.creatorValue}</p></section>}
+              <EvidenceBoundary item={item} />
               {(visibleRelated.length > 0 || (item.related && item.related.count > 1)) && <section className="reader-related"><header><span>关联报道</span><small>{visibleRelated.length || item.related?.count || 0} 条</small></header>{visibleRelated.length > 0 ? <div>{visibleRelated.map((related) => <button key={related.id} type="button" onClick={() => onOpenRelated(related)}><span>{related.sourceName} · {formatTime(related.publishedAt)}</span><strong>{related.title}</strong></button>)}</div> : <p>{item.related?.sources.slice(0, 6).join(" / ")}</p>}</section>}
+              <CreatorCard item={item} />
               <div className="reader-tags">{item.tags?.slice(0, 8).map((tag) => <span key={tag}>{tag}</span>)}</div>
             </div>
             <footer className="reader-actions">

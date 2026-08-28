@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { coverageLabel, groupItemsByLocalDate, itemToMarkdown, todaySignalLabel, todaySignalSummary, topicForMode, topicRequestUrls } from "./experience.mts";
+import { coverageLabel, creatorCardForItem, groupItemsByLocalDate, itemToMarkdown, todaySignalLabel, todaySignalSummary, topicForMode, topicRequestUrls } from "./experience.mts";
 import { filterAndSortFeedItems } from "./feedSearch.mts";
 
 test("today signal copy prefers evidence label and creator value", () => {
@@ -12,6 +12,23 @@ test("today signal copy prefers evidence label and creator value", () => {
   } as never;
   assert.equal(todaySignalLabel(signal), "多源确认");
   assert.equal(todaySignalSummary(signal), "适合拆解工作流变化。");
+});
+
+test("creator card labels generated suggestions and preserves evidence gaps", () => {
+  const card = creatorCardForItem({
+    title: "Agent workflow update",
+    summary: "A practical deployment update.",
+    evidenceMeta: {
+      evidenceLevel: "single_source",
+      evidenceLabel: "专家解读",
+      evidenceGaps: ["独立信源仍不足"],
+      creatorValue: "适合拆解工作流变化。",
+      generatedBy: "rules",
+    },
+  } as never);
+  assert.equal(card?.generatedBy, "rules");
+  assert.deepEqual(card?.gaps, ["独立信源仍不足"]);
+  assert.ok(card?.angle);
 });
 
 test("all client-rendered feeds share direct/full matching, category filtering, and URL sort", () => {

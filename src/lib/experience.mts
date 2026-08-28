@@ -93,6 +93,30 @@ export function todaySignalSummary(signal: Pick<TodaySignal, "evidenceMeta" | "s
   return signal.evidenceMeta?.creatorValue || signal.creatorValue || signal.summary;
 }
 
+export type CreatorCard = {
+  angle: string;
+  facts: string[];
+  gaps: string[];
+  format: string;
+  generatedBy: "rules" | "local_llm" | "editor";
+};
+
+export function creatorCardForItem(item: Item): CreatorCard | null {
+  const brief = item.editorialBrief || {};
+  const evidence = item.evidenceMeta;
+  const facts = [brief.fact || item.summary].filter((value): value is string => Boolean(value?.trim()));
+  if (!item.title?.trim() || (!facts.length && !item.reason && !evidence?.creatorValue)) return null;
+  const text = `${item.title} ${item.summary}`.toLowerCase();
+  const format = /教程|部署|代码|开源|workflow|agent|工作流/.test(text) ? "方法拆解" : /模型|api|产品|工具|发布|更新/.test(text) ? "产品观察" : "事实解读";
+  return {
+    angle: evidence?.creatorValue || item.reason || `围绕“${item.title}”拆解事实、影响与证据边界。`,
+    facts,
+    gaps: evidence?.evidenceGaps || ["引用前请核对原文"],
+    format,
+    generatedBy: evidence?.generatedBy || "rules",
+  };
+}
+
 export function coverageLabel(coverage: { complete: boolean; days: number; requiredDays: number; start: string | null; end: string | null }) {
   if (!coverage.days || !coverage.start || !coverage.end) return "当前周期暂无快照";
   if (coverage.complete) return `${coverage.days}/${coverage.requiredDays} 天完整覆盖`;
