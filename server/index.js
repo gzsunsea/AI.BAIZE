@@ -23,7 +23,7 @@ const {
 } = require("./lib/scoring");
 const { canonicalUrl, titleFingerprint } = require("./lib/dedupe");
 const { answerQuestion } = require("./lib/askBaize");
-const { buildHotTopics, buildReport, buildStory } = require("./lib/experience");
+const { buildHotTopics, buildReport, buildStory, buildTodaySignals } = require("./lib/experience");
 
 const PORT = Number(process.env.PORT || 8080);
 const DEFAULT_ADMIN_TOKEN = "aihot-admin";
@@ -563,6 +563,30 @@ function publicItems(query) {
   return attachRelated(visibleItems(query).map(enrichItem), state.clusters || []);
 }
 
+function publicToday(query = {}, state = readState()) {
+  const limit = Math.min(5, Math.max(1, Number(query.limit || 5)));
+  const result = buildTodaySignals(state, {
+    now: new Date(),
+    limit,
+    selectedThreshold: state.settings?.rules?.selectedThreshold || 72,
+    enrichItem,
+  });
+  return {
+    ...result,
+    items: result.items.map((signal) => ({
+      ...serializePublicItem(signal),
+      latestAt: signal.latestAt,
+      sourceCount: signal.sourceCount,
+      sources: signal.sources,
+      status: signal.status,
+      creatorValue: signal.creatorValue,
+      evidenceMeta: signal.evidenceMeta,
+      representative: serializePublicItem(signal.representative),
+      relatedItems: signal.relatedItems.map(serializePublicItem),
+    })),
+  };
+}
+
 function publicHotTopics(state) {
   const result = buildHotTopics(state, {
     selectedThreshold: state.settings?.rules?.selectedThreshold || 70,
@@ -738,6 +762,10 @@ app.get("/api/public/items/:id", (req, res) => {
   const detail = publicItemDetail(readAppState(), String(req.params.id));
   if (!detail) return res.status(404).json({ error: "item not found" });
   return res.json(detail);
+});
+
+app.get("/api/public/today", (req, res) => {
+  res.json(publicToday(req.query));
 });
 
 app.get("/api/public/hot", (_req, res) => {
@@ -1546,6 +1574,7 @@ module.exports = {
   itemsResponse,
   localDateKey,
   publicItemDetail,
+  publicToday,
   requestMediaHop,
   selectCuratedItems,
   startServer,

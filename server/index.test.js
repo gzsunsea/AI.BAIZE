@@ -10,6 +10,7 @@ const {
   dailyIssueMeta,
   itemsResponse,
   publicItemDetail,
+  publicToday,
   selectCuratedItems,
 } = require("./index");
 
@@ -96,6 +97,23 @@ test("public item detail derives related metadata only from public cluster membe
     sources: ["Public Source"],
     topScore: 80,
   });
+});
+
+test("public today response caps signals, excludes reference items, and strips raw fields", () => {
+  const result = publicToday({ limit: 5 }, {
+    settings: { rules: { selectedThreshold: 72 } },
+    items: [
+      { ...story("today-official", "Official AI model release", 90), publishedAt: new Date().toISOString() },
+      { ...story("today-reference", "Reference AI model copy", 99), priorityTier: "reference", sourceKind: "aihot", publishedAt: new Date().toISOString() },
+    ],
+    clusters: [{ id: "today-reference-event", items: ["today-reference"] }],
+  });
+
+  assert.equal(result.limit, 5);
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].representative.id, "today-official");
+  assert.equal(Object.hasOwn(result.items[0], "raw"), false);
+  assert.equal(Object.hasOwn(result.items[0].representative, "raw"), false);
 });
 
 function story(id, title, score = 99) {

@@ -1,4 +1,5 @@
-const { isPublicItem } = require("./scoring");
+const { isCuratedSourceAllowed, isPublicItem, isSelectedFeedEligible, selectedRankingScore } = require("./scoring");
+const { evidenceMeta } = require("./editorial");
 
 function clusterItemIds(cluster = {}) {
   return (cluster.items || [])
@@ -59,6 +60,100 @@ function hotStatus(topic) {
   return "active";
 }
 
+function todaySignalGroupKey(item = {}) {
+  return item.eventId || item.canonicalUrl || item.url || item.id;
+}
+
+function todaySignalEvidenceWeight(level) {
+  return {
+    multi_source: 40,
+    first_party: 32,
+    expert_analysis: 26,
+    single_source: 14,
+    unverified: 0,
+  }[level] || 0;
+}
+
+function buildTodaySignals(state = {}, options = {}) {
+  const nowMs = new Date(options.now || Date.now()).getTime();
+  const threshold = Number(options.selectedThreshold || state.settings?.rules?.selectedThreshold || 72);
+  const limit = Math.min(5, Math.max(1, Number(options.limit || 5)));
+  const enrichItem = options.enrichItem || ((item) => item);
+  const itemsById = new Map((state.items || []).map((item) => [item.id, item]));
+  const groups = new Map();
+  const assigned = new Set();
+
+  for (const cluster of state.clusters || []) {
+    const members = clusterItemIds(cluster).map((id) => itemsById.get(id)).filter(Boolean);
+    if (!members.length) continue;
+    const key = cluster.id || todaySignalGroupKey(members[0]);
+    groups.set(key, members);
+    for (const member of members) assigned.add(member.id);
+  }
+  for (const item of state.items || []) {
+    if (assigned.has(item.id)) continue;
+    const key = todaySignalGroupKey(item);
+    const group = groups.get(key) || [];
+    group.push(item);
+    groups.set(key, group);
+  }
+
+  const candidates = [];
+  for (const [groupId, rawMembers] of groups.entries()) {
+    const members = [...new Map(rawMembers.map((item) => [item.id, item])).values()]
+      .filter(isPublicItem)
+      .filter(isCuratedSourceAllowed)
+      .filter((item) => isSelectedFeedEligible(item, threshold))
+      .filter((item) => {
+        const published = new Date(item.publishedAt || 0).getTime();
+        return Number.isFinite(published) && nowMs - published >= 0 && nowMs - published <= 36 * 60 * 60 * 1000;
+      });
+    if (!members.length) continue;
+    const representative = [...members].sort((a, b) => (
+      Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
+      || selectedRankingScore(b) - selectedRankingScore(a)
+      || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime()
+    ))[0];
+    const identities = new Map();
+    for (const member of members) {
+      const identity = String(member.sourceId || member.sourceName || "").trim().toLowerCase();
+      if (identity && !identities.has(identity)) identities.set(identity, member.sourceName || member.sourceId);
+    }
+    const latestAt = members.reduce((latest, item) => (
+      new Date(item.publishedAt || 0).getTime() > new Date(latest || 0).getTime() ? item.publishedAt : latest
+    ), representative.publishedAt);
+    const ageHours = Math.max(0, (nowMs - new Date(latestAt || 0).getTime()) / 36e5);
+    const evidence = evidenceMeta(representative, members);
+    const representativePublic = enrichItem(representative);
+    const relatedItems = members.map(enrichItem);
+    candidates.push({
+      ...representativePublic,
+      id: groupId,
+      latestAt,
+      sourceCount: identities.size,
+      sources: [...identities.values()].filter(Boolean).slice(0, 6),
+      status: ageHours <= 6 ? "new" : "active",
+      creatorValue: evidence.creatorValue,
+      evidenceMeta: evidence,
+      representative: representativePublic,
+      relatedItems,
+      _rank: todaySignalEvidenceWeight(evidence.evidenceLevel)
+        + Math.min(16, identities.size * 5)
+        + Math.max(0, Math.round(18 - ageHours / 2))
+        + selectedRankingScore(representative),
+    });
+  }
+
+  return {
+    generatedAt: new Date(nowMs).toISOString(),
+    limit,
+    items: candidates
+      .sort((a, b) => b._rank - a._rank || new Date(b.latestAt || 0).getTime() - new Date(a.latestAt || 0).getTime())
+      .slice(0, limit)
+      .map(({ _rank, ...item }) => item),
+  };
+}
+
 function buildHotTopics(state = {}, options = {}) {
   const nowMs = new Date(options.now || Date.now()).getTime();
   const threshold = Number(options.selectedThreshold || 70);
@@ -72,6 +167,7 @@ function buildHotTopics(state = {}, options = {}) {
         .map((id) => itemsById.get(id))
         .filter(Boolean)
         .filter(isPublicItem)
+        .filter(isCuratedSourceAllowed)
         .filter((item) => nowMs - new Date(item.publishedAt || 0).getTime() <= 72 * 60 * 60 * 1000);
       const sourceNamesByIdentity = new Map();
       for (const item of relatedItems) {
@@ -376,4 +472,5 @@ module.exports = {
   buildHotTopics,
   buildStory,
   buildReport,
+  buildTodaySignals,
 };

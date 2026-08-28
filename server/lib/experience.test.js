@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { buildHotTopics, buildReport, buildStory } = require("./experience");
+const { buildHotTopics, buildReport, buildStory, buildTodaySignals } = require("./experience");
 
 function signal(id, eventId, sourceId, score = 90, extra = {}) {
   return {
@@ -16,6 +16,49 @@ function signal(id, eventId, sourceId, score = 90, extra = {}) {
     ...extra,
   };
 }
+
+test("today signals return at most five recent curated representative events", () => {
+  const result = buildTodaySignals({
+    items: [
+      signal("official", "event-a", "official", 90, { priorityTier: "official_first_party", title: "Official AI model release", summary: "Official AI model and API release for creators.", publishedAt: "2026-08-28T02:00:00.000Z" }),
+      signal("expert", "event-a", "expert", 85, { priorityTier: "expert_rss", title: "Expert AI workflow analysis", summary: "Expert analysis of the AI model workflow and deployment.", publishedAt: "2026-08-28T01:00:00.000Z" }),
+      signal("reference", "event-b", "reference", 99, { priorityTier: "reference", title: "Reference AI model copy", summary: "Reference copy of an AI model announcement.", publishedAt: "2026-08-28T02:30:00.000Z" }),
+      signal("single", "event-c", "single", 88, { priorityTier: "expert_rss", title: "Single-source AI creator tool analysis", summary: "Expert analysis of an AI creator tool.", publishedAt: "2026-08-27T12:00:00.000Z" }),
+    ],
+    clusters: [
+      { id: "event-a", items: ["official", "expert"] },
+      { id: "event-b", items: ["reference"] },
+    ],
+    settings: { rules: { selectedThreshold: 72 } },
+  }, { now: "2026-08-28T04:00:00.000Z", limit: 5 });
+
+  assert.deepEqual(result.items.map((item) => item.id), ["event-a", "event-c"]);
+  assert.equal(result.items[0].sourceCount, 2);
+  assert.equal(result.items[0].evidenceMeta.evidenceLevel, "multi_source");
+});
+
+test("today signals do not pad an insufficient candidate pool or repeat an event", () => {
+  const result = buildTodaySignals({
+    items: [
+      signal("only", "event-only", "expert", 84, {
+        priorityTier: "expert_rss",
+        title: "Single-source AI workflow analysis",
+        summary: "Expert analysis of an AI workflow.",
+        publishedAt: "2026-08-28T02:00:00.000Z",
+      }),
+      signal("old", "event-old", "official", 99, {
+        priorityTier: "official_first_party",
+        title: "Old AI model release",
+        summary: "An old official AI model release.",
+        publishedAt: "2026-08-25T02:00:00.000Z",
+      }),
+    ],
+    clusters: [],
+    settings: { rules: { selectedThreshold: 72 } },
+  }, { now: "2026-08-28T04:00:00.000Z", limit: 5 });
+  assert.ok(result.items.length <= 1);
+  assert.equal(new Set(result.items.map((item) => item.id)).size, result.items.length);
+});
 
 test("public hot topics and stories exclude hidden and non-public cluster members", () => {
   const publicOne = signal("public-1", "event-a", "public-one", 80);
