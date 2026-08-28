@@ -132,10 +132,10 @@ Add tests for:
 test("today signals return at most five recent curated representative events", () => {
   const result = buildTodaySignals({
     items: [
-      signal("official", "event-a", "official", 90, { priorityTier: "official_first_party" }),
-      signal("expert", "event-a", "expert", 85, { priorityTier: "expert_rss" }),
-      signal("reference", "event-b", "reference", 99, { priorityTier: "reference" }),
-      signal("single", "event-c", "single", 84, { priorityTier: "expert_rss" }),
+      signal("official", "event-a", "official", 90, { priorityTier: "official_first_party", title: "Official AI model release", summary: "Official AI model and API release for creators.", publishedAt: "2026-08-28T02:00:00.000Z" }),
+      signal("expert", "event-a", "expert", 85, { priorityTier: "expert_rss", title: "Expert AI workflow analysis", summary: "Expert analysis of the AI model workflow and deployment.", publishedAt: "2026-08-28T01:00:00.000Z" }),
+      signal("reference", "event-b", "reference", 99, { priorityTier: "reference", title: "Reference AI model copy", summary: "Reference copy of an AI model announcement.", publishedAt: "2026-08-28T02:30:00.000Z" }),
+      signal("single", "event-c", "single", 84, { priorityTier: "expert_rss", title: "Single-source AI creator tool analysis", summary: "Expert analysis of an AI creator tool.", publishedAt: "2026-08-27T12:00:00.000Z" }),
     ],
     clusters: [
       { id: "event-a", items: ["official", "expert"] },
@@ -154,10 +154,14 @@ test("today signals do not pad an insufficient candidate pool or repeat an event
     items: [
       signal("only", "event-only", "expert", 84, {
         priorityTier: "expert_rss",
+        title: "Single-source AI workflow analysis",
+        summary: "Expert analysis of an AI workflow.",
         publishedAt: "2026-08-28T02:00:00.000Z",
       }),
       signal("old", "event-old", "official", 99, {
         priorityTier: "official_first_party",
+        title: "Old AI model release",
+        summary: "An old official AI model release.",
         publishedAt: "2026-08-25T02:00:00.000Z",
       }),
     ],
