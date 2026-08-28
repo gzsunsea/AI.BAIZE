@@ -100,7 +100,8 @@
   color: var(--editorial);
 }
 
-.reader-story-head .evidence-badge {
+.reader-story-head .evidence-badge.multi_source,
+.reader-story-head .evidence-badge.first_party {
   color: var(--green);
 }
 
