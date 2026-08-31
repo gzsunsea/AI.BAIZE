@@ -1087,7 +1087,18 @@ app.get("/openapi.json", (req, res) => {
       },
       "/api/public/daily": { get: { summary: "Get current daily digest", responses: { "200": { description: "Daily digest" } } } },
       "/api/public/dailies": { get: { summary: "List saved daily digests", responses: { "200": { description: "Daily digests" } } } },
+      "/api/public/today": { get: { summary: "Get up to five curated signals for today", parameters: [{ name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 5 } }], responses: { "200": { description: "Today's signals" } } } },
       "/api/public/hot-topics": { get: { summary: "List cluster-backed current signals", responses: { "200": { description: "Current signals" } } } },
+      "/api/public/trends": {
+        get: {
+          summary: "Get recurring editorial trend lines",
+          parameters: [
+            { name: "period", in: "query", schema: { type: "string", enum: ["daily", "weekly", "monthly"] } },
+            { name: "date", in: "query", schema: { type: "string", format: "date" } },
+          ],
+          responses: { "200": { description: "Editorial trend lines" }, "400": { description: "Invalid period or date" } },
+        },
+      },
       "/api/public/reports": {
         get: {
           summary: "Get a daily, weekly, or monthly editorial report",
@@ -1106,6 +1117,7 @@ app.get("/openapi.json", (req, res) => {
         },
       },
       "/feed.xml": { get: { summary: "RSS feed", responses: { "200": { description: "RSS XML" } } } },
+      "/api/feedback": { post: { summary: "Submit content quality feedback", responses: { "200": { description: "Feedback accepted" }, "400": { description: "Message required" } } } },
     },
   });
 });
@@ -1123,6 +1135,8 @@ Base URL: ${base}
 - Broad requests like "today's AI news" or "what changed in AI" use \`GET /api/public/items?mode=selected&take=20\`.
 - Requests for full coverage use \`GET /api/public/items?mode=all&take=50\`.
 - Requests for a daily digest use \`GET /api/public/daily\`.
+- Requests for the fastest daily shortlist use \`GET /api/public/today?limit=5\`.
+- Requests for recurring themes use \`GET /api/public/trends?period=weekly\`.
 - Keyword requests like "OpenAI recently" use \`GET /api/public/items?q=OpenAI&mode=all\`.
 - Research requests use \`GET /api/public/items?category=research&mode=all\`.
 - AI education requests use \`GET /api/public/items?category=education&mode=all\`.

@@ -368,11 +368,22 @@ function reportItemKey(item = {}) {
   return item.eventId || item.canonicalUrl || item.url || item.titleFingerprint || normalizedTitle(item.title) || item.id;
 }
 
+function isReportEligible(item = {}) {
+  if (item.hidden) return false;
+  const tier = String(item.priorityTier || item.sourceTier || item.tier || "").toLowerCase();
+  if (tier === "reference") return false;
+  // Keep lightweight in-memory report fixtures usable while applying the full
+  // public/curated policy to persisted URL-backed items.
+  if (!item.url) return true;
+  return isPublicItem(item) && isCuratedSourceAllowed(item);
+}
+
 function mergeDigestSections(daily = [], itemLimit = Number.POSITIVE_INFINITY) {
   const selected = new Map();
   for (const { digest } of daily) {
     for (const section of digest.sections || []) {
       for (const item of section.items || []) {
+        if (!isReportEligible(item)) continue;
         const key = reportItemKey(item);
         if (!key) continue;
         const current = selected.get(key);
@@ -428,7 +439,7 @@ const TREND_EVIDENCE_RANK = { multi_source: 4, first_party: 3, expert_analysis: 
 
 function reportTrendLines(items = []) {
   const groups = new Map();
-  for (const item of items.filter((candidate) => isPublicItem(candidate) && isCuratedSourceAllowed(candidate))) {
+  for (const item of items.filter(isReportEligible)) {
     const labels = (item.tags || []).map((tag) => String(tag).trim()).filter(Boolean).slice(0, 3);
     const fallback = item.categoryLabel || item.category || "行业动态";
     for (const label of labels.length ? labels : [fallback]) {
@@ -465,7 +476,7 @@ function reportTrendLines(items = []) {
 
 function reportWatchItems(items = []) {
   return items
-    .filter((item) => isPublicItem(item) && isCuratedSourceAllowed(item))
+    .filter(isReportEligible)
     .filter((item) => item.unverified || ["community_fallback", "reference"].includes(String(item.priorityTier || item.sourceTier || item.tier || "")))
     .sort((a, b) => new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime() || (b.score || 0) - (a.score || 0))
     .slice(0, 5);

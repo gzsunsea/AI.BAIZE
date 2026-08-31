@@ -235,6 +235,24 @@ test("reports expose trend lines with evidence strength and watch items", () => 
   assert.equal(report.watchItems[0].id, "three");
 });
 
+test("reports exclude reference-only material from public editorial sections and trends", () => {
+  const report = buildReport({
+    dailyDigests: [{
+      generatedAt: "2026-08-30T04:00:00.000Z",
+      sections: [{
+        key: "model",
+        title: "模型",
+        items: [
+          signal("official", "event-official", "official", 90, { priorityTier: "official_first_party", tags: ["Agent"] }),
+          signal("reference", "event-reference", "reference", 99, { priorityTier: "reference", tags: ["Agent"] }),
+        ],
+      }],
+    }],
+  }, { period: "weekly", date: "2026-08-30", now: "2026-08-31T04:00:00.000Z" });
+  assert.deepEqual(report.sections.flatMap((section) => section.items).map((item) => item.id), ["official"]);
+  assert.deepEqual(report.trendLines[0].sampleItems.map((item) => item.id), ["official"]);
+});
+
 test("hot topics require independent sources and order by evidence before score", () => {
   const items = [
     signal("a1", "event-a", "openai", 91),

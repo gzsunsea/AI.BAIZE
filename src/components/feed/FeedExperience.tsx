@@ -134,7 +134,7 @@ function TodaySignalsPanel({ signals, loading, error, onOpen, onOpenStory, onRet
 }) {
   if (loading) return <div className="today-signals-skeleton" aria-label="正在加载今日先看" />;
   if (error) return <div className="today-signals-state error"><span>今日先看暂时不可用，完整时间线仍可浏览。</span>{onRetry && <button type="button" onClick={onRetry}>重试</button>}</div>;
-  const issue = todayIssueSummary({ items });
+  const issue = todayIssueSummary({ items: signals });
   return (
     <section className="today-signals" aria-labelledby="today-signals-title">
       <header>

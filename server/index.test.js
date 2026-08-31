@@ -445,6 +445,10 @@ test("public experience endpoints expose hot topics, reports, and structured val
   assert.equal(typeof report.editorialSummary, "string");
   assert.equal(Array.isArray(report.trendLines), true);
   assert.equal(Array.isArray(report.watchItems), true);
+  for (const item of report.sections.flatMap((section) => section.items).concat(report.watchItems)) {
+    assertPublicItem(item);
+  }
+  for (const trend of report.trendLines) trend.sampleItems.forEach(assertPublicItem);
 
   const trendsResponse = await fetch(`${base}/api/public/trends?period=weekly&date=2026-07-22`);
   assert.equal(trendsResponse.status, 200);
