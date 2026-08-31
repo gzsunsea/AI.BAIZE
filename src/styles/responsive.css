@@ -24,6 +24,20 @@
     font-size: 14px;
   }
 
+  .report-trend-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .report-trends > header,
+  .report-watch > header {
+    display: grid;
+    gap: 8px;
+  }
+
+  .story-lifecycle > div:last-child {
+    grid-template-columns: 1fr;
+  }
+
   .editorial-shell {
     display: block;
     min-height: 100dvh;

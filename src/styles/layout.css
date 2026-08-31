@@ -185,6 +185,62 @@
 
 .story-page-head > div { display: flex; flex-wrap: wrap; gap: 8px; }
 .story-page-head b { padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--soft); font-size: 11px; }
+
+.story-lifecycle {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+
+.story-lifecycle > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.story-lifecycle header span {
+  color: var(--editorial);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .14em;
+}
+
+.story-lifecycle h2 {
+  margin: 4px 0 0;
+  font-family: ui-serif, "Songti SC", STSong, serif;
+  font-size: 24px;
+}
+
+.lifecycle-state {
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.story-lifecycle > div:last-child {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.story-lifecycle > div:last-child span {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.story-lifecycle > div:last-child strong {
+  color: var(--soft);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
 .story-summary,
 .story-timeline,
 .story-sources { display: grid; gap: var(--space-3); }

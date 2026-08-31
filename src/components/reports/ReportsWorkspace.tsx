@@ -75,8 +75,11 @@ export function ReportsWorkspace({ onOpen }: { onOpen: (item: Item) => void }) {
                 <div className="report-volume"><span>{period.toUpperCase()}</span><b>{report.issueId.split(":")[1]}</b></div>
                 <h2>{report.headline}</h2>
                 <div className="report-meta"><span><BookOpen size={15} />{report.storyCount} 条精选</span><span><Clock3 size={15} />约 {report.estimatedReadingMinutes} 分钟</span></div>
+                <p className="report-editorial-summary">{report.editorialSummary}</p>
               </header>
               {report.themes.length > 0 && <section className="report-themes"><span>本期主题</span><div>{report.themes.map((theme) => <b key={theme.key}>{theme.label}<small>{theme.count}</small></b>)}</div></section>}
+              {report.trendLines.length > 0 && <section className="report-trends" aria-labelledby="report-trends-title"><header><div><span>EDITORIAL THREADS</span><h3 id="report-trends-title">本期主线</h3></div><small>按出现频率、事件数量和证据强度整理</small></header><div className="report-trend-grid">{report.trendLines.map((line) => <article key={line.key}><div><strong>{line.label}</strong><b>{line.count} 条</b></div><p>{line.eventCount} 个事件 · {line.sourceCount} 个信源 · {line.evidenceLevel === "multi_source" ? "多源确认" : line.evidenceLevel === "first_party" ? "一手信源" : "仍需核验"}</p>{line.sampleItems[0] && <button type="button" onClick={() => onOpen(line.sampleItems[0])}>查看代表内容</button>}</article>)}</div></section>}
+              {report.watchItems.length > 0 && <section className="report-watch" aria-labelledby="report-watch-title"><header><div><span>KEEP WATCHING</span><h3 id="report-watch-title">继续观察</h3></div><small>这些内容有价值，但证据还不够完整</small></header><div>{report.watchItems.map((item) => <button type="button" key={item.id} onClick={() => onOpen(item)}><span>{item.sourceName}</span><strong>{item.title}</strong><small>{item.evidenceMeta?.evidenceGaps?.join("；") || "请对照原文继续核验"}</small></button>)}</div></section>}
               <div className="report-sections">
                 {report.sections.map((section, sectionIndex) => (
                   <section className="report-section" key={section.key}>

@@ -41,6 +41,8 @@ export function StoryPage({ story, loading, error, notFound, backLabel, onBack, 
       <div><b>热度 {story.event.heat}</b><b>{story.event.sourceCount} 个独立信源</b><b>{story.event.status === "new" ? "新出现" : "持续发酵"}</b></div>
     </header>
 
+    {story.event.lifecycle && <section className="story-lifecycle" aria-labelledby="story-lifecycle-title"><header><div><span>EVENT LIFECYCLE</span><h2 id="story-lifecycle-title">生命周期</h2></div><b className={`lifecycle-state ${story.event.lifecycle.state}`}>{story.event.lifecycle.label}</b></header><div><span>首次出现<strong>{formatTime(story.event.lifecycle.firstSeenAt)}</strong></span><span>最近更新<strong>{formatTime(story.event.lifecycle.lastUpdatedAt)}</strong></span><span>下一步核验<strong>{story.event.lifecycle.nextCheck}</strong></span></div></section>}
+
     <section className="story-summary" aria-labelledby="story-latest-title">
       <h2 id="story-latest-title">最新进展</h2>
       {story.latestUpdates.length ? story.latestUpdates.map((item) => <ItemLink key={item.id} item={item} onOpenItem={onOpenItem} />) : <ItemLink item={representative} onOpenItem={onOpenItem} />}

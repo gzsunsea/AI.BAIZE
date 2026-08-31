@@ -169,6 +169,14 @@ export type HotRules = {
   tierWeights: Record<string, number>;
 };
 
+export type EventLifecycle = {
+  state: "emerging" | "confirmed" | "developing" | "stale";
+  label: string;
+  firstSeenAt: string;
+  lastUpdatedAt: string;
+  nextCheck: string;
+};
+
 export type HotTopic = {
   id: string;
   rank: number;
@@ -185,6 +193,7 @@ export type HotTopic = {
   representative: Item;
   relatedItems: Item[];
   rules: HotRules;
+  lifecycle?: EventLifecycle | null;
 };
 
 export type StoryDetail = {

@@ -224,6 +224,21 @@ test("hot center and story pages retain their semantic editorial landmarks", () 
   assert.match(storySource, /<time/);
 });
 
+test("reports and story pages surface the editorial trend and lifecycle contracts", () => {
+  const reportsSource = readFileSync(new URL("../components/reports/ReportsWorkspace.tsx", import.meta.url), "utf8");
+  const storySource = readFileSync(new URL("../components/hot/StoryPage.tsx", import.meta.url), "utf8");
+  const reportsCss = readFileSync(new URL("../styles/reports.css", import.meta.url), "utf8");
+
+  assert.match(reportsSource, /本期主线/);
+  assert.match(reportsSource, /trendLines/);
+  assert.match(reportsSource, /继续观察/);
+  assert.match(storySource, /生命周期/);
+  assert.match(storySource, /firstSeenAt/);
+  assert.match(storySource, /nextCheck/);
+  assert.match(reportsCss, /report-trends/);
+  assert.match(reportsCss, /report-watch/);
+});
+
 test("hot and story routes synchronously invalidate stale page data", () => {
   const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");
 
