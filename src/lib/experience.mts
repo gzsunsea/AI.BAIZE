@@ -1,4 +1,4 @@
-import type { Item, TodaySignal } from "../types";
+import type { Item, TodaySignal, TodaySignalsResponse } from "../types";
 
 export function shanghaiDateKey(value: string | Date) {
   return new Date(value).toLocaleDateString("en-CA", {
@@ -91,6 +91,23 @@ export function todaySignalLabel(signal: Pick<TodaySignal, "evidenceMeta">) {
 
 export function todaySignalSummary(signal: Pick<TodaySignal, "evidenceMeta" | "summary" | "creatorValue">) {
   return signal.evidenceMeta?.creatorValue || signal.creatorValue || signal.summary;
+}
+
+export function todayIssueSummary(response: Pick<TodaySignalsResponse, "items">) {
+  const items = response.items || [];
+  if (!items.length) {
+    return {
+      issueLabel: "今日暂无可用信号",
+      summary: "今天没有达到精选门槛的新增事件。",
+      selectionNote: "继续核对一手信源，不降级、不用低质量内容填充。",
+    };
+  }
+  const confirmed = items.filter((item) => item.evidenceMeta?.evidenceLevel === "multi_source").length;
+  return {
+    issueLabel: "今日先看",
+    summary: `今天有 ${items.length} 条达到精选门槛的信号，优先关注${confirmed ? "已形成独立确认的" : "仍在变化中的"}变化。`,
+    selectionNote: "按信源质量、独立确认、时效与可复用价值排序。",
+  };
 }
 
 export type CreatorCard = {

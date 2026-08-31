@@ -96,6 +96,22 @@ function todaySignalEvidenceWeight(level) {
   }[level] || 0;
 }
 
+function todayIssueMeta(items = []) {
+  if (!items.length) {
+    return {
+      issueLabel: "今日暂无可用信号",
+      summary: "今天没有达到精选门槛的新增事件。",
+      selectionNote: "继续核对一手信源，不降级、不用低质量内容填充。",
+    };
+  }
+  const confirmed = items.filter((item) => item.evidenceMeta?.evidenceLevel === "multi_source").length;
+  return {
+    issueLabel: "今日先看",
+    summary: `今天有 ${items.length} 条达到精选门槛的信号，优先关注${confirmed ? "已形成独立确认的" : "仍在变化中的"}变化。`,
+    selectionNote: "按信源质量、独立确认、时效与可复用价值排序。",
+  };
+}
+
 function buildTodaySignals(state = {}, options = {}) {
   const nowMs = new Date(options.now || Date.now()).getTime();
   const threshold = Number(options.selectedThreshold || state.settings?.rules?.selectedThreshold || 72);
@@ -166,13 +182,15 @@ function buildTodaySignals(state = {}, options = {}) {
     });
   }
 
+  const items = candidates
+    .sort((a, b) => b._rank - a._rank || new Date(b.latestAt || 0).getTime() - new Date(a.latestAt || 0).getTime())
+    .slice(0, limit)
+    .map(({ _rank, ...item }) => item);
   return {
     generatedAt: new Date(nowMs).toISOString(),
     limit,
-    items: candidates
-      .sort((a, b) => b._rank - a._rank || new Date(b.latestAt || 0).getTime() - new Date(a.latestAt || 0).getTime())
-      .slice(0, limit)
-      .map(({ _rank, ...item }) => item),
+    ...todayIssueMeta(items),
+    items,
   };
 }
 

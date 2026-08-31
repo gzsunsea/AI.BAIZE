@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { coverageLabel, creatorCardForItem, groupItemsByLocalDate, itemToMarkdown, todaySignalLabel, todaySignalSummary, topicForMode, topicRequestUrls } from "./experience.mts";
+import { coverageLabel, creatorCardForItem, groupItemsByLocalDate, itemToMarkdown, todayIssueSummary, todaySignalLabel, todaySignalSummary, topicForMode, topicRequestUrls } from "./experience.mts";
 import { filterAndSortFeedItems } from "./feedSearch.mts";
 
 test("today signal copy prefers evidence label and creator value", () => {
@@ -12,6 +12,19 @@ test("today signal copy prefers evidence label and creator value", () => {
   } as never;
   assert.equal(todaySignalLabel(signal), "多源确认");
   assert.equal(todaySignalSummary(signal), "适合拆解工作流变化。");
+});
+
+test("today issue copy explains a real signal count and honest empty state", () => {
+  assert.deepEqual(todayIssueSummary({ items: [{ evidenceMeta: { evidenceLevel: "multi_source" } }, { evidenceMeta: { evidenceLevel: "first_party" } }] } as never), {
+    issueLabel: "今日先看",
+    summary: "今天有 2 条达到精选门槛的信号，优先关注已形成独立确认的变化。",
+    selectionNote: "按信源质量、独立确认、时效与可复用价值排序。",
+  });
+  assert.deepEqual(todayIssueSummary({ items: [] } as never), {
+    issueLabel: "今日暂无可用信号",
+    summary: "今天没有达到精选门槛的新增事件。",
+    selectionNote: "继续核对一手信源，不降级、不用低质量内容填充。",
+  });
 });
 
 test("creator card labels generated suggestions and preserves evidence gaps", () => {

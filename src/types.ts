@@ -65,6 +65,9 @@ export type TodaySignal = Item & {
 export type TodaySignalsResponse = {
   generatedAt: string;
   limit: number;
+  issueLabel: string;
+  summary: string;
+  selectionNote: string;
   items: TodaySignal[];
 };
 
@@ -190,6 +193,13 @@ export type StoryDetail = {
   latestUpdates: Item[];
   timeline: Item[];
   sources: string[];
+  lifecycle?: {
+    state: "emerging" | "confirmed" | "developing" | "stale";
+    label: string;
+    firstSeenAt: string;
+    lastUpdatedAt: string;
+    nextCheck: string;
+  } | null;
   rules: HotRules;
 };
 
@@ -205,9 +215,21 @@ export type Report = {
   range: { start: string; end: string };
   coverage: { complete: boolean; days: number; requiredDays: number; start: string | null; end: string | null };
   headline: string;
+  editorialSummary: string;
   storyCount: number;
   estimatedReadingMinutes: number;
   themes: { key: string; label: string; count: number }[];
+  trendLines: {
+    key: string;
+    label: string;
+    count: number;
+    eventCount: number;
+    sourceCount: number;
+    latestAt: string | null;
+    evidenceLevel: EvidenceMeta["evidenceLevel"];
+    sampleItems: Item[];
+  }[];
+  watchItems: Item[];
   sections: { key: string; title: string; items: Item[] }[];
   navigation: { previousDate: string; nextDate: string | null };
 };

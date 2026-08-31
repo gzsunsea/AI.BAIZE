@@ -17,7 +17,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { HotTopic, Item, Stats, TodaySignal } from "../../types";
-import { formatDayHeading, groupItemsByLocalDate, shanghaiDateKey, todaySignalLabel, todaySignalSummary } from "../../lib/experience.mts";
+import { formatDayHeading, groupItemsByLocalDate, shanghaiDateKey, todayIssueSummary, todaySignalLabel, todaySignalSummary } from "../../lib/experience.mts";
 import { itemLocation, shouldInterceptLinkClick, storyLocation } from "../../lib/navigation";
 
 const channelTabs = [
@@ -134,11 +134,12 @@ function TodaySignalsPanel({ signals, loading, error, onOpen, onOpenStory, onRet
 }) {
   if (loading) return <div className="today-signals-skeleton" aria-label="正在加载今日先看" />;
   if (error) return <div className="today-signals-state error"><span>今日先看暂时不可用，完整时间线仍可浏览。</span>{onRetry && <button type="button" onClick={onRetry}>重试</button>}</div>;
+  const issue = todayIssueSummary({ items });
   return (
     <section className="today-signals" aria-labelledby="today-signals-title">
       <header>
-        <div><span>TODAY'S SIGNALS</span><h2 id="today-signals-title">今日先看</h2></div>
-        <p>先看值得跟进的变化，再进入完整时间线</p>
+        <div><span>{issue.issueLabel} · TODAY'S SIGNALS</span><h2 id="today-signals-title">今日先看</h2></div>
+        <div className="today-signals-copy"><p>{issue.summary}</p><small>{issue.selectionNote}</small></div>
       </header>
       {signals.length ? (
         <div className="today-signal-list">
@@ -159,7 +160,7 @@ function TodaySignalsPanel({ signals, loading, error, onOpen, onOpenStory, onRet
             );
           })}
         </div>
-      ) : <div className="today-signals-state"><strong>今天暂时没有达到精选门槛的信号</strong><span>我们会继续核对来源，不用低质量内容填充。</span></div>}
+      ) : <div className="today-signals-state"><strong>{issue.issueLabel}</strong><span>{issue.selectionNote}</span></div>}
     </section>
   );
 }

@@ -36,6 +36,16 @@ test("today signals return at most five recent curated representative events", (
   assert.deepEqual(result.items.map((item) => item.id), ["event-a", "event-c"]);
   assert.equal(result.items[0].sourceCount, 2);
   assert.equal(result.items[0].evidenceMeta.evidenceLevel, "multi_source");
+  assert.equal(result.issueLabel, "今日先看");
+  assert.match(result.summary, /2 条/);
+  assert.match(result.selectionNote, /信源质量/);
+});
+
+test("today issue metadata reports an honest empty state", () => {
+  const result = buildTodaySignals({ items: [], clusters: [], settings: { rules: { selectedThreshold: 72 } } }, { now: "2026-08-28T04:00:00.000Z", limit: 5 });
+  assert.equal(result.issueLabel, "今日暂无可用信号");
+  assert.match(result.summary, /没有达到精选门槛/);
+  assert.match(result.selectionNote, /不降级/);
 });
 
 test("today signals do not pad an insufficient candidate pool or repeat an event", () => {
