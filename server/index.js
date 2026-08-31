@@ -1145,21 +1145,30 @@ echo "Installed AIHOT skill to $HOME/.codex/skills/aihot"
 `);
 });
 
+const FEEDBACK_KINDS = new Set(["useful", "duplicate", "verify", "general"]);
+
+function normalizeFeedback(body = {}, id = makeId(`${Date.now()}-${body.message || ""}`), createdAt = new Date().toISOString()) {
+  const kind = FEEDBACK_KINDS.has(String(body.kind || "")) ? String(body.kind) : "general";
+  return {
+    id,
+    message: String(body.message || "").trim().slice(0, 1000),
+    contact: String(body.contact || "").trim().slice(0, 200),
+    page: String(body.page || "").trim().slice(0, 200),
+    kind,
+    itemId: String(body.itemId || "").trim().slice(0, 120),
+    context: String(body.context || "").trim().slice(0, 240),
+    status: "open",
+    createdAt,
+  };
+}
+
 app.get("/api/admin/state", requireAdmin, (_req, res) => {
   res.json(readState());
 });
 
 app.post("/api/feedback", publicWriteLimit, (req, res) => {
   const state = readState();
-  const body = req.body || {};
-  const feedback = {
-    id: makeId(`${Date.now()}-${body.message || ""}`),
-    message: String(body.message || "").slice(0, 1000),
-    contact: String(body.contact || "").slice(0, 200),
-    page: String(body.page || "").slice(0, 200),
-    status: "open",
-    createdAt: new Date().toISOString(),
-  };
+  const feedback = normalizeFeedback(req.body || {});
   if (!feedback.message) {
     res.status(400).json({ error: "message required" });
     return;
@@ -1620,5 +1629,6 @@ module.exports = {
   publicToday,
   requestMediaHop,
   selectCuratedItems,
+  normalizeFeedback,
   startServer,
 };

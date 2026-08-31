@@ -9,10 +9,26 @@ const {
   collectDailyDigestItemKeys,
   dailyIssueMeta,
   itemsResponse,
+  normalizeFeedback,
   publicItemDetail,
   publicToday,
   selectCuratedItems,
 } = require("./index");
+
+test("feedback normalization keeps a bounded quality context and known kind", () => {
+  assert.deepEqual(normalizeFeedback({ message: " useful ", kind: "useful", itemId: " item-1 ", context: " /feed?x=1 ", page: " /item/item-1 " }, "feedback-1", "2026-08-31T04:00:00.000Z"), {
+    id: "feedback-1",
+    message: "useful",
+    contact: "",
+    page: "/item/item-1",
+    kind: "useful",
+    itemId: "item-1",
+    context: "/feed?x=1",
+    status: "open",
+    createdAt: "2026-08-31T04:00:00.000Z",
+  });
+  assert.equal(normalizeFeedback({ message: "noise", kind: "unknown" }, "feedback-2", "2026-08-31T04:00:00.000Z").kind, "general");
+});
 
 test("items API keeps direct search scoped, ranks full matches, and echoes search metadata", () => {
   const item = (id, publishedAt, extra = {}) => ({

@@ -149,6 +149,15 @@ test("reports expose export and RSS actions", () => {
   assert.match(source, /\/feed\.xml/);
 });
 
+test("reader exposes bounded content-quality feedback actions", () => {
+  const source = readFileSync(new URL("../components/reader/ReadingWorkspace.tsx", import.meta.url), "utf8");
+  assert.match(source, /有价值/);
+  assert.match(source, /重复\/噪音/);
+  assert.match(source, /事实需核对/);
+  assert.match(source, /\/api\/feedback/);
+  assert.match(source, /itemId/);
+});
+
 test("mobile feed styles keep long labels and titles inside the viewport", () => {
   const feedCss = readFileSync(new URL("../styles/feed.css", import.meta.url), "utf8").replace(/\s+/g, " ");
   const baseCss = readFileSync(new URL("../styles/base.css", import.meta.url), "utf8").replace(/\s+/g, " ");

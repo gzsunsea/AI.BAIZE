@@ -154,6 +154,8 @@ export type AskResult = {
   citations: { id: string; index: number; title: string; sourceName: string; sourceType: string; publishedAt: string; url: string }[];
 };
 
+export type FeedbackKind = "useful" | "duplicate" | "verify";
+
 export type SavedEntry = { item: Item; savedAt: string };
 
 export type HotRules = {

@@ -60,6 +60,41 @@ function CreatorCard({ item }: { item: Item }) {
   );
 }
 
+const feedbackOptions = [
+  ["useful", "有价值"],
+  ["duplicate", "重复/噪音"],
+  ["verify", "事实需核对"],
+] as const;
+
+function ContentFeedback({ item }: { item: Item }) {
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+  const submit = async (kind: string, label: string) => {
+    setBusy(true);
+    setStatus("");
+    try {
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: `内容反馈：${label} · ${item.title}`,
+          kind,
+          itemId: item.id,
+          page: window.location.pathname,
+          context: window.location.pathname + window.location.search,
+        }),
+      });
+      if (!response.ok) throw new Error("feedback failed");
+      setStatus("感谢反馈，我们会用它调整选题与信源。");
+    } catch {
+      setStatus("反馈暂时没发出去，阅读仍可继续。");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <section className="reader-feedback" aria-label="内容质量反馈"><header><span>帮助我们改进</span><small>只反馈这条内容，不影响阅读</small></header><div>{feedbackOptions.map(([kind, label]) => <button type="button" key={kind} disabled={busy} onClick={() => submit(kind, label)}>{label}</button>)}</div>{status && <p role="status">{status}</p>}</section>;
+}
+
 async function postQuestion(item: Item | null, question: string, command: string) {
   const prompt = question.trim() || (item ? `分析 ${item.title}` : "最近最值得关注的 AI 变化");
   const response = await fetch("/api/public/ask", {
@@ -194,8 +229,9 @@ export function ReadingWorkspace({ item, relatedItems = [], initialTab, saved, p
               {item.evidenceMeta?.creatorValue && <section className="reader-creator-value"><span>对创作者的用处</span><p>{item.evidenceMeta.creatorValue}</p></section>}
               <EvidenceBoundary item={item} />
               {(visibleRelated.length > 0 || (item.related && item.related.count > 1)) && <section className="reader-related"><header><span>关联报道</span><small>{visibleRelated.length || item.related?.count || 0} 条</small></header>{visibleRelated.length > 0 ? <div>{visibleRelated.map((related) => <button key={related.id} type="button" onClick={() => onOpenRelated(related)}><span>{related.sourceName} · {formatTime(related.publishedAt)}</span><strong>{related.title}</strong></button>)}</div> : <p>{item.related?.sources.slice(0, 6).join(" / ")}</p>}</section>}
-              <CreatorCard item={item} />
-              <div className="reader-tags">{item.tags?.slice(0, 8).map((tag) => <span key={tag}>{tag}</span>)}</div>
+                  <CreatorCard item={item} />
+                  <ContentFeedback item={item} />
+                  <div className="reader-tags">{item.tags?.slice(0, 8).map((tag) => <span key={tag}>{tag}</span>)}</div>
             </div>
             <footer className="reader-actions">
               <button className="primary" type="button" onClick={openOriginal}>阅读原文<ArrowUpRight size={16} /></button>
