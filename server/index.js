@@ -853,7 +853,10 @@ app.get("/api/public/trends", (req, res) => {
       period: report.period,
       range: report.range,
       summary: report.editorialSummary,
-      items: report.trendLines || [],
+      items: (report.trendLines || []).map((line) => ({
+        ...line,
+        sampleItems: (line.sampleItems || []).map(serializePublicItem),
+      })),
     });
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.message || "trend generation failed" });

@@ -455,6 +455,7 @@ test("public experience endpoints expose hot topics, reports, and structured val
   const trends = await trendsResponse.json();
   assert.equal(trends.period, "weekly");
   assert.equal(Array.isArray(trends.items), true);
+  for (const trend of trends.items) trend.sampleItems.forEach(assertPublicItem);
 
   const invalidResponse = await fetch(`${base}/api/public/reports?period=yearly&date=2026-07-22`);
   assert.equal(invalidResponse.status, 400);
