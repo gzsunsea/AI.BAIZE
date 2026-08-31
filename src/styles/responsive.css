@@ -24,6 +24,20 @@
     font-size: 14px;
   }
 
+  .report-trend-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .report-trends > header,
+  .report-watch > header {
+    display: grid;
+    gap: 8px;
+  }
+
+  .story-lifecycle > div:last-child {
+    grid-template-columns: 1fr;
+  }
+
   .editorial-shell {
     display: block;
     min-height: 100dvh;
@@ -176,6 +190,34 @@
 
   .hot-page,
   .story-page { width: 100%; gap: var(--space-4); }
+
+  .today-signals > header {
+    align-items: flex-start;
+  }
+
+  .today-signals header p {
+    max-width: 150px;
+    text-align: right;
+  }
+
+  .today-signal-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .today-signal-main {
+    grid-template-columns: 30px minmax(0, 1fr);
+    padding: 14px;
+  }
+
+  .today-signal-story {
+    justify-self: start;
+    margin: 0 14px 14px 58px;
+  }
+
+  .today-signals-state {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 
   .search-mode-tabs {
     -webkit-overflow-scrolling: touch;

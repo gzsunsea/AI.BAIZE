@@ -739,3 +739,191 @@
     display: none;
   }
 }
+
+.today-signals {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--editorial) 38%, var(--border));
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--editorial) 10%, var(--surface)), var(--surface));
+}
+
+.today-signals > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.today-signals header span:first-child {
+  color: var(--editorial);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+}
+
+.today-signals h2 {
+  margin: 3px 0 0;
+  color: var(--text);
+  font-family: ui-serif, "Songti SC", STSong, serif;
+  font-size: 24px;
+}
+
+.today-signals header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.today-signal-list {
+  display: grid;
+}
+
+.today-signal-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+}
+
+.today-signal-card:last-child {
+  border-bottom: 0;
+}
+
+.today-signal-main {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: var(--space-3);
+  min-width: 0;
+  padding: 15px 20px;
+  color: var(--text);
+}
+
+.today-signal-main:hover {
+  background: var(--panel-strong);
+}
+
+.today-signal-main > b {
+  color: var(--editorial);
+  font: 850 18px ui-monospace, monospace;
+}
+
+.today-signal-main > span,
+.today-signal-main strong,
+.today-signal-main small {
+  display: block;
+  min-width: 0;
+}
+
+.today-signal-main strong {
+  font-size: 16px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.today-signal-main small {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.today-signal-main > span > span:last-child {
+  display: block;
+  margin-top: 6px;
+  color: var(--soft);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.evidence-badge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--panel-strong);
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.evidence-badge.multi_source,
+.evidence-badge.first_party {
+  border-color: color-mix(in srgb, var(--green) 42%, var(--border));
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 10%, var(--surface));
+}
+
+.evidence-badge.expert_analysis {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  color: var(--accent);
+}
+
+.evidence-badge.unverified,
+.evidence-badge.single_source {
+  border-color: color-mix(in srgb, var(--editorial) 38%, var(--border));
+  color: var(--editorial);
+}
+
+.today-signal-story {
+  align-self: center;
+  min-height: 36px;
+  margin: 0 14px 0 0;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.today-signal-story:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.today-signals-state,
+.today-signals-skeleton {
+  min-height: 72px;
+  padding: 18px 20px;
+  color: var(--muted);
+}
+
+.today-signals-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.today-signals-state strong {
+  color: var(--text);
+}
+
+.today-signals-state button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: var(--surface);
+}
+
+.today-signals-state.error {
+  color: var(--muted);
+}
+
+.today-signals-skeleton {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  animation: pulse 1.3s ease-in-out infinite alternate;
+}

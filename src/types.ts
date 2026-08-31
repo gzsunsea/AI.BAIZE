@@ -1,3 +1,11 @@
+export type EvidenceMeta = {
+  evidenceLevel: "first_party" | "multi_source" | "expert_analysis" | "single_source" | "unverified";
+  evidenceLabel: string;
+  evidenceGaps: string[];
+  creatorValue: string;
+  generatedBy: "rules" | "local_llm" | "editor";
+};
+
 export type Item = {
   id: string;
   url: string;
@@ -38,8 +46,29 @@ export type Item = {
   };
   related?: { count: number; sources: string[]; topScore: number };
   editorialBrief?: { fact?: string; impact?: string; scenario?: string } | null;
+  evidenceMeta?: EvidenceMeta;
   hidden?: boolean;
   pinned?: boolean;
+};
+
+export type TodaySignal = Item & {
+  latestAt: string;
+  sourceCount: number;
+  sources: string[];
+  status: "new" | "active";
+  creatorValue: string;
+  evidenceMeta: EvidenceMeta;
+  representative: Item;
+  relatedItems: Item[];
+};
+
+export type TodaySignalsResponse = {
+  generatedAt: string;
+  limit: number;
+  issueLabel: string;
+  summary: string;
+  selectionNote: string;
+  items: TodaySignal[];
 };
 
 export type Stats = {
@@ -125,6 +154,8 @@ export type AskResult = {
   citations: { id: string; index: number; title: string; sourceName: string; sourceType: string; publishedAt: string; url: string }[];
 };
 
+export type FeedbackKind = "useful" | "duplicate" | "verify";
+
 export type SavedEntry = { item: Item; savedAt: string };
 
 export type HotRules = {
@@ -138,6 +169,14 @@ export type HotRules = {
     selectedScoreBonus: { description: string; divisor: number; cap: number };
   };
   tierWeights: Record<string, number>;
+};
+
+export type EventLifecycle = {
+  state: "emerging" | "confirmed" | "developing" | "stale";
+  label: string;
+  firstSeenAt: string;
+  lastUpdatedAt: string;
+  nextCheck: string;
 };
 
 export type HotTopic = {
@@ -156,6 +195,7 @@ export type HotTopic = {
   representative: Item;
   relatedItems: Item[];
   rules: HotRules;
+  lifecycle?: EventLifecycle | null;
 };
 
 export type StoryDetail = {
@@ -164,6 +204,13 @@ export type StoryDetail = {
   latestUpdates: Item[];
   timeline: Item[];
   sources: string[];
+  lifecycle?: {
+    state: "emerging" | "confirmed" | "developing" | "stale";
+    label: string;
+    firstSeenAt: string;
+    lastUpdatedAt: string;
+    nextCheck: string;
+  } | null;
   rules: HotRules;
 };
 
@@ -179,9 +226,21 @@ export type Report = {
   range: { start: string; end: string };
   coverage: { complete: boolean; days: number; requiredDays: number; start: string | null; end: string | null };
   headline: string;
+  editorialSummary: string;
   storyCount: number;
   estimatedReadingMinutes: number;
   themes: { key: string; label: string; count: number }[];
+  trendLines: {
+    key: string;
+    label: string;
+    count: number;
+    eventCount: number;
+    sourceCount: number;
+    latestAt: string | null;
+    evidenceLevel: EvidenceMeta["evidenceLevel"];
+    sampleItems: Item[];
+  }[];
+  watchItems: Item[];
   sections: { key: string; title: string; items: Item[] }[];
   navigation: { previousDate: string; nextDate: string | null };
 };

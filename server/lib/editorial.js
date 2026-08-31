@@ -68,6 +68,52 @@ function channelLabel(channel) {
   }[channel] || "资讯聚合";
 }
 
+function evidenceMeta(item = {}, relatedItems = []) {
+  const members = [item, ...(Array.isArray(relatedItems) ? relatedItems : [])];
+  const identities = new Set(members
+    .map((member) => String(member?.sourceId || member?.sourceName || "").trim().toLowerCase())
+    .filter(Boolean));
+  const tier = tierOf(item).toLowerCase();
+  const sourceCount = identities.size;
+  let evidenceLevel = "single_source";
+  if (sourceCount >= 2) evidenceLevel = "multi_source";
+  else if (["official_first_party", "preferred_x"].includes(tier)) evidenceLevel = "first_party";
+  else if (tier === "expert_rss") evidenceLevel = "expert_analysis";
+  else if (tier === "reference" || item.unverified || item.evidenceLevel === "unverified") evidenceLevel = "unverified";
+
+  const evidenceLabel = {
+    first_party: "一手发布",
+    multi_source: "多源确认",
+    expert_analysis: "专家解读",
+    single_source: "单一来源",
+    unverified: "待验证线索",
+  }[evidenceLevel];
+  const evidenceGaps = {
+    first_party: ["第三方效果与长期稳定性尚未独立验证"],
+    multi_source: [],
+    expert_analysis: ["一手数据或官方细节仍需对照"],
+    single_source: ["独立信源仍不足"],
+    unverified: ["当前证据不足，引用前请核对原文"],
+  }[evidenceLevel];
+  const category = itemCategory(item);
+  const creatorValue = ["model", "product"].includes(category)
+    ? "适合核对功能边界、使用条件与迁移成本。"
+    : ["opensource", "research"].includes(category)
+      ? "适合拆解实现路径、验证条件与可复用方法。"
+      : ["education", "culture"].includes(category)
+        ? "适合提炼具体案例、内容角度与可复用做法。"
+        : category === "opinion"
+          ? "适合比较观点、提炼方法并补充一手证据。"
+          : "适合提炼对工作流、创作或产品决策的具体影响。";
+  const provider = String(item.llmProvider || "");
+  const generatedBy = item.editorialSource === "editor" || item.editor === true
+    ? "editor"
+    : provider.startsWith("ollama:")
+      ? "local_llm"
+      : "rules";
+  return { evidenceLevel, evidenceLabel, evidenceGaps, creatorValue, generatedBy };
+}
+
 function scoreBreakdown(item) {
   const channel = sourceChannel(item);
   const category = itemCategory(item);
@@ -109,18 +155,20 @@ function enrichItem(item) {
     categoryLabel: categoryLabel(category),
     scoreBreakdown: scoreBreakdown(item),
     mpMetrics: mpMetrics(item),
+    evidenceMeta: evidenceMeta(item),
   };
 }
 
 // The public experience APIs must not expose fields used for moderation,
 // source management, ranking internals, or runtime bookkeeping.
 function serializePublicItem(item = {}) {
-  const publicItem = { ...item, reason: editorialReasonFor(item) };
+  const publicItem = { ...item, reason: editorialReasonFor(item), evidenceMeta: item.evidenceMeta || evidenceMeta(item) };
   const fields = [
     "id", "url", "title", "summary", "sourceName", "sourceKind", "author",
     "publishedAt", "score", "tags", "reason", "media", "channel", "channelLabel",
     "category", "categoryLabel", "scoreBreakdown", "mpMetrics", "mpTitle", "related",
     "editorialBrief",
+    "evidenceMeta",
   ];
   return Object.fromEntries(fields
     .filter((field) => publicItem[field] !== undefined)
@@ -152,6 +200,7 @@ module.exports = {
   attachRelated,
   categoryLabel,
   channelLabel,
+  evidenceMeta,
   enrichItem,
   itemCategory,
   mpMetrics,

@@ -1,7 +1,22 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { channelLabel, serializePublicItem, sourceChannel } = require("./editorial");
+const { channelLabel, evidenceMeta, serializePublicItem, sourceChannel } = require("./editorial");
+
+test("evidence metadata distinguishes first party, multiple sources, expert analysis, and gaps", () => {
+  assert.deepEqual(evidenceMeta({ priorityTier: "official_first_party", sourceName: "OpenAI", title: "API release", summary: "Official API release" }), {
+    evidenceLevel: "first_party",
+    evidenceLabel: "一手发布",
+    evidenceGaps: ["第三方效果与长期稳定性尚未独立验证"],
+    creatorValue: "适合核对功能边界、使用条件与迁移成本。",
+    generatedBy: "rules",
+  });
+  assert.equal(evidenceMeta({ priorityTier: "expert_rss", sourceName: "Expert", title: "Agent workflow", summary: "Deployment notes" }).evidenceLevel, "expert_analysis");
+  assert.equal(evidenceMeta({ priorityTier: "expert_rss", sourceName: "Expert", title: "Agent workflow", summary: "Deployment notes" }, [
+    { sourceId: "expert", sourceName: "Expert", priorityTier: "expert_rss" },
+    { sourceId: "official", sourceName: "OpenAI", priorityTier: "official_first_party" },
+  ]).evidenceLevel, "multi_source");
+});
 
 test("expert rss sources stay in expert analysis channel even when source names contain research or blog terms", () => {
   const item = {

@@ -16,8 +16,8 @@ import {
   Share2,
   Sparkles,
 } from "lucide-react";
-import type { HotTopic, Item, Stats } from "../../types";
-import { formatDayHeading, groupItemsByLocalDate, shanghaiDateKey } from "../../lib/experience.mts";
+import type { HotTopic, Item, Stats, TodaySignal } from "../../types";
+import { formatDayHeading, groupItemsByLocalDate, shanghaiDateKey, todayIssueSummary, todaySignalLabel, todaySignalSummary } from "../../lib/experience.mts";
 import { itemLocation, shouldInterceptLinkClick, storyLocation } from "../../lib/navigation";
 
 const channelTabs = [
@@ -45,6 +45,9 @@ export type FeedExperienceProps = {
   hotTopics: HotTopic[];
   hotTopicsLoading: boolean;
   hotTopicsError: string;
+  todaySignals?: TodaySignal[];
+  todaySignalsLoading?: boolean;
+  todaySignalsError?: string;
   loading: boolean;
   error: string;
   query: string;
@@ -72,6 +75,7 @@ export type FeedExperienceProps = {
   onToggleProcessed: (id: string) => void;
   onRefresh: () => void;
   onRetryHotTopics: () => void;
+  onRetryToday?: () => void;
   onOpenHotPage: () => void;
   onBookmarkSite: () => void;
   onShareSite: () => void;
@@ -116,6 +120,47 @@ function CurrentSignals({ topics, loading, error, onOpenStory, onRetry, onOpenHo
           </a>
         ))}
       </div>
+    </section>
+  );
+}
+
+function TodaySignalsPanel({ signals, loading, error, onOpen, onOpenStory, onRetry }: {
+  signals: TodaySignal[];
+  loading: boolean;
+  error: string;
+  onOpen: (item: Item, relatedItems?: Item[]) => void;
+  onOpenStory: (id: string) => void;
+  onRetry?: () => void;
+}) {
+  if (loading) return <div className="today-signals-skeleton" aria-label="正在加载今日先看" />;
+  if (error) return <div className="today-signals-state error"><span>今日先看暂时不可用，完整时间线仍可浏览。</span>{onRetry && <button type="button" onClick={onRetry}>重试</button>}</div>;
+  const issue = todayIssueSummary({ items: signals });
+  return (
+    <section className="today-signals" aria-labelledby="today-signals-title">
+      <header>
+        <div><span>{issue.issueLabel} · TODAY'S SIGNALS</span><h2 id="today-signals-title">今日先看</h2></div>
+        <div className="today-signals-copy"><p>{issue.summary}</p><small>{issue.selectionNote}</small></div>
+      </header>
+      {signals.length ? (
+        <div className="today-signal-list">
+          {signals.map((signal, index) => {
+            const representative = signal.representative || signal;
+            return (
+              <article className="today-signal-card" key={signal.id}>
+                <a className="today-signal-main" href={itemLocation(representative.id)} onClick={(event) => { if (!shouldInterceptLinkClick(event)) return; event.preventDefault(); onOpen(representative, signal.relatedItems); }}>
+                  <b>{String(index + 1).padStart(2, "0")}</b>
+                  <span>
+                    <strong>{signal.title}</strong>
+                    <small><em className={`evidence-badge ${signal.evidenceMeta?.evidenceLevel || "single_source"}`}>{todaySignalLabel(signal)}</em> · {signal.sourceCount} 个信源 · 最新 {formatTime(signal.latestAt || signal.publishedAt)}</small>
+                    <span>{todaySignalSummary(signal)}</span>
+                  </span>
+                </a>
+                {signal.sourceCount > 1 && <button type="button" className="today-signal-story" onClick={() => onOpenStory(signal.id)}>查看事件</button>}
+              </article>
+            );
+          })}
+        </div>
+      ) : <div className="today-signals-state"><strong>{issue.issueLabel}</strong><span>{issue.selectionNote}</span></div>}
     </section>
   );
 }
@@ -259,7 +304,7 @@ export function FeedExperience(props: FeedExperienceProps) {
         <div className="topic-filters"><button className={!props.activeTag ? "active" : ""} type="button" onClick={() => props.onTagChange("")}>全部主题</button>{visibleTags.map((tag) => <button className={props.activeTag === tag.tag ? "active" : ""} type="button" key={tag.tag} onClick={() => props.onTagChange(tag.tag)}>{tag.tag}<span>{tag.count}</span></button>)}</div>
       )}
 
-      {props.mode === "selected" && props.statusFilter === "all" && <CurrentSignals topics={props.hotTopics} loading={props.hotTopicsLoading} error={props.hotTopicsError} onOpenStory={props.onOpenStory} onRetry={props.onRetryHotTopics} onOpenHotPage={props.onOpenHotPage} />}
+      {props.mode === "selected" && props.statusFilter === "all" && <TodaySignalsPanel signals={props.todaySignals || []} loading={Boolean(props.todaySignalsLoading)} error={props.todaySignalsError || ""} onOpen={props.onOpen} onOpenStory={props.onOpenStory} onRetry={props.onRetryToday} />}
       {props.error && <div className="notice error">{props.error}</div>}
       {props.loading && <div className="feed-skeleton" aria-label="正在加载"><i /><i /><i /></div>}
       {!props.loading && groups.length === 0 && <div className="feed-empty"><strong>{props.mode === "reading" ? "稍后读还是空的" : "当前条件没有匹配内容"}</strong><p>{props.mode === "reading" ? "在精选或全部动态里收藏内容后，会出现在这里。" : "可以清除搜索词或切换筛选条件。"}</p></div>}

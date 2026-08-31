@@ -1,4 +1,4 @@
-import type { Item } from "../types";
+import type { Item, Report, TodaySignal, TodaySignalsResponse } from "../types";
 
 export function shanghaiDateKey(value: string | Date) {
   return new Date(value).toLocaleDateString("en-CA", {
@@ -85,6 +85,55 @@ export function topicRequestUrls(topic: TopicDefinition) {
   return (topic.query.terms || []).slice(0, 3).map((term) => `${base}&q=${encodeURIComponent(term)}&page=1&pageSize=80`);
 }
 
+export function todaySignalLabel(signal: Pick<TodaySignal, "evidenceMeta">) {
+  return signal.evidenceMeta?.evidenceLabel || "待验证线索";
+}
+
+export function todaySignalSummary(signal: Pick<TodaySignal, "evidenceMeta" | "summary" | "creatorValue">) {
+  return signal.evidenceMeta?.creatorValue || signal.creatorValue || signal.summary;
+}
+
+export function todayIssueSummary(response: Pick<TodaySignalsResponse, "items">) {
+  const items = response.items || [];
+  if (!items.length) {
+    return {
+      issueLabel: "今日暂无可用信号",
+      summary: "今天没有达到精选门槛的新增事件。",
+      selectionNote: "继续核对一手信源，不降级、不用低质量内容填充。",
+    };
+  }
+  const confirmed = items.filter((item) => item.evidenceMeta?.evidenceLevel === "multi_source").length;
+  return {
+    issueLabel: "今日先看",
+    summary: `今天有 ${items.length} 条达到精选门槛的信号，优先关注${confirmed ? "已形成独立确认的" : "仍在变化中的"}变化。`,
+    selectionNote: "按信源质量、独立确认、时效与可复用价值排序。",
+  };
+}
+
+export type CreatorCard = {
+  angle: string;
+  facts: string[];
+  gaps: string[];
+  format: string;
+  generatedBy: "rules" | "local_llm" | "editor";
+};
+
+export function creatorCardForItem(item: Item): CreatorCard | null {
+  const brief = item.editorialBrief || {};
+  const evidence = item.evidenceMeta;
+  const facts = [brief.fact || item.summary].filter((value): value is string => Boolean(value?.trim()));
+  if (!item.title?.trim() || (!facts.length && !item.reason && !evidence?.creatorValue)) return null;
+  const text = `${item.title} ${item.summary}`.toLowerCase();
+  const format = /教程|部署|代码|开源|workflow|agent|工作流/.test(text) ? "方法拆解" : /模型|api|产品|工具|发布|更新/.test(text) ? "产品观察" : "事实解读";
+  return {
+    angle: evidence?.creatorValue || item.reason || `围绕“${item.title}”拆解事实、影响与证据边界。`,
+    facts,
+    gaps: evidence?.evidenceGaps || ["引用前请核对原文"],
+    format,
+    generatedBy: evidence?.generatedBy || "rules",
+  };
+}
+
 export function coverageLabel(coverage: { complete: boolean; days: number; requiredDays: number; start: string | null; end: string | null }) {
   if (!coverage.days || !coverage.start || !coverage.end) return "当前周期暂无快照";
   if (coverage.complete) return `${coverage.days}/${coverage.requiredDays} 天完整覆盖`;
@@ -106,4 +155,26 @@ export function itemToMarkdown(item: Item) {
   if (item.reason) sections.push(`## 推荐理由\n\n${item.reason}`);
   else if (item.summary) sections.push(`## 摘要\n\n${item.summary}`);
   return sections.join("\n\n");
+}
+
+export function reportToMarkdown(report: Report) {
+  const lines = [
+    `# AI.BAIZE ${report.period === "weekly" ? "周报" : report.period === "monthly" ? "月报" : "日报"}`,
+    `- 周期：${report.range.start} 至 ${report.range.end}`,
+    `- 精选：${report.storyCount} 条 · 预计阅读 ${report.estimatedReadingMinutes} 分钟`,
+    `- 覆盖：${coverageLabel(report.coverage)}`,
+    "",
+    `## 编辑摘要\n\n${report.editorialSummary || report.headline}`,
+  ];
+  if (report.trendLines?.length) {
+    lines.push("## 本期主线", ...report.trendLines.map((line) => `- ${line.label}：${line.count} 条内容、${line.eventCount} 个事件、${line.sourceCount} 个信源（${line.evidenceLevel}）`));
+  }
+  for (const section of report.sections || []) {
+    lines.push(`## ${section.title}`);
+    for (const item of section.items || []) lines.push(`- [${item.title}](${item.url}) · ${item.sourceName} · ${item.reason || item.summary}`);
+  }
+  if (report.watchItems?.length) {
+    lines.push("## 继续观察", ...report.watchItems.map((item) => `- [${item.title}](${item.url}) · ${item.sourceName} · ${item.evidenceMeta?.evidenceGaps?.join("；") || "请核对原文"}`));
+  }
+  return lines.join("\n\n");
 }

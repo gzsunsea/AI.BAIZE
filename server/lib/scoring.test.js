@@ -5,10 +5,17 @@ const {
   canAppearInSelectedFeed,
   explicitReasonFor,
   isNoiseCandidate,
+  isCuratedSourceAllowed,
   isSelectedQualityCandidate,
   normalizeItem,
   selectedRankingScore,
 } = require("./scoring");
+
+test("curated source policy excludes reference items from public curation", () => {
+  assert.equal(isCuratedSourceAllowed({ priorityTier: "reference" }), false);
+  assert.equal(isCuratedSourceAllowed({ priorityTier: "reference", pinned: true }), true);
+  assert.equal(isCuratedSourceAllowed({ priorityTier: "official_first_party" }), true);
+});
 
 function cnMediaItem(title, summary = "") {
   return {

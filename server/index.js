@@ -12,6 +12,7 @@ const { attachRelated, categoryLabel, enrichItem, itemCategory, serializePublicI
 const { enhanceRecentItems } = require("./lib/llmEnhancer");
 const {
   canAppearInSelectedFeed,
+  isCuratedSourceAllowed,
   isOriginalHttpUrl,
   isPublicItem,
   isQualityCandidate,
@@ -22,7 +23,7 @@ const {
 } = require("./lib/scoring");
 const { canonicalUrl, titleFingerprint } = require("./lib/dedupe");
 const { answerQuestion } = require("./lib/askBaize");
-const { buildHotTopics, buildReport, buildStory } = require("./lib/experience");
+const { buildHotTopics, buildReport, buildStory, buildTodaySignals } = require("./lib/experience");
 
 const PORT = Number(process.env.PORT || 8080);
 const DEFAULT_ADMIN_TOKEN = "aihot-admin";
@@ -559,7 +560,31 @@ app.get("/api/items", (req, res) => {
 
 function publicItems(query) {
   const state = readState();
-  return attachRelated(visibleItems(query).map(enrichItem), state.clusters || []);
+  return attachRelated(visibleItems(query).map(enrichItem), state.clusters || []).map(serializePublicItem);
+}
+
+function publicToday(query = {}, state = readState()) {
+  const limit = Math.min(5, Math.max(1, Number(query.limit || 5)));
+  const result = buildTodaySignals(state, {
+    now: new Date(),
+    limit,
+    selectedThreshold: state.settings?.rules?.selectedThreshold || 72,
+    enrichItem,
+  });
+  return {
+    ...result,
+    items: result.items.map((signal) => ({
+      ...serializePublicItem(signal),
+      latestAt: signal.latestAt,
+      sourceCount: signal.sourceCount,
+      sources: signal.sources,
+      status: signal.status,
+      creatorValue: signal.creatorValue,
+      evidenceMeta: signal.evidenceMeta,
+      representative: serializePublicItem(signal.representative),
+      relatedItems: signal.relatedItems.map(serializePublicItem),
+    })),
+  };
 }
 
 function publicHotTopics(state) {
@@ -649,6 +674,7 @@ function buildDailyDigest(state, query = {}, options = {}) {
   const pool = state.items
     .filter((item) => !item.hidden)
     .filter((item) => isSelectedQualityCandidate(item))
+    .filter((item) => isCuratedSourceAllowed(item))
     .filter((item) => {
       if (!excludeKeys.size) return true;
       const alreadyCovered = digestItemKeys(item).some((key) => excludeKeys.has(key));
@@ -738,6 +764,10 @@ app.get("/api/public/items/:id", (req, res) => {
   return res.json(detail);
 });
 
+app.get("/api/public/today", (req, res) => {
+  res.json(publicToday(req.query));
+});
+
 app.get("/api/public/hot", (_req, res) => {
   const state = readAppState();
   res.json(publicHotTopics(state));
@@ -769,7 +799,7 @@ app.get("/api/public/hot-topics", (_req, res) => {
 app.get("/api/public/reports", (req, res) => {
   try {
     const state = readState();
-    res.json(buildReport(state, {
+    const report = buildReport(state, {
       period: String(req.query.period || "daily"),
       date: req.query.date ? String(req.query.date) : undefined,
       buildVirtualDigest: (dateKey) => {
@@ -781,9 +811,55 @@ app.get("/api/public/reports", (req, res) => {
           virtual: true,
         });
       },
-    }));
+    });
+    res.json(serializePublicReport(report));
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.message || "report generation failed" });
+  }
+});
+
+function serializePublicReport(report = {}) {
+  return {
+    ...report,
+    sections: (report.sections || []).map((section) => ({
+      ...section,
+      items: (section.items || []).map(serializePublicItem),
+    })),
+    trendLines: (report.trendLines || []).map((line) => ({
+      ...line,
+      sampleItems: (line.sampleItems || []).map(serializePublicItem),
+    })),
+    watchItems: (report.watchItems || []).map(serializePublicItem),
+  };
+}
+
+app.get("/api/public/trends", (req, res) => {
+  try {
+    const state = readState();
+    const report = buildReport(state, {
+      period: String(req.query.period || "weekly"),
+      date: req.query.date ? String(req.query.date) : undefined,
+      buildVirtualDigest: (dateKey) => {
+        const range = shanghaiDayRange(`${dateKey}T12:00:00+08:00`);
+        return buildDailyDigest(state, {}, {
+          since: range.start,
+          until: range.end,
+          generatedAt: range.start + 12 * 60 * 60 * 1000,
+          virtual: true,
+        });
+      },
+    });
+    res.json({
+      period: report.period,
+      range: report.range,
+      summary: report.editorialSummary,
+      items: (report.trendLines || []).map((line) => ({
+        ...line,
+        sampleItems: (line.sampleItems || []).map(serializePublicItem),
+      })),
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || "trend generation failed" });
   }
 });
 
@@ -1014,7 +1090,18 @@ app.get("/openapi.json", (req, res) => {
       },
       "/api/public/daily": { get: { summary: "Get current daily digest", responses: { "200": { description: "Daily digest" } } } },
       "/api/public/dailies": { get: { summary: "List saved daily digests", responses: { "200": { description: "Daily digests" } } } },
+      "/api/public/today": { get: { summary: "Get up to five curated signals for today", parameters: [{ name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 5 } }], responses: { "200": { description: "Today's signals" } } } },
       "/api/public/hot-topics": { get: { summary: "List cluster-backed current signals", responses: { "200": { description: "Current signals" } } } },
+      "/api/public/trends": {
+        get: {
+          summary: "Get recurring editorial trend lines",
+          parameters: [
+            { name: "period", in: "query", schema: { type: "string", enum: ["daily", "weekly", "monthly"] } },
+            { name: "date", in: "query", schema: { type: "string", format: "date" } },
+          ],
+          responses: { "200": { description: "Editorial trend lines" }, "400": { description: "Invalid period or date" } },
+        },
+      },
       "/api/public/reports": {
         get: {
           summary: "Get a daily, weekly, or monthly editorial report",
@@ -1033,6 +1120,7 @@ app.get("/openapi.json", (req, res) => {
         },
       },
       "/feed.xml": { get: { summary: "RSS feed", responses: { "200": { description: "RSS XML" } } } },
+      "/api/feedback": { post: { summary: "Submit content quality feedback", responses: { "200": { description: "Feedback accepted" }, "400": { description: "Message required" } } } },
     },
   });
 });
@@ -1050,6 +1138,8 @@ Base URL: ${base}
 - Broad requests like "today's AI news" or "what changed in AI" use \`GET /api/public/items?mode=selected&take=20\`.
 - Requests for full coverage use \`GET /api/public/items?mode=all&take=50\`.
 - Requests for a daily digest use \`GET /api/public/daily\`.
+- Requests for the fastest daily shortlist use \`GET /api/public/today?limit=5\`.
+- Requests for recurring themes use \`GET /api/public/trends?period=weekly\`.
 - Keyword requests like "OpenAI recently" use \`GET /api/public/items?q=OpenAI&mode=all\`.
 - Research requests use \`GET /api/public/items?category=research&mode=all\`.
 - AI education requests use \`GET /api/public/items?category=education&mode=all\`.
@@ -1072,21 +1162,30 @@ echo "Installed AIHOT skill to $HOME/.codex/skills/aihot"
 `);
 });
 
+const FEEDBACK_KINDS = new Set(["useful", "duplicate", "verify", "general"]);
+
+function normalizeFeedback(body = {}, id = makeId(`${Date.now()}-${body.message || ""}`), createdAt = new Date().toISOString()) {
+  const kind = FEEDBACK_KINDS.has(String(body.kind || "")) ? String(body.kind) : "general";
+  return {
+    id,
+    message: String(body.message || "").trim().slice(0, 1000),
+    contact: String(body.contact || "").trim().slice(0, 200),
+    page: String(body.page || "").trim().slice(0, 200),
+    kind,
+    itemId: String(body.itemId || "").trim().slice(0, 120),
+    context: String(body.context || "").trim().slice(0, 240),
+    status: "open",
+    createdAt,
+  };
+}
+
 app.get("/api/admin/state", requireAdmin, (_req, res) => {
   res.json(readState());
 });
 
 app.post("/api/feedback", publicWriteLimit, (req, res) => {
   const state = readState();
-  const body = req.body || {};
-  const feedback = {
-    id: makeId(`${Date.now()}-${body.message || ""}`),
-    message: String(body.message || "").slice(0, 1000),
-    contact: String(body.contact || "").slice(0, 200),
-    page: String(body.page || "").slice(0, 200),
-    status: "open",
-    createdAt: new Date().toISOString(),
-  };
+  const feedback = normalizeFeedback(req.body || {});
   if (!feedback.message) {
     res.status(400).json({ error: "message required" });
     return;
@@ -1544,7 +1643,9 @@ module.exports = {
   itemsResponse,
   localDateKey,
   publicItemDetail,
+  publicToday,
   requestMediaHop,
   selectCuratedItems,
+  normalizeFeedback,
   startServer,
 };

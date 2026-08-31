@@ -1,4 +1,5 @@
-const { isPublicItem } = require("./scoring");
+const { isCuratedSourceAllowed, isPublicItem, isSelectedFeedEligible, selectedRankingScore } = require("./scoring");
+const { evidenceMeta } = require("./editorial");
 
 function clusterItemIds(cluster = {}) {
   return (cluster.items || [])
@@ -59,6 +60,140 @@ function hotStatus(topic) {
   return "active";
 }
 
+function buildEventLifecycle(items = [], now = Date.now()) {
+  const nowMs = new Date(now).getTime();
+  const dated = items
+    .map((item) => ({ item, time: new Date(item?.publishedAt || 0).getTime() }))
+    .filter(({ time }) => Number.isFinite(time));
+  if (!dated.length) return null;
+  const firstSeenAt = new Date(Math.min(...dated.map(({ time }) => time))).toISOString();
+  const lastUpdatedAt = new Date(Math.max(...dated.map(({ time }) => time))).toISOString();
+  const sourceIds = new Set(dated
+    .map(({ item }) => String(item.sourceId || item.sourceName || "").trim().toLowerCase())
+    .filter(Boolean));
+  const ageHours = Math.max(0, (nowMs - new Date(lastUpdatedAt).getTime()) / 36e5);
+  const state = ageHours > 72 ? "stale" : sourceIds.size >= 2 ? "confirmed" : ageHours <= 6 ? "emerging" : "developing";
+  const copy = {
+    emerging: { label: "刚出现", nextCheck: "等待第二个独立信源或一手细节" },
+    confirmed: { label: "多源确认", nextCheck: "继续观察后续影响与独立数据" },
+    developing: { label: "持续发展", nextCheck: "核对后续更新与实际落地" },
+    stale: { label: "暂缓追踪", nextCheck: "如无新证据，暂不继续扩散" },
+  }[state];
+  return { state, label: copy.label, firstSeenAt, lastUpdatedAt, nextCheck: copy.nextCheck };
+}
+
+function todaySignalGroupKey(item = {}) {
+  return item.eventId || item.canonicalUrl || item.url || item.id;
+}
+
+function todaySignalEvidenceWeight(level) {
+  return {
+    multi_source: 40,
+    first_party: 32,
+    expert_analysis: 26,
+    single_source: 14,
+    unverified: 0,
+  }[level] || 0;
+}
+
+function todayIssueMeta(items = []) {
+  if (!items.length) {
+    return {
+      issueLabel: "今日暂无可用信号",
+      summary: "今天没有达到精选门槛的新增事件。",
+      selectionNote: "继续核对一手信源，不降级、不用低质量内容填充。",
+    };
+  }
+  const confirmed = items.filter((item) => item.evidenceMeta?.evidenceLevel === "multi_source").length;
+  return {
+    issueLabel: "今日先看",
+    summary: `今天有 ${items.length} 条达到精选门槛的信号，优先关注${confirmed ? "已形成独立确认的" : "仍在变化中的"}变化。`,
+    selectionNote: "按信源质量、独立确认、时效与可复用价值排序。",
+  };
+}
+
+function buildTodaySignals(state = {}, options = {}) {
+  const nowMs = new Date(options.now || Date.now()).getTime();
+  const threshold = Number(options.selectedThreshold || state.settings?.rules?.selectedThreshold || 72);
+  const limit = Math.min(5, Math.max(1, Number(options.limit || 5)));
+  const enrichItem = options.enrichItem || ((item) => item);
+  const itemsById = new Map((state.items || []).map((item) => [item.id, item]));
+  const groups = new Map();
+  const assigned = new Set();
+
+  for (const cluster of state.clusters || []) {
+    const members = clusterItemIds(cluster).map((id) => itemsById.get(id)).filter(Boolean);
+    if (!members.length) continue;
+    const key = cluster.id || todaySignalGroupKey(members[0]);
+    groups.set(key, members);
+    for (const member of members) assigned.add(member.id);
+  }
+  for (const item of state.items || []) {
+    if (assigned.has(item.id)) continue;
+    const key = todaySignalGroupKey(item);
+    const group = groups.get(key) || [];
+    group.push(item);
+    groups.set(key, group);
+  }
+
+  const candidates = [];
+  for (const [groupId, rawMembers] of groups.entries()) {
+    const members = [...new Map(rawMembers.map((item) => [item.id, item])).values()]
+      .filter(isPublicItem)
+      .filter(isCuratedSourceAllowed)
+      .filter((item) => isSelectedFeedEligible(item, threshold))
+      .filter((item) => {
+        const published = new Date(item.publishedAt || 0).getTime();
+        return Number.isFinite(published) && nowMs - published >= 0 && nowMs - published <= 36 * 60 * 60 * 1000;
+      });
+    if (!members.length) continue;
+    const representative = [...members].sort((a, b) => (
+      Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
+      || selectedRankingScore(b) - selectedRankingScore(a)
+      || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime()
+    ))[0];
+    const identities = new Map();
+    for (const member of members) {
+      const identity = String(member.sourceId || member.sourceName || "").trim().toLowerCase();
+      if (identity && !identities.has(identity)) identities.set(identity, member.sourceName || member.sourceId);
+    }
+    const latestAt = members.reduce((latest, item) => (
+      new Date(item.publishedAt || 0).getTime() > new Date(latest || 0).getTime() ? item.publishedAt : latest
+    ), representative.publishedAt);
+    const ageHours = Math.max(0, (nowMs - new Date(latestAt || 0).getTime()) / 36e5);
+    const evidence = evidenceMeta(representative, members);
+    const representativePublic = enrichItem(representative);
+    const relatedItems = members.map(enrichItem);
+    candidates.push({
+      ...representativePublic,
+      id: groupId,
+      latestAt,
+      sourceCount: identities.size,
+      sources: [...identities.values()].filter(Boolean).slice(0, 6),
+      status: ageHours <= 6 ? "new" : "active",
+      creatorValue: evidence.creatorValue,
+      evidenceMeta: evidence,
+      representative: representativePublic,
+      relatedItems,
+      _rank: todaySignalEvidenceWeight(evidence.evidenceLevel)
+        + Math.min(16, identities.size * 5)
+        + Math.max(0, Math.round(18 - ageHours / 2))
+        + selectedRankingScore(representative),
+    });
+  }
+
+  const items = candidates
+    .sort((a, b) => b._rank - a._rank || new Date(b.latestAt || 0).getTime() - new Date(a.latestAt || 0).getTime())
+    .slice(0, limit)
+    .map(({ _rank, ...item }) => item);
+  return {
+    generatedAt: new Date(nowMs).toISOString(),
+    limit,
+    ...todayIssueMeta(items),
+    items,
+  };
+}
+
 function buildHotTopics(state = {}, options = {}) {
   const nowMs = new Date(options.now || Date.now()).getTime();
   const threshold = Number(options.selectedThreshold || 70);
@@ -72,6 +207,7 @@ function buildHotTopics(state = {}, options = {}) {
         .map((id) => itemsById.get(id))
         .filter(Boolean)
         .filter(isPublicItem)
+        .filter(isCuratedSourceAllowed)
         .filter((item) => nowMs - new Date(item.publishedAt || 0).getTime() <= 72 * 60 * 60 * 1000);
       const sourceNamesByIdentity = new Map();
       for (const item of relatedItems) {
@@ -107,6 +243,7 @@ function buildHotTopics(state = {}, options = {}) {
       topic.ageHours = Math.max(0, (nowMs - new Date(topic.latestAt || 0).getTime()) / (60 * 60 * 1000));
       topic.heat = hotHeat(topic);
       topic.status = hotStatus(topic);
+      topic.lifecycle = buildEventLifecycle(topic.relatedItems, nowMs);
       topic.rules = HOT_RULES;
       return topic;
     })
@@ -231,11 +368,22 @@ function reportItemKey(item = {}) {
   return item.eventId || item.canonicalUrl || item.url || item.titleFingerprint || normalizedTitle(item.title) || item.id;
 }
 
+function isReportEligible(item = {}) {
+  if (item.hidden) return false;
+  const tier = String(item.priorityTier || item.sourceTier || item.tier || "").toLowerCase();
+  if (tier === "reference") return false;
+  // Keep lightweight in-memory report fixtures usable while applying the full
+  // public/curated policy to persisted URL-backed items.
+  if (!item.url) return true;
+  return isPublicItem(item) && isCuratedSourceAllowed(item);
+}
+
 function mergeDigestSections(daily = [], itemLimit = Number.POSITIVE_INFINITY) {
   const selected = new Map();
   for (const { digest } of daily) {
     for (const section of digest.sections || []) {
       for (const item of section.items || []) {
+        if (!isReportEligible(item)) continue;
         const key = reportItemKey(item);
         if (!key) continue;
         const current = selected.get(key);
@@ -285,6 +433,61 @@ function reportThemes(sections = []) {
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "zh-CN"))
     .slice(0, 6)
     .map(([label, count]) => ({ key: normalizedTitle(label) || label, label, count }));
+}
+
+const TREND_EVIDENCE_RANK = { multi_source: 4, first_party: 3, expert_analysis: 2, single_source: 1, unverified: 0 };
+
+function reportTrendLines(items = []) {
+  const groups = new Map();
+  for (const item of items.filter(isReportEligible)) {
+    const labels = (item.tags || []).map((tag) => String(tag).trim()).filter(Boolean).slice(0, 3);
+    const fallback = item.categoryLabel || item.category || "行业动态";
+    for (const label of labels.length ? labels : [fallback]) {
+      const key = String(label).toLowerCase();
+      const group = groups.get(key) || { key, label, items: [] };
+      group.items.push(item);
+      groups.set(key, group);
+    }
+  }
+  return [...groups.values()]
+    .map((group) => {
+      const sources = new Set(group.items.map((item) => String(item.sourceId || item.sourceName || "").trim().toLowerCase()).filter(Boolean));
+      const eventKeys = new Set(group.items.map(reportItemKey).filter(Boolean));
+      const evidenceLevel = group.items
+        .map((item) => evidenceMeta(item, group.items).evidenceLevel)
+        .sort((a, b) => (TREND_EVIDENCE_RANK[b] || 0) - (TREND_EVIDENCE_RANK[a] || 0))[0] || "single_source";
+      const sampleItems = [...group.items]
+        .sort((a, b) => (b.score || 0) - (a.score || 0) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime())
+        .slice(0, 3);
+      return {
+        key: group.key,
+        label: group.label,
+        count: group.items.length,
+        eventCount: eventKeys.size,
+        sourceCount: sources.size,
+        latestAt: group.items.reduce((latest, item) => new Date(item.publishedAt || 0).getTime() > new Date(latest || 0).getTime() ? item.publishedAt : latest, group.items[0]?.publishedAt || null),
+        evidenceLevel,
+        sampleItems,
+      };
+    })
+    .sort((a, b) => b.count - a.count || b.eventCount - a.eventCount || b.sourceCount - a.sourceCount || a.label.localeCompare(b.label, "zh-CN"))
+    .slice(0, 6);
+}
+
+function reportWatchItems(items = []) {
+  return items
+    .filter(isReportEligible)
+    .filter((item) => item.unverified || ["community_fallback", "reference"].includes(String(item.priorityTier || item.sourceTier || item.tier || "")))
+    .sort((a, b) => new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime() || (b.score || 0) - (a.score || 0))
+    .slice(0, 5);
+}
+
+function reportEditorialSummary(period, storyCount, trendLines, watchItems) {
+  const prefix = period === "monthly" ? "本月" : period === "weekly" ? "本周" : "今日";
+  if (!storyCount) return `${prefix}暂无足够的精选内容形成主线。`;
+  const lead = trendLines[0]?.label ? `最集中的方向是“${trendLines[0].label}”` : "当前信号分布较分散";
+  const watch = watchItems.length ? `另有 ${watchItems.length} 条线索需要继续核验。` : "暂未发现需要单独挂起的低确认线索。";
+  return `${prefix}共有 ${storyCount} 条精选内容，${lead}。${watch}`;
 }
 
 function reportCoverage(period, range, daily, now) {
@@ -354,6 +557,8 @@ function buildReport(state = {}, options = {}) {
   const sections = mergeDigestSections(daily, sectionLimit);
   const allItems = sections.flatMap((section) => section.items);
   const storyCount = allItems.length;
+  const trendLines = reportTrendLines(allItems);
+  const watchItems = reportWatchItems(allItems);
   const nextDate = shiftReportDate(period, anchor, 1);
   return {
     period,
@@ -361,9 +566,12 @@ function buildReport(state = {}, options = {}) {
     range: { start: range.startKey, end: range.endKey },
     coverage: reportCoverage(period, range, daily, now),
     headline: reportHeadline(period, storyCount),
+    editorialSummary: reportEditorialSummary(period, storyCount, trendLines, watchItems),
     storyCount,
     estimatedReadingMinutes: Math.max(1, Math.ceil(storyCount / 5)),
     themes: reportThemes(sections),
+    trendLines,
+    watchItems,
     sections,
     navigation: {
       previousDate: shiftReportDate(period, anchor, -1),
@@ -373,7 +581,9 @@ function buildReport(state = {}, options = {}) {
 }
 
 module.exports = {
+  buildEventLifecycle,
   buildHotTopics,
   buildStory,
   buildReport,
+  buildTodaySignals,
 };

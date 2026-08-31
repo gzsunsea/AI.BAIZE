@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { buildHotTopics, buildReport, buildStory } = require("./experience");
+const { buildEventLifecycle, buildHotTopics, buildReport, buildStory, buildTodaySignals } = require("./experience");
 
 function signal(id, eventId, sourceId, score = 90, extra = {}) {
   return {
@@ -16,6 +16,60 @@ function signal(id, eventId, sourceId, score = 90, extra = {}) {
     ...extra,
   };
 }
+
+test("today signals return at most five recent curated representative events", () => {
+  const now = new Date();
+  const result = buildTodaySignals({
+    items: [
+      signal("official", "event-a", "official", 90, { priorityTier: "official_first_party", title: "Official AI model release", summary: "Official AI model and API release for creators.", publishedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString() }),
+      signal("expert", "event-a", "expert", 85, { priorityTier: "expert_rss", title: "Expert AI workflow analysis", summary: "Expert analysis of the AI model workflow and deployment.", publishedAt: new Date(now.getTime() - 3 * 60 * 60 * 1000).toISOString() }),
+      signal("reference", "event-b", "reference", 99, { priorityTier: "reference", title: "Reference AI model copy", summary: "Reference copy of an AI model announcement.", publishedAt: new Date(now.getTime() - 90 * 60 * 1000).toISOString() }),
+      signal("single", "event-c", "single", 88, { priorityTier: "expert_rss", title: "Single-source AI creator tool analysis", summary: "Expert analysis of an AI creator tool.", publishedAt: new Date(now.getTime() - 16 * 60 * 60 * 1000).toISOString() }),
+    ],
+    clusters: [
+      { id: "event-a", items: ["official", "expert"] },
+      { id: "event-b", items: ["reference"] },
+    ],
+    settings: { rules: { selectedThreshold: 72 } },
+  }, { now, limit: 5 });
+
+  assert.deepEqual(result.items.map((item) => item.id), ["event-a", "event-c"]);
+  assert.equal(result.items[0].sourceCount, 2);
+  assert.equal(result.items[0].evidenceMeta.evidenceLevel, "multi_source");
+  assert.equal(result.issueLabel, "今日先看");
+  assert.match(result.summary, /2 条/);
+  assert.match(result.selectionNote, /信源质量/);
+});
+
+test("today issue metadata reports an honest empty state", () => {
+  const result = buildTodaySignals({ items: [], clusters: [], settings: { rules: { selectedThreshold: 72 } } }, { now: "2026-08-28T04:00:00.000Z", limit: 5 });
+  assert.equal(result.issueLabel, "今日暂无可用信号");
+  assert.match(result.summary, /没有达到精选门槛/);
+  assert.match(result.selectionNote, /不降级/);
+});
+
+test("today signals do not pad an insufficient candidate pool or repeat an event", () => {
+  const result = buildTodaySignals({
+    items: [
+      signal("only", "event-only", "expert", 84, {
+        priorityTier: "expert_rss",
+        title: "Single-source AI workflow analysis",
+        summary: "Expert analysis of an AI workflow.",
+        publishedAt: "2026-08-28T02:00:00.000Z",
+      }),
+      signal("old", "event-old", "official", 99, {
+        priorityTier: "official_first_party",
+        title: "Old AI model release",
+        summary: "An old official AI model release.",
+        publishedAt: "2026-08-25T02:00:00.000Z",
+      }),
+    ],
+    clusters: [],
+    settings: { rules: { selectedThreshold: 72 } },
+  }, { now: "2026-08-28T04:00:00.000Z", limit: 5 });
+  assert.ok(result.items.length <= 1);
+  assert.equal(new Set(result.items.map((item) => item.id)).size, result.items.length);
+});
 
 test("public hot topics and stories exclude hidden and non-public cluster members", () => {
   const publicOne = signal("public-1", "event-a", "public-one", 80);
@@ -123,6 +177,80 @@ test("story detail returns newest updates first and null for unknown ids", () =>
   assert.deepEqual(story.timeline.map((item) => item.id), ["new", "old"]);
   assert.equal(story.latestUpdates[0].id, "new");
   assert.equal(buildStory(state, "missing", {}), null);
+});
+
+test("story lifecycle distinguishes emerging, confirmed, developing, and stale events", () => {
+  const now = new Date("2026-08-31T04:00:00.000Z");
+  const makeLifecycle = (items) => buildEventLifecycle(items, now);
+
+  const emerging = makeLifecycle([signal("new", "event", "one", 90, { publishedAt: "2026-08-31T02:00:00.000Z" })]);
+  assert.equal(emerging.state, "emerging");
+  assert.equal(emerging.label, "刚出现");
+
+  const confirmed = makeLifecycle([
+    signal("one", "event", "one", 90, { publishedAt: "2026-08-30T02:00:00.000Z" }),
+    signal("two", "event", "two", 88, { publishedAt: "2026-08-31T01:00:00.000Z" }),
+  ]);
+  assert.equal(confirmed.state, "confirmed");
+  assert.equal(confirmed.firstSeenAt, "2026-08-30T02:00:00.000Z");
+  assert.equal(confirmed.lastUpdatedAt, "2026-08-31T01:00:00.000Z");
+
+  const developing = makeLifecycle([signal("developing", "event", "one", 90, { publishedAt: "2026-08-30T02:00:00.000Z" })]);
+  assert.equal(developing.state, "developing");
+
+  const stale = makeLifecycle([signal("stale", "event", "one", 90, { publishedAt: "2026-08-27T02:00:00.000Z" })]);
+  assert.equal(stale.state, "stale");
+  assert.match(stale.nextCheck, /不继续扩散/);
+
+  const story = buildStory({ items: [
+    signal("one", "event", "one", 90, { publishedAt: "2026-08-31T02:00:00.000Z" }),
+    signal("two", "event", "two", 88, { publishedAt: "2026-08-31T01:00:00.000Z" }),
+  ], clusters: [{ id: "event", items: ["one", "two"] }] }, "event", { now, enrichItem: (item) => item });
+  assert.equal(story.event.lifecycle.state, "confirmed");
+});
+
+test("reports expose trend lines with evidence strength and watch items", () => {
+  const report = buildReport({
+    dailyDigests: [{
+      generatedAt: "2026-08-30T04:00:00.000Z",
+      sections: [{
+        key: "model",
+        title: "模型发布/更新",
+        items: [
+          signal("one", "event-one", "official", 90, { tags: ["Agent", "模型"], priorityTier: "official_first_party", publishedAt: "2026-08-30T03:00:00.000Z" }),
+          signal("two", "event-two", "expert", 86, { tags: ["Agent"], priorityTier: "expert_rss", publishedAt: "2026-08-30T02:00:00.000Z" }),
+          signal("three", "event-three", "one", 80, { tags: ["研究"], priorityTier: "community_fallback", publishedAt: "2026-08-29T02:00:00.000Z" }),
+        ],
+      }],
+    }],
+  }, { period: "weekly", date: "2026-08-30", now: "2026-08-31T04:00:00.000Z" });
+
+  assert.match(report.editorialSummary, /本周/);
+  assert.equal(report.trendLines[0].label, "Agent");
+  assert.equal(report.trendLines[0].count, 2);
+  assert.equal(report.trendLines[0].eventCount, 2);
+  assert.equal(typeof report.trendLines[0].evidenceLevel, "string");
+  assert.ok(Array.isArray(report.trendLines[0].sampleItems));
+  assert.equal(report.watchItems.length, 1);
+  assert.equal(report.watchItems[0].id, "three");
+});
+
+test("reports exclude reference-only material from public editorial sections and trends", () => {
+  const report = buildReport({
+    dailyDigests: [{
+      generatedAt: "2026-08-30T04:00:00.000Z",
+      sections: [{
+        key: "model",
+        title: "模型",
+        items: [
+          signal("official", "event-official", "official", 90, { priorityTier: "official_first_party", tags: ["Agent"] }),
+          signal("reference", "event-reference", "reference", 99, { priorityTier: "reference", tags: ["Agent"] }),
+        ],
+      }],
+    }],
+  }, { period: "weekly", date: "2026-08-30", now: "2026-08-31T04:00:00.000Z" });
+  assert.deepEqual(report.sections.flatMap((section) => section.items).map((item) => item.id), ["official"]);
+  assert.deepEqual(report.trendLines[0].sampleItems.map((item) => item.id), ["official"]);
 });
 
 test("hot topics require independent sources and order by evidence before score", () => {

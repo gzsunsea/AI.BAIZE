@@ -9,9 +9,26 @@ const {
   collectDailyDigestItemKeys,
   dailyIssueMeta,
   itemsResponse,
+  normalizeFeedback,
   publicItemDetail,
+  publicToday,
   selectCuratedItems,
 } = require("./index");
+
+test("feedback normalization keeps a bounded quality context and known kind", () => {
+  assert.deepEqual(normalizeFeedback({ message: " useful ", kind: "useful", itemId: " item-1 ", context: " /feed?x=1 ", page: " /item/item-1 " }, "feedback-1", "2026-08-31T04:00:00.000Z"), {
+    id: "feedback-1",
+    message: "useful",
+    contact: "",
+    page: "/item/item-1",
+    kind: "useful",
+    itemId: "item-1",
+    context: "/feed?x=1",
+    status: "open",
+    createdAt: "2026-08-31T04:00:00.000Z",
+  });
+  assert.equal(normalizeFeedback({ message: "noise", kind: "unknown" }, "feedback-2", "2026-08-31T04:00:00.000Z").kind, "general");
+});
 
 test("items API keeps direct search scoped, ranks full matches, and echoes search metadata", () => {
   const item = (id, publishedAt, extra = {}) => ({
@@ -96,6 +113,23 @@ test("public item detail derives related metadata only from public cluster membe
     sources: ["Public Source"],
     topScore: 80,
   });
+});
+
+test("public today response caps signals, excludes reference items, and strips raw fields", () => {
+  const result = publicToday({ limit: 5 }, {
+    settings: { rules: { selectedThreshold: 72 } },
+    items: [
+      { ...story("today-official", "Official AI model release", 90), publishedAt: new Date().toISOString() },
+      { ...story("today-reference", "Reference AI model copy", 99), priorityTier: "reference", sourceKind: "aihot", publishedAt: new Date().toISOString() },
+    ],
+    clusters: [{ id: "today-reference-event", items: ["today-reference"] }],
+  });
+
+  assert.equal(result.limit, 5);
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].representative.id, "today-official");
+  assert.equal(Object.hasOwn(result.items[0], "raw"), false);
+  assert.equal(Object.hasOwn(result.items[0].representative, "raw"), false);
 });
 
 function story(id, title, score = 99) {
@@ -373,6 +407,11 @@ test("public experience endpoints expose hot topics, reports, and structured val
     topic.relatedItems.forEach(assertPublicItem);
   }
 
+  const publicItemsResponse = await fetch(`${base}/api/public/items?mode=selected&page=1&pageSize=1`);
+  assert.equal(publicItemsResponse.status, 200);
+  const publicItems = await publicItemsResponse.json();
+  publicItems.items.forEach(assertPublicItem);
+
   const hotListResponse = await fetch(`${base}/api/public/hot`);
   assert.equal(hotListResponse.status, 200);
   const hotList = await hotListResponse.json();
@@ -403,6 +442,20 @@ test("public experience endpoints expose hot topics, reports, and structured val
   const report = await reportResponse.json();
   assert.equal(report.period, "weekly");
   assert.deepEqual(report.range, { start: "2026-07-20", end: "2026-07-26" });
+  assert.equal(typeof report.editorialSummary, "string");
+  assert.equal(Array.isArray(report.trendLines), true);
+  assert.equal(Array.isArray(report.watchItems), true);
+  for (const item of report.sections.flatMap((section) => section.items).concat(report.watchItems)) {
+    assertPublicItem(item);
+  }
+  for (const trend of report.trendLines) trend.sampleItems.forEach(assertPublicItem);
+
+  const trendsResponse = await fetch(`${base}/api/public/trends?period=weekly&date=2026-07-22`);
+  assert.equal(trendsResponse.status, 200);
+  const trends = await trendsResponse.json();
+  assert.equal(trends.period, "weekly");
+  assert.equal(Array.isArray(trends.items), true);
+  for (const trend of trends.items) trend.sampleItems.forEach(assertPublicItem);
 
   const invalidResponse = await fetch(`${base}/api/public/reports?period=yearly&date=2026-07-22`);
   assert.equal(invalidResponse.status, 400);

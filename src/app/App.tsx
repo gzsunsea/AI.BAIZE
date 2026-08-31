@@ -49,7 +49,7 @@ import { BookmarkGuide, ThemeToggle } from "../components/shared";
 import { topicForMode, topicRequestUrls } from "../lib/experience.mts";
 import { filterAndSortFeedItems } from "../lib/feedSearch.mts";
 import { captureNavigationSnapshot, cumulativePageRequests, itemLocation, listStateKey, parseLocation, readListState, readScrollState, shouldInterceptLinkClick, storyBackLabel, toLocation, type RouteState } from "../lib/navigation";
-import type { ApiState, AskResult, DailyDigest, HotTopic, Item, MpArticle, MpDigest, SavedEntry, Stats, StoryDetail } from "../types";
+import type { ApiState, AskResult, DailyDigest, HotTopic, Item, MpArticle, MpDigest, SavedEntry, Stats, StoryDetail, TodaySignalsResponse } from "../types";
 import "../styles.css";
 
 const nav = [
@@ -164,6 +164,9 @@ export function App() {
   const [hotTopics, setHotTopics] = useState<HotTopic[]>([]);
   const [hotTopicsLoading, setHotTopicsLoading] = useState(false);
   const [hotTopicsError, setHotTopicsError] = useState("");
+  const [todaySignals, setTodaySignals] = useState<TodaySignalsResponse["items"]>([]);
+  const [todaySignalsLoading, setTodaySignalsLoading] = useState(false);
+  const [todaySignalsError, setTodaySignalsError] = useState("");
   const [storyLoading, setStoryLoading] = useState(() => route.page === "story");
   const [storyError, setStoryError] = useState("");
   const [storyNotFound, setStoryNotFound] = useState(false);
@@ -445,6 +448,30 @@ export function App() {
   useEffect(() => {
     if (route.page === "hot") loadHotPage();
   }, [route.page]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (route.page !== "feed" || mode !== "selected") {
+      setTodaySignals([]);
+      setTodaySignalsError("");
+      setTodaySignalsLoading(false);
+      return () => { cancelled = true; };
+    }
+    setTodaySignalsLoading(true);
+    setTodaySignalsError("");
+    api<TodaySignalsResponse>("/api/public/today?limit=5")
+      .then((result) => {
+        if (cancelled) return;
+        setTodaySignals(result.items || []);
+      })
+      .catch((err) => {
+        if (!cancelled) setTodaySignalsError(err instanceof Error ? err.message : "今日先看加载失败");
+      })
+      .finally(() => {
+        if (!cancelled) setTodaySignalsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [route.page, mode]);
 
   useEffect(() => {
     if (route.page !== "hot" || hotPageLoading || !hotPageData || pendingHotScrollRestore.current === null) return;
@@ -758,6 +785,9 @@ export function App() {
             hotTopics={hotTopics}
             hotTopicsLoading={hotTopicsLoading}
             hotTopicsError={hotTopicsError}
+            todaySignals={todaySignals}
+            todaySignalsLoading={todaySignalsLoading}
+            todaySignalsError={todaySignalsError}
             loading={loading}
             error={error}
             query={query}
@@ -785,6 +815,14 @@ export function App() {
             onToggleProcessed={toggleProcessed}
             onRefresh={() => load(feedPage)}
             onRetryHotTopics={loadHotTopics}
+            onRetryToday={() => {
+              setTodaySignalsError("");
+              setTodaySignalsLoading(true);
+              api<TodaySignalsResponse>("/api/public/today?limit=5")
+                .then((result) => setTodaySignals(result.items || []))
+                .catch((err) => setTodaySignalsError(err instanceof Error ? err.message : "今日先看加载失败"))
+                .finally(() => setTodaySignalsLoading(false));
+            }}
             onOpenHotPage={() => navigate({ ...currentRoute(), page: "hot", storyId: "" })}
             onBookmarkSite={bookmarkSite}
             onShareSite={shareSite}
@@ -988,7 +1026,7 @@ function AgentPage() {
     ["关键词搜索", "/api/public/items?mode=all&q=OpenAI"],
     ["日报", "/api/public/daily"],
     ["历史日报", "/api/public/dailies?take=7"],
-    ["问白泽", "/api/public/ask"],
+    ["问白泽（POST）", "/openapi.json"],
     ["RSS", "/feed.xml"],
     ["OpenAPI", "/openapi.json"],
     ["Skill", "/aihot-skill/SKILL.md"],
