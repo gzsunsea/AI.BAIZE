@@ -203,6 +203,29 @@
   line-height: 1.75;
 }
 
+.report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.report-actions button,
+.report-actions a {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--surface-raised);
+  font-size: 12px;
+  text-decoration: none;
+}
+
 .report-trends,
 .report-watch {
   padding: 24px clamp(20px, 7vw, 90px);

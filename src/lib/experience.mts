@@ -1,4 +1,4 @@
-import type { Item, TodaySignal, TodaySignalsResponse } from "../types";
+import type { Item, Report, TodaySignal, TodaySignalsResponse } from "../types";
 
 export function shanghaiDateKey(value: string | Date) {
   return new Date(value).toLocaleDateString("en-CA", {
@@ -155,4 +155,26 @@ export function itemToMarkdown(item: Item) {
   if (item.reason) sections.push(`## 推荐理由\n\n${item.reason}`);
   else if (item.summary) sections.push(`## 摘要\n\n${item.summary}`);
   return sections.join("\n\n");
+}
+
+export function reportToMarkdown(report: Report) {
+  const lines = [
+    `# AI.BAIZE ${report.period === "weekly" ? "周报" : report.period === "monthly" ? "月报" : "日报"}`,
+    `- 周期：${report.range.start} 至 ${report.range.end}`,
+    `- 精选：${report.storyCount} 条 · 预计阅读 ${report.estimatedReadingMinutes} 分钟`,
+    `- 覆盖：${coverageLabel(report.coverage)}`,
+    "",
+    `## 编辑摘要\n\n${report.editorialSummary || report.headline}`,
+  ];
+  if (report.trendLines?.length) {
+    lines.push("## 本期主线", ...report.trendLines.map((line) => `- ${line.label}：${line.count} 条内容、${line.eventCount} 个事件、${line.sourceCount} 个信源（${line.evidenceLevel}）`));
+  }
+  for (const section of report.sections || []) {
+    lines.push(`## ${section.title}`);
+    for (const item of section.items || []) lines.push(`- [${item.title}](${item.url}) · ${item.sourceName} · ${item.reason || item.summary}`);
+  }
+  if (report.watchItems?.length) {
+    lines.push("## 继续观察", ...report.watchItems.map((item) => `- [${item.title}](${item.url}) · ${item.sourceName} · ${item.evidenceMeta?.evidenceGaps?.join("；") || "请核对原文"}`));
+  }
+  return lines.join("\n\n");
 }

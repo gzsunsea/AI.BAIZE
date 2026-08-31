@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { coverageLabel, creatorCardForItem, groupItemsByLocalDate, itemToMarkdown, todayIssueSummary, todaySignalLabel, todaySignalSummary, topicForMode, topicRequestUrls } from "./experience.mts";
+import { coverageLabel, creatorCardForItem, groupItemsByLocalDate, itemToMarkdown, reportToMarkdown, todayIssueSummary, todaySignalLabel, todaySignalSummary, topicForMode, topicRequestUrls } from "./experience.mts";
 import { filterAndSortFeedItems } from "./feedSearch.mts";
 
 test("today signal copy prefers evidence label and creator value", () => {
@@ -118,6 +118,35 @@ test("Markdown export contains editorial metadata without inventing full text", 
   assert.match(markdown, /## 事实[\s\S]*模型已经发布/);
   assert.match(markdown, /## 推荐理由[\s\S]*值得关注/);
   assert.doesNotMatch(markdown, /完整正文|全文/);
+});
+
+test("report Markdown export keeps the editorial mainline and source links", () => {
+  const markdown = reportToMarkdown({
+    period: "weekly",
+    issueId: "weekly:2026-08-24",
+    range: { start: "2026-08-24", end: "2026-08-30" },
+    editorialSummary: "本周形成 Agent 主线。",
+    headline: "本周值得关注的 2 条 AI 动态",
+    storyCount: 2,
+    estimatedReadingMinutes: 1,
+    themes: [{ key: "agent", label: "Agent", count: 2 }],
+    trendLines: [{ key: "agent", label: "Agent", count: 2, eventCount: 2, sourceCount: 2, latestAt: "2026-08-30T02:00:00.000Z", evidenceLevel: "multi_source", sampleItems: [] }],
+    watchItems: [],
+    sections: [{ key: "model", title: "模型", items: [{ id: "one", title: "Agent update", sourceName: "Official", publishedAt: "2026-08-30T02:00:00.000Z", url: "https://example.com/one", summary: "Summary", score: 90, tags: [], reason: "Reason", sourceKind: "rss" }] }],
+    coverage: { complete: true, days: 7, requiredDays: 7, start: "2026-08-24", end: "2026-08-30" },
+    navigation: { previousDate: "2026-08-17", nextDate: null },
+  } as never);
+  assert.match(markdown, /本周形成 Agent 主线/);
+  assert.match(markdown, /## 本期主线/);
+  assert.match(markdown, /https:\/\/example\.com\/one/);
+  assert.doesNotMatch(markdown, /raw|hidden|priorityTier/);
+});
+
+test("reports expose export and RSS actions", () => {
+  const source = readFileSync(new URL("../components/reports/ReportsWorkspace.tsx", import.meta.url), "utf8");
+  assert.match(source, /导出本期/);
+  assert.match(source, /订阅 RSS/);
+  assert.match(source, /\/feed\.xml/);
 });
 
 test("mobile feed styles keep long labels and titles inside the viewport", () => {
