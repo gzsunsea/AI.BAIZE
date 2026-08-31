@@ -1026,7 +1026,7 @@ function AgentPage() {
     ["关键词搜索", "/api/public/items?mode=all&q=OpenAI"],
     ["日报", "/api/public/daily"],
     ["历史日报", "/api/public/dailies?take=7"],
-    ["问白泽", "/api/public/ask"],
+    ["问白泽（POST）", "/openapi.json"],
     ["RSS", "/feed.xml"],
     ["OpenAPI", "/openapi.json"],
     ["Skill", "/aihot-skill/SKILL.md"],

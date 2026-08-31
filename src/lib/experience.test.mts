@@ -185,6 +185,13 @@ test("selected feed loads todays signals independently and exposes evidence stat
   assert.match(feedSource, /完整时间线仍可浏览/);
 });
 
+test("agent endpoint links do not expose the POST-only ask route as a GET link", () => {
+  const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(appSource, /\["问白泽", "\/api\/public\/ask"\]/);
+  assert.match(appSource, /\["问白泽（POST）", "\/openapi\.json"\]/);
+});
+
 test("hot center and story pages retain their semantic editorial landmarks", () => {
   const hotSource = readFileSync(new URL("../components/hot/HotPage.tsx", import.meta.url), "utf8");
   const storySource = readFileSync(new URL("../components/hot/StoryPage.tsx", import.meta.url), "utf8");
