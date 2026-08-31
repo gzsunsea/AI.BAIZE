@@ -799,7 +799,7 @@ app.get("/api/public/hot-topics", (_req, res) => {
 app.get("/api/public/reports", (req, res) => {
   try {
     const state = readState();
-    res.json(buildReport(state, {
+    const report = buildReport(state, {
       period: String(req.query.period || "daily"),
       date: req.query.date ? String(req.query.date) : undefined,
       buildVirtualDigest: (dateKey) => {
@@ -811,9 +811,52 @@ app.get("/api/public/reports", (req, res) => {
           virtual: true,
         });
       },
-    }));
+    });
+    res.json(serializePublicReport(report));
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.message || "report generation failed" });
+  }
+});
+
+function serializePublicReport(report = {}) {
+  return {
+    ...report,
+    sections: (report.sections || []).map((section) => ({
+      ...section,
+      items: (section.items || []).map(serializePublicItem),
+    })),
+    trendLines: (report.trendLines || []).map((line) => ({
+      ...line,
+      sampleItems: (line.sampleItems || []).map(serializePublicItem),
+    })),
+    watchItems: (report.watchItems || []).map(serializePublicItem),
+  };
+}
+
+app.get("/api/public/trends", (req, res) => {
+  try {
+    const state = readState();
+    const report = buildReport(state, {
+      period: String(req.query.period || "weekly"),
+      date: req.query.date ? String(req.query.date) : undefined,
+      buildVirtualDigest: (dateKey) => {
+        const range = shanghaiDayRange(`${dateKey}T12:00:00+08:00`);
+        return buildDailyDigest(state, {}, {
+          since: range.start,
+          until: range.end,
+          generatedAt: range.start + 12 * 60 * 60 * 1000,
+          virtual: true,
+        });
+      },
+    });
+    res.json({
+      period: report.period,
+      range: report.range,
+      summary: report.editorialSummary,
+      items: report.trendLines || [],
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || "trend generation failed" });
   }
 });
 

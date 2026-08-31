@@ -426,6 +426,15 @@ test("public experience endpoints expose hot topics, reports, and structured val
   const report = await reportResponse.json();
   assert.equal(report.period, "weekly");
   assert.deepEqual(report.range, { start: "2026-07-20", end: "2026-07-26" });
+  assert.equal(typeof report.editorialSummary, "string");
+  assert.equal(Array.isArray(report.trendLines), true);
+  assert.equal(Array.isArray(report.watchItems), true);
+
+  const trendsResponse = await fetch(`${base}/api/public/trends?period=weekly&date=2026-07-22`);
+  assert.equal(trendsResponse.status, 200);
+  const trends = await trendsResponse.json();
+  assert.equal(trends.period, "weekly");
+  assert.equal(Array.isArray(trends.items), true);
 
   const invalidResponse = await fetch(`${base}/api/public/reports?period=yearly&date=2026-07-22`);
   assert.equal(invalidResponse.status, 400);

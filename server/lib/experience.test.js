@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { buildHotTopics, buildReport, buildStory, buildTodaySignals } = require("./experience");
+const { buildEventLifecycle, buildHotTopics, buildReport, buildStory, buildTodaySignals } = require("./experience");
 
 function signal(id, eventId, sourceId, score = 90, extra = {}) {
   return {
@@ -167,6 +167,62 @@ test("story detail returns newest updates first and null for unknown ids", () =>
   assert.deepEqual(story.timeline.map((item) => item.id), ["new", "old"]);
   assert.equal(story.latestUpdates[0].id, "new");
   assert.equal(buildStory(state, "missing", {}), null);
+});
+
+test("story lifecycle distinguishes emerging, confirmed, developing, and stale events", () => {
+  const now = new Date("2026-08-31T04:00:00.000Z");
+  const makeLifecycle = (items) => buildEventLifecycle(items, now);
+
+  const emerging = makeLifecycle([signal("new", "event", "one", 90, { publishedAt: "2026-08-31T02:00:00.000Z" })]);
+  assert.equal(emerging.state, "emerging");
+  assert.equal(emerging.label, "刚出现");
+
+  const confirmed = makeLifecycle([
+    signal("one", "event", "one", 90, { publishedAt: "2026-08-30T02:00:00.000Z" }),
+    signal("two", "event", "two", 88, { publishedAt: "2026-08-31T01:00:00.000Z" }),
+  ]);
+  assert.equal(confirmed.state, "confirmed");
+  assert.equal(confirmed.firstSeenAt, "2026-08-30T02:00:00.000Z");
+  assert.equal(confirmed.lastUpdatedAt, "2026-08-31T01:00:00.000Z");
+
+  const developing = makeLifecycle([signal("developing", "event", "one", 90, { publishedAt: "2026-08-30T02:00:00.000Z" })]);
+  assert.equal(developing.state, "developing");
+
+  const stale = makeLifecycle([signal("stale", "event", "one", 90, { publishedAt: "2026-08-27T02:00:00.000Z" })]);
+  assert.equal(stale.state, "stale");
+  assert.match(stale.nextCheck, /不继续扩散/);
+
+  const story = buildStory({ items: [
+    signal("one", "event", "one", 90, { publishedAt: "2026-08-31T02:00:00.000Z" }),
+    signal("two", "event", "two", 88, { publishedAt: "2026-08-31T01:00:00.000Z" }),
+  ], clusters: [{ id: "event", items: ["one", "two"] }] }, "event", { now, enrichItem: (item) => item });
+  assert.equal(story.event.lifecycle.state, "confirmed");
+});
+
+test("reports expose trend lines with evidence strength and watch items", () => {
+  const report = buildReport({
+    dailyDigests: [{
+      generatedAt: "2026-08-30T04:00:00.000Z",
+      sections: [{
+        key: "model",
+        title: "模型发布/更新",
+        items: [
+          signal("one", "event-one", "official", 90, { tags: ["Agent", "模型"], priorityTier: "official_first_party", publishedAt: "2026-08-30T03:00:00.000Z" }),
+          signal("two", "event-two", "expert", 86, { tags: ["Agent"], priorityTier: "expert_rss", publishedAt: "2026-08-30T02:00:00.000Z" }),
+          signal("three", "event-three", "one", 80, { tags: ["研究"], priorityTier: "community_fallback", publishedAt: "2026-08-29T02:00:00.000Z" }),
+        ],
+      }],
+    }],
+  }, { period: "weekly", date: "2026-08-30", now: "2026-08-31T04:00:00.000Z" });
+
+  assert.match(report.editorialSummary, /本周/);
+  assert.equal(report.trendLines[0].label, "Agent");
+  assert.equal(report.trendLines[0].count, 2);
+  assert.equal(report.trendLines[0].eventCount, 2);
+  assert.equal(typeof report.trendLines[0].evidenceLevel, "string");
+  assert.ok(Array.isArray(report.trendLines[0].sampleItems));
+  assert.equal(report.watchItems.length, 1);
+  assert.equal(report.watchItems[0].id, "three");
 });
 
 test("hot topics require independent sources and order by evidence before score", () => {

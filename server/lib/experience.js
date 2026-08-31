@@ -60,6 +60,28 @@ function hotStatus(topic) {
   return "active";
 }
 
+function buildEventLifecycle(items = [], now = Date.now()) {
+  const nowMs = new Date(now).getTime();
+  const dated = items
+    .map((item) => ({ item, time: new Date(item?.publishedAt || 0).getTime() }))
+    .filter(({ time }) => Number.isFinite(time));
+  if (!dated.length) return null;
+  const firstSeenAt = new Date(Math.min(...dated.map(({ time }) => time))).toISOString();
+  const lastUpdatedAt = new Date(Math.max(...dated.map(({ time }) => time))).toISOString();
+  const sourceIds = new Set(dated
+    .map(({ item }) => String(item.sourceId || item.sourceName || "").trim().toLowerCase())
+    .filter(Boolean));
+  const ageHours = Math.max(0, (nowMs - new Date(lastUpdatedAt).getTime()) / 36e5);
+  const state = ageHours > 72 ? "stale" : sourceIds.size >= 2 ? "confirmed" : ageHours <= 6 ? "emerging" : "developing";
+  const copy = {
+    emerging: { label: "刚出现", nextCheck: "等待第二个独立信源或一手细节" },
+    confirmed: { label: "多源确认", nextCheck: "继续观察后续影响与独立数据" },
+    developing: { label: "持续发展", nextCheck: "核对后续更新与实际落地" },
+    stale: { label: "暂缓追踪", nextCheck: "如无新证据，暂不继续扩散" },
+  }[state];
+  return { state, label: copy.label, firstSeenAt, lastUpdatedAt, nextCheck: copy.nextCheck };
+}
+
 function todaySignalGroupKey(item = {}) {
   return item.eventId || item.canonicalUrl || item.url || item.id;
 }
@@ -203,6 +225,7 @@ function buildHotTopics(state = {}, options = {}) {
       topic.ageHours = Math.max(0, (nowMs - new Date(topic.latestAt || 0).getTime()) / (60 * 60 * 1000));
       topic.heat = hotHeat(topic);
       topic.status = hotStatus(topic);
+      topic.lifecycle = buildEventLifecycle(topic.relatedItems, nowMs);
       topic.rules = HOT_RULES;
       return topic;
     })
@@ -383,6 +406,61 @@ function reportThemes(sections = []) {
     .map(([label, count]) => ({ key: normalizedTitle(label) || label, label, count }));
 }
 
+const TREND_EVIDENCE_RANK = { multi_source: 4, first_party: 3, expert_analysis: 2, single_source: 1, unverified: 0 };
+
+function reportTrendLines(items = []) {
+  const groups = new Map();
+  for (const item of items.filter((candidate) => isPublicItem(candidate) && isCuratedSourceAllowed(candidate))) {
+    const labels = (item.tags || []).map((tag) => String(tag).trim()).filter(Boolean).slice(0, 3);
+    const fallback = item.categoryLabel || item.category || "行业动态";
+    for (const label of labels.length ? labels : [fallback]) {
+      const key = String(label).toLowerCase();
+      const group = groups.get(key) || { key, label, items: [] };
+      group.items.push(item);
+      groups.set(key, group);
+    }
+  }
+  return [...groups.values()]
+    .map((group) => {
+      const sources = new Set(group.items.map((item) => String(item.sourceId || item.sourceName || "").trim().toLowerCase()).filter(Boolean));
+      const eventKeys = new Set(group.items.map(reportItemKey).filter(Boolean));
+      const evidenceLevel = group.items
+        .map((item) => evidenceMeta(item, group.items).evidenceLevel)
+        .sort((a, b) => (TREND_EVIDENCE_RANK[b] || 0) - (TREND_EVIDENCE_RANK[a] || 0))[0] || "single_source";
+      const sampleItems = [...group.items]
+        .sort((a, b) => (b.score || 0) - (a.score || 0) || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime())
+        .slice(0, 3);
+      return {
+        key: group.key,
+        label: group.label,
+        count: group.items.length,
+        eventCount: eventKeys.size,
+        sourceCount: sources.size,
+        latestAt: group.items.reduce((latest, item) => new Date(item.publishedAt || 0).getTime() > new Date(latest || 0).getTime() ? item.publishedAt : latest, group.items[0]?.publishedAt || null),
+        evidenceLevel,
+        sampleItems,
+      };
+    })
+    .sort((a, b) => b.count - a.count || b.eventCount - a.eventCount || b.sourceCount - a.sourceCount || a.label.localeCompare(b.label, "zh-CN"))
+    .slice(0, 6);
+}
+
+function reportWatchItems(items = []) {
+  return items
+    .filter((item) => isPublicItem(item) && isCuratedSourceAllowed(item))
+    .filter((item) => item.unverified || ["community_fallback", "reference"].includes(String(item.priorityTier || item.sourceTier || item.tier || "")))
+    .sort((a, b) => new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime() || (b.score || 0) - (a.score || 0))
+    .slice(0, 5);
+}
+
+function reportEditorialSummary(period, storyCount, trendLines, watchItems) {
+  const prefix = period === "monthly" ? "本月" : period === "weekly" ? "本周" : "今日";
+  if (!storyCount) return `${prefix}暂无足够的精选内容形成主线。`;
+  const lead = trendLines[0]?.label ? `最集中的方向是“${trendLines[0].label}”` : "当前信号分布较分散";
+  const watch = watchItems.length ? `另有 ${watchItems.length} 条线索需要继续核验。` : "暂未发现需要单独挂起的低确认线索。";
+  return `${prefix}共有 ${storyCount} 条精选内容，${lead}。${watch}`;
+}
+
 function reportCoverage(period, range, daily, now) {
   const todayKey = shanghaiDateKey(now);
   let requiredEnd = range.endKey;
@@ -450,6 +528,8 @@ function buildReport(state = {}, options = {}) {
   const sections = mergeDigestSections(daily, sectionLimit);
   const allItems = sections.flatMap((section) => section.items);
   const storyCount = allItems.length;
+  const trendLines = reportTrendLines(allItems);
+  const watchItems = reportWatchItems(allItems);
   const nextDate = shiftReportDate(period, anchor, 1);
   return {
     period,
@@ -457,9 +537,12 @@ function buildReport(state = {}, options = {}) {
     range: { start: range.startKey, end: range.endKey },
     coverage: reportCoverage(period, range, daily, now),
     headline: reportHeadline(period, storyCount),
+    editorialSummary: reportEditorialSummary(period, storyCount, trendLines, watchItems),
     storyCount,
     estimatedReadingMinutes: Math.max(1, Math.ceil(storyCount / 5)),
     themes: reportThemes(sections),
+    trendLines,
+    watchItems,
     sections,
     navigation: {
       previousDate: shiftReportDate(period, anchor, -1),
@@ -469,6 +552,7 @@ function buildReport(state = {}, options = {}) {
 }
 
 module.exports = {
+  buildEventLifecycle,
   buildHotTopics,
   buildStory,
   buildReport,
