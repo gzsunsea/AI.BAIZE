@@ -599,6 +599,14 @@ function publicHotTopics(state) {
       representative: serializePublicItem(topic.representative),
       relatedItems: topic.relatedItems.map(serializePublicItem),
     })),
+    candidates: result.candidates.map((candidate) => ({
+      ...serializePublicItem(candidate),
+      availability: candidate.availability,
+      status: candidate.status,
+      sourceCount: candidate.sourceCount,
+      sources: candidate.sources,
+      evidenceMeta: candidate.evidenceMeta,
+    })),
   };
 }
 
@@ -1091,7 +1099,7 @@ app.get("/openapi.json", (req, res) => {
       "/api/public/daily": { get: { summary: "Get current daily digest", responses: { "200": { description: "Daily digest" } } } },
       "/api/public/dailies": { get: { summary: "List saved daily digests", responses: { "200": { description: "Daily digests" } } } },
       "/api/public/today": { get: { summary: "Get up to five curated signals for today", parameters: [{ name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 5 } }], responses: { "200": { description: "Today's signals" } } } },
-      "/api/public/hot-topics": { get: { summary: "List cluster-backed current signals", responses: { "200": { description: "Current signals" } } } },
+      "/api/public/hot-topics": { get: { summary: "List confirmed hotspots and emerging candidates", responses: { "200": { description: "Confirmed hotspots, emerging candidates, and availability state" } } } },
       "/api/public/trends": {
         get: {
           summary: "Get recurring editorial trend lines",
@@ -1642,6 +1650,7 @@ module.exports = {
   generateDailyDigest,
   itemsResponse,
   localDateKey,
+  publicHotTopics,
   publicItemDetail,
   publicToday,
   requestMediaHop,

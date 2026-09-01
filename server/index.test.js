@@ -10,6 +10,7 @@ const {
   dailyIssueMeta,
   itemsResponse,
   normalizeFeedback,
+  publicHotTopics,
   publicItemDetail,
   publicToday,
   selectCuratedItems,
@@ -402,6 +403,15 @@ test("public experience endpoints expose hot topics, reports, and structured val
       assert.equal(Object.hasOwn(item, field), false, `public item leaked ${field}`);
     }
   };
+  assert.ok(["confirmed", "candidate", "empty"].includes(hot.availability));
+  assert.equal(Array.isArray(hot.candidates), true);
+  for (const candidate of hot.candidates) {
+    assertPublicItem(candidate);
+    assert.equal(candidate.availability, "candidate");
+    assert.equal(candidate.status, "emerging");
+    assert.equal(Object.hasOwn(candidate, "duplicateSources"), false);
+    assert.equal(Object.hasOwn(candidate, "duplicateCount"), false);
+  }
   for (const topic of hot.items) {
     assertPublicItem(topic.representative);
     topic.relatedItems.forEach(assertPublicItem);
@@ -460,6 +470,24 @@ test("public experience endpoints expose hot topics, reports, and structured val
   const invalidResponse = await fetch(`${base}/api/public/reports?period=yearly&date=2026-07-22`);
   assert.equal(invalidResponse.status, 400);
   assert.deepEqual(await invalidResponse.json(), { error: "invalid period" });
+});
+
+test("public hot topics serialize emerging candidates without internal fields", () => {
+  const result = publicHotTopics({
+    settings: { rules: { selectedThreshold: 72 } },
+    items: [{
+      ...story("candidate", "Official AI model release", 90),
+      publishedAt: "2026-08-31T02:00:00.000Z",
+      sourceName: "Official AI",
+      raw: { secret: true },
+    }],
+    clusters: [],
+  });
+  assert.equal(result.availability, "candidate");
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].availability, "candidate");
+  assert.equal(Object.hasOwn(result.candidates[0], "raw"), false);
+  assert.equal(Object.hasOwn(result.candidates[0], "priorityTier"), false);
 });
 
 test("public hot and story APIs exclude hidden and non-public cluster evidence", async (t) => {

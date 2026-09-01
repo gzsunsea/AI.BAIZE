@@ -106,6 +106,8 @@ test("ordinary reader navigation uses durable item links and hotspot navigation 
   assert.match(feedSource, /href=\{itemLocation\(item\.id\)\}/);
   assert.match(feedSource, /shouldInterceptLinkClick\(event\)/);
   assert.match(hotSource, /href=\{storyLocation\(topic\.id\)\}/);
+  assert.match(hotSource, /href=\{itemLocation\(candidate\.id\)\}/);
+  assert.match(hotSource, /onOpenItem\(candidate\)/);
   assert.doesNotMatch(appSource, /className=\{readItems\.has\(item\.id\) \? "read" : ""\}[\s\S]{0,240}target="_blank"/);
   assert.doesNotMatch(appSource, /className="title" href=\{item\.url\} target="_blank"/);
   assert.match(appSource, /className=\{readItems\.has\(item\.id\) \? "read" : ""\}[\s\S]{0,240}target="_self"/);

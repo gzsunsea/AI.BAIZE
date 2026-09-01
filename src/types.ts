@@ -198,6 +198,13 @@ export type HotTopic = {
   lifecycle?: EventLifecycle | null;
 };
 
+export type HotCandidate = Item & {
+  availability: "candidate";
+  status: "emerging";
+  sourceCount: 1;
+  sources: string[];
+};
+
 export type StoryDetail = {
   event: Omit<HotTopic, "relatedItems">;
   summary: string;

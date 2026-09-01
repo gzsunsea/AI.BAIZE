@@ -60,7 +60,29 @@ function hotStatus(topic) {
   return "active";
 }
 
-function buildEventLifecycle(items = [], now = Date.now()) {
+function normalizedSourceIdentity(value = "") {
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[（(]\s*rss\s*[)）]/gi, "")
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function sourceLedger(cluster = {}, relatedItems = [], representative = {}) {
+  const entries = [
+    ...relatedItems.map((item) => ({ identity: item.sourceId || item.sourceName, name: item.sourceName || item.sourceId })),
+    ...(cluster.sources || []).map((name) => ({ identity: name, name })),
+    ...(representative.duplicateSources || []).map((name) => ({ identity: name, name })),
+  ].filter((entry) => entry.identity && entry.name && !/^AIHOT(?:\s*公开页)?$/i.test(String(entry.name)));
+  const byIdentity = new Map();
+  for (const entry of entries) {
+    const identity = normalizedSourceIdentity(entry.identity);
+    if (identity && !byIdentity.has(identity)) byIdentity.set(identity, String(entry.name).trim());
+  }
+  return [...byIdentity.values()];
+}
+
+function buildEventLifecycle(items = [], now = Date.now(), persistedSources = []) {
   const nowMs = new Date(now).getTime();
   const dated = items
     .map((item) => ({ item, time: new Date(item?.publishedAt || 0).getTime() }))
@@ -69,8 +91,12 @@ function buildEventLifecycle(items = [], now = Date.now()) {
   const firstSeenAt = new Date(Math.min(...dated.map(({ time }) => time))).toISOString();
   const lastUpdatedAt = new Date(Math.max(...dated.map(({ time }) => time))).toISOString();
   const sourceIds = new Set(dated
-    .map(({ item }) => String(item.sourceId || item.sourceName || "").trim().toLowerCase())
+    .map(({ item }) => normalizedSourceIdentity(item.sourceId || item.sourceName))
     .filter(Boolean));
+  for (const source of persistedSources) {
+    const identity = normalizedSourceIdentity(source);
+    if (identity) sourceIds.add(identity);
+  }
   const ageHours = Math.max(0, (nowMs - new Date(lastUpdatedAt).getTime()) / 36e5);
   const state = ageHours > 72 ? "stale" : sourceIds.size >= 2 ? "confirmed" : ageHours <= 6 ? "emerging" : "developing";
   const copy = {
@@ -80,6 +106,56 @@ function buildEventLifecycle(items = [], now = Date.now()) {
     stale: { label: "暂缓追踪", nextCheck: "如无新证据，暂不继续扩散" },
   }[state];
   return { state, label: copy.label, firstSeenAt, lastUpdatedAt, nextCheck: copy.nextCheck };
+}
+
+function candidateEvidence(item) {
+  const evidence = evidenceMeta(item);
+  if (evidence.evidenceLevel === "unverified") return evidence;
+  return {
+    ...evidence,
+    evidenceLevel: "single_source",
+    evidenceLabel: "单一来源",
+    evidenceGaps: ["独立信源仍不足"],
+  };
+}
+
+function buildHotCandidates(items = [], confirmedIds = new Set(), nowMs = Date.now(), threshold = 72, enrichItem = (item) => item) {
+  const groups = new Map();
+  for (const item of items) {
+    const published = new Date(item.publishedAt || 0).getTime();
+    if (!isPublicItem(item) || !isCuratedSourceAllowed(item) || String(item.priorityTier || item.sourceTier || item.tier || "").toLowerCase() === "reference") continue;
+    if (!Number.isFinite(published) || nowMs - published < 0 || nowMs - published > 72 * 60 * 60 * 1000) continue;
+    if (!isSelectedFeedEligible(item, threshold)) continue;
+    const sources = sourceLedger({}, [item], item);
+    if (sources.length !== 1) continue;
+    const key = todaySignalGroupKey(item) || item.id;
+    if (confirmedIds.has(key) || confirmedIds.has(item.eventId) || confirmedIds.has(item.canonicalUrl)) continue;
+    const current = groups.get(key);
+    if (!current || selectedRankingScore(item) > selectedRankingScore(current)) groups.set(key, item);
+  }
+
+  const selected = [];
+  const sourceCounts = new Map();
+  for (const item of [...groups.values()].sort((a, b) => (
+    selectedRankingScore(b) - selectedRankingScore(a)
+    || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime()
+  ))) {
+    const sourceName = item.sourceName || item.sourceId || "未知来源";
+    const sourceKey = normalizedSourceIdentity(sourceName) || "unknown";
+    if ((sourceCounts.get(sourceKey) || 0) >= 2) continue;
+    sourceCounts.set(sourceKey, (sourceCounts.get(sourceKey) || 0) + 1);
+    const publicItem = enrichItem(item);
+    selected.push({
+      ...publicItem,
+      availability: "candidate",
+      status: "emerging",
+      sourceCount: 1,
+      sources: [sourceName],
+      evidenceMeta: candidateEvidence(item),
+    });
+    if (selected.length >= 5) break;
+  }
+  return selected;
 }
 
 function todaySignalGroupKey(item = {}) {
@@ -208,15 +284,10 @@ function buildHotTopics(state = {}, options = {}) {
         .filter(Boolean)
         .filter(isPublicItem)
         .filter(isCuratedSourceAllowed)
-        .filter((item) => nowMs - new Date(item.publishedAt || 0).getTime() <= 72 * 60 * 60 * 1000);
-      const sourceNamesByIdentity = new Map();
-      for (const item of relatedItems) {
-        const identity = item.sourceId || item.sourceName;
-        if (identity && !sourceNamesByIdentity.has(identity)) {
-          sourceNamesByIdentity.set(identity, item.sourceName || item.sourceId);
-        }
-      }
-      const sources = [...sourceNamesByIdentity.values()].filter(Boolean);
+        .filter((item) => {
+          const age = nowMs - new Date(item.publishedAt || 0).getTime();
+          return age >= 0 && age <= 72 * 60 * 60 * 1000;
+        });
       const representative = [...relatedItems].sort((a, b) => (
         Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
         || (b.score || 0) - (a.score || 0)
@@ -224,7 +295,8 @@ function buildHotTopics(state = {}, options = {}) {
       ))[0];
 
       if (!representative) return null;
-      if (sources.length < 2 && !(representative.pinned && representative.score >= threshold)) return null;
+      const sources = sourceLedger(cluster, relatedItems, representative);
+      if (sources.length < 2) return null;
 
       const topic = {
         id: cluster.id || representative.eventId || representative.id,
@@ -243,7 +315,7 @@ function buildHotTopics(state = {}, options = {}) {
       topic.ageHours = Math.max(0, (nowMs - new Date(topic.latestAt || 0).getTime()) / (60 * 60 * 1000));
       topic.heat = hotHeat(topic);
       topic.status = hotStatus(topic);
-      topic.lifecycle = buildEventLifecycle(topic.relatedItems, nowMs);
+      topic.lifecycle = buildEventLifecycle(topic.relatedItems, nowMs, sources);
       topic.rules = HOT_RULES;
       return topic;
     })
@@ -257,11 +329,17 @@ function buildHotTopics(state = {}, options = {}) {
     .slice(0, limit)
     .map((item, index) => ({ ...item, rank: index + 1 }));
 
+  const confirmedIds = new Set(items.flatMap((item) => [item.id, item.representative?.eventId, item.representative?.canonicalUrl, item.representative?.url]).filter(Boolean));
+  const candidates = buildHotCandidates(state.items || [], confirmedIds, nowMs, threshold, enrichItem);
+  const availability = items.length ? "confirmed" : candidates.length ? "candidate" : "empty";
+
   return {
     generatedAt: new Date(nowMs).toISOString(),
     windowHours: HOT_RULES.windowHours,
     rules: HOT_RULES,
+    availability,
     items,
+    candidates,
   };
 }
 

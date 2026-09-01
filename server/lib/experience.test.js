@@ -165,6 +165,75 @@ test("hot topics expose display source names, latest activity, and representativ
   assert.equal(typeof result.items[0].representative.summary, "string");
 });
 
+test("hot topics use persisted cluster sources after dedupe", () => {
+  const item = signal("representative", "event-deduped", "OpenAI News", 90, {
+    publishedAt: "2026-08-31T02:00:00.000Z",
+    priorityTier: "official_first_party",
+  });
+  const result = buildHotTopics({
+    items: [item],
+    clusters: [{ id: "event-deduped", items: [item.id], sources: ["OpenAI News", "Simon Willison"], duplicateCount: 4 }],
+  }, { now: "2026-08-31T04:00:00.000Z" });
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].sourceCount, 2);
+  assert.deepEqual(result.items[0].sources, ["OpenAI News", "Simon Willison"]);
+  assert.equal(result.candidates.length, 0);
+});
+
+test("hot topics expose selected single-source candidates without calling them confirmed", () => {
+  const item = signal("candidate", "event-candidate", "OpenAI News", 90, {
+    title: "Official AI model release",
+    summary: "Official AI model and API release for creators.",
+    publishedAt: "2026-08-31T02:00:00.000Z",
+    priorityTier: "official_first_party",
+  });
+  const result = buildHotTopics({ items: [item], clusters: [], settings: { rules: { selectedThreshold: 72 } } }, {
+    now: "2026-08-31T04:00:00.000Z",
+    selectedThreshold: 72,
+  });
+  assert.equal(result.items.length, 0);
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].status, "emerging");
+  assert.equal(result.candidates[0].availability, "candidate");
+  assert.equal(result.candidates[0].evidenceMeta.evidenceLevel, "single_source");
+});
+
+test("hot candidates cap one source, exclude reference and low-quality content, and avoid duplicates", () => {
+  const good = Array.from({ length: 4 }, (_, index) => signal(`good-${index}`, `event-good-${index}`, "OpenAI News", 92 - index, {
+    title: `Official AI model release ${index}`,
+    summary: "Official AI model and API release for creators.",
+    publishedAt: "2026-08-31T02:00:00.000Z",
+    priorityTier: "official_first_party",
+  }));
+  const secondSource = signal("good-other", "event-good-other", "Simon Willison", 80, {
+    title: "Expert AI workflow analysis",
+    summary: "Expert analysis of the AI model workflow and deployment.",
+    publishedAt: "2026-08-31T02:00:00.000Z",
+    priorityTier: "expert_rss",
+  });
+  const reference = signal("reference", "event-reference", "AIHOT", 99, {
+    title: "Reference AI model copy",
+    summary: "Reference copy of an AI model announcement.",
+    publishedAt: "2026-08-31T02:00:00.000Z",
+    priorityTier: "reference",
+  });
+  const weak = signal("weak", "event-weak", "OpenAI News", 99, {
+    title: "手机发布会价格与外观点评",
+    summary: "手机产品价格与外观的行业点评。",
+    publishedAt: "2026-08-31T02:00:00.000Z",
+    priorityTier: "official_first_party",
+  });
+  const result = buildHotTopics({ items: [...good, secondSource, reference, weak], clusters: [] }, {
+    now: "2026-08-31T04:00:00.000Z",
+    selectedThreshold: 72,
+  });
+  assert.ok(result.candidates.length <= 5);
+  assert.ok(result.candidates.filter((item) => item.sourceName === "OpenAI News").length <= 2);
+  assert.equal(result.candidates.some((item) => item.id === "reference"), false);
+  assert.equal(result.candidates.some((item) => item.id === "weak"), false);
+  assert.equal(new Set(result.candidates.map((item) => item.id)).size, result.candidates.length);
+});
+
 test("story detail returns newest updates first and null for unknown ids", () => {
   const state = {
     items: [
@@ -281,7 +350,7 @@ test("hot topics require independent sources and order by evidence before score"
   assert.equal(result.items[1].representative.enriched, true);
 });
 
-test("a pinned item meeting the selected threshold can form a topic", () => {
+test("a pinned single-source item appears as an emerging candidate", () => {
   const item = signal("p1", "pinned", "official", 80, { pinned: true });
   const result = buildHotTopics({
     items: [item],
@@ -291,8 +360,10 @@ test("a pinned item meeting the selected threshold can form a topic", () => {
     selectedThreshold: 80,
   });
 
-  assert.equal(result.items.length, 1);
-  assert.equal(result.items[0].id, "pinned");
+  assert.equal(result.items.length, 0);
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].id, "p1");
+  assert.equal(result.candidates[0].availability, "candidate");
 });
 
 test("hot topics discard stale items and count duplicate source ids once", () => {
@@ -387,16 +458,23 @@ test("recognized priority tiers and fallback source tiers affect heat", () => {
       sourceTier: "community",
       priorityTier: "unknown-tier",
     }),
+    signal("fallback-second", "fallback", "fallback-second-source", 79, {
+      sourceTier: "community",
+      priorityTier: "unknown-tier",
+    }),
     signal("official", "official", "official-source", 80, {
       pinned: true,
+      priorityTier: "official_first_party",
+    }),
+    signal("official-second", "official", "official-second-source", 79, {
       priorityTier: "official_first_party",
     }),
   ];
   const result = buildHotTopics({
     items,
     clusters: [
-      { id: "fallback", items: ["fallback"] },
-      { id: "official", items: ["official"] },
+      { id: "fallback", items: ["fallback", "fallback-second"] },
+      { id: "official", items: ["official", "official-second"] },
     ],
   }, { now: "2026-07-22T04:00:00.000Z", selectedThreshold: 80 });
 

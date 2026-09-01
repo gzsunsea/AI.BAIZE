@@ -254,6 +254,11 @@ test("hot center and story pages retain their semantic editorial landmarks", () 
   assert.match(hotSource, /decayHours/);
   assert.match(hotSource, /floor/);
   assert.match(hotSource, /selectedScoreBonus\.divisor/);
+  assert.match(hotSource, /正在形成的热点/);
+  assert.match(hotSource, /待确认/);
+  assert.match(hotSource, /onOpenItem/);
+  assert.match(hotSource, /itemLocation\(candidate\.id\)/);
+  assert.match(hotSource, /查看精选时间线/);
   assert.match(feedSource, /formatTime\(topic\.latestAt\)/);
   assert.match(feedSource, /topic\.summary \|\| topic\.representative\.summary/);
   assert.match(feedSource, /hot-status \$\{topic\.status\}/);
