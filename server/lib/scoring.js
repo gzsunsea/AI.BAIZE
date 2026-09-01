@@ -66,6 +66,10 @@ const WEAK_GITHUB_RE = /awesome[-_\s]|curated list|course list|summer ?school|bo
 const BROAD_OFFICIAL_RE = /GitHub Changelog|GitHub Blog|Cloudflare|Apple Machine Learning Research|NVIDIA AI Blog/i;
 const LOW_INFORMATION_TITLE_RE = /^\s*(?:未命名动态|(?:release\s*)?v?\d+(?:\.\d+){1,4}(?:[-+][\w.-]+)?)\s*$/i;
 const BROKEN_SUMMARY_RE = /\[object Object\]/i;
+const GENERIC_SELECTED_REASON_RE = /(?:(?:基于|按照|按|综合)(?:[^。；\n]{0,40})?(?:信源(?:优先级)?|优先信源)(?:[^。；\n]{0,30})?(?:时效|新鲜度)(?:[^。；\n]{0,30})?(?:主题相关性|相关性)(?:[^。；\n]{0,30})?(?:可操作性|可执行性)(?:[^。；\n]{0,20})?(?:入选|判断))|(?:系统按.+入选)/i;
+const SELECTED_EXCLUDED_TIERS = new Set(["reference"]);
+const LEGACY_REFERENCE_SOURCE_KINDS = new Set(["aihot", "reference"]);
+const LEGACY_REFERENCE_SOURCE_IDS = new Set(["aihot-public"]);
 
 const tagRules = [
   ["Agent", ["agent", "智能体", "browser use", "operator"]],
@@ -116,6 +120,19 @@ function stableUrlKey(url = "") {
   } catch {
     return String(url || "").trim();
   }
+}
+
+function isOriginalHttpUrl(url = "") {
+  try {
+    const parsed = new URL(String(url || ""));
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isPublicItem(item = {}) {
+  return !item.hidden && isOriginalHttpUrl(item.url);
 }
 
 function summarize(text = "", fallback = "") {
@@ -229,6 +246,24 @@ function isSelectedQualityCandidate(item = {}) {
   return true;
 }
 
+function canAppearInSelectedFeed(item = {}) {
+  if (item.pinned) return true;
+  const priorityTier = String(item.priorityTier || "").toLowerCase();
+  const sourceTier = String(item.sourceTier || "").toLowerCase();
+  const sourceKind = String(item.sourceKind || "").toLowerCase();
+  const sourceId = String(item.sourceId || "").toLowerCase();
+  const sourceName = String(item.sourceName || "").trim();
+  if (SELECTED_EXCLUDED_TIERS.has(priorityTier) || SELECTED_EXCLUDED_TIERS.has(sourceTier)) return false;
+  if (LEGACY_REFERENCE_SOURCE_KINDS.has(sourceKind) || LEGACY_REFERENCE_SOURCE_IDS.has(sourceId)) return false;
+  return !/^AIHOT(?:\s*公开页)?$/i.test(sourceName);
+}
+
+function isCuratedSourceAllowed(item = {}) {
+  if (item.pinned) return true;
+  const tier = String(item.priorityTier || item.sourceTier || item.tier || "").toLowerCase();
+  return tier !== "reference" && canAppearInSelectedFeed(item);
+}
+
 function sourcePriorityScore(raw = {}) {
   const tier = raw.priorityTier || raw.sourceTier || raw.tier || "";
   const base = {
@@ -247,6 +282,73 @@ function sourcePriorityScore(raw = {}) {
   const sample = { title: raw.title, summary: raw.summary || raw.description, tags: raw.tags || [], priorityTier: tier };
   const qualityBoost = isCoreAiCandidate(sample) ? 8 : isWeakIndustryCandidate(sample) ? -16 : -8;
   return Math.round(base + preferred + topicBoost + qualityBoost - penalty);
+}
+
+function clampScore(value) {
+  return Math.max(1, Math.min(99, Math.round(value)));
+}
+
+function keywordCoverageScore(text = "") {
+  const hits = AI_KEYWORDS.reduce((count, word) => count + (text.includes(word) ? 1 : 0), 0);
+  return Math.min(18, hits * 2);
+}
+
+function blendScore(internalScore, externalScore) {
+  return clampScore(internalScore * 0.6 + clampScore(externalScore) * 0.4);
+}
+
+function selectionConfirmationCount(item = {}) {
+  const currentSource = String(item.sourceName || "").trim().toLowerCase();
+  const independentSources = new Set((item.duplicateSources || [])
+    .map((source) => String(source || "").trim().toLowerCase())
+    .filter(Boolean)
+    .filter((source) => !currentSource || source !== currentSource));
+  return independentSources.size;
+}
+
+function selectionAuthorityCredit(item = {}) {
+  const tier = String(item.priorityTier || item.sourceTier || "").toLowerCase();
+  const sourceKind = String(item.sourceKind || "").toLowerCase();
+  if (tier === "official_first_party") return 10;
+  if (tier === "preferred_x") return 9;
+  if (tier === "expert_rss") return 7;
+  if (tier === "cn_media") return 4;
+  if (tier === "reference" || sourceKind === "aihot" || sourceKind === "reference") return -4;
+  if (tier === "community_fallback") return 0;
+  if (sourceKind === "x") return 8;
+  return 2;
+}
+
+function selectedRankingScore(item = {}) {
+  if (item.pinned) return 99;
+  const internalScore = scoreItem({
+    title: item.title,
+    summary: item.summary,
+    sourceKind: item.sourceKind,
+    publishedAt: item.publishedAt,
+    stars: item.stars ?? item.raw?.stars,
+    comments: item.comments ?? item.raw?.comments,
+    priorityTier: item.priorityTier || item.sourceTier,
+    preferred: item.preferred,
+    noisePenalty: item.noisePenalty,
+    topicBoosts: item.topicBoosts ?? item.raw?.topicBoosts,
+  });
+  const storedScore = Number.isFinite(Number(item.score)) ? clampScore(Number(item.score)) : internalScore;
+  const confirmationCount = selectionConfirmationCount(item);
+  const confirmationBoost = Math.min(12, confirmationCount * 4);
+  const authorityCredit = selectionAuthorityCredit(item);
+  const saturationPenalty = storedScore >= 95
+    ? Math.max(0, 12 - Math.max(0, authorityCredit) - Math.min(8, confirmationCount * 4))
+    : 0;
+  return clampScore(internalScore * 0.75 + storedScore * 0.25 + confirmationBoost - saturationPenalty);
+}
+
+function isSelectedFeedEligible(item = {}, selectedThreshold = 72) {
+  if (!item || item.hidden || !isOriginalHttpUrl(item.url)) return false;
+  if (item.pinned) return true;
+  return canAppearInSelectedFeed(item)
+    && selectedRankingScore(item) >= Number(selectedThreshold || 72)
+    && isSelectedQualityCandidate(item);
 }
 
 function enrichSummary(title = "", summary = "", sourceName = "") {
@@ -270,24 +372,52 @@ function inferTags(title = "", summary = "") {
 
 function scoreItem({ title = "", summary = "", sourceKind = "", publishedAt, stars = 0, comments = 0, priorityTier = "", preferred = false, noisePenalty = 0, topicBoosts = {} }) {
   const text = `${title} ${summary}`.toLowerCase();
-  const keywordScore = AI_KEYWORDS.reduce((score, word) => score + (text.includes(word) ? 5 : 0), 0);
+  const keywordScore = keywordCoverageScore(text);
   const ageHours = Math.max(0, (Date.now() - new Date(publishedAt || Date.now()).getTime()) / 36e5);
-  const freshness = Math.max(0, 24 - Math.min(24, ageHours));
-  const authority = sourceKind === "aihot" ? 25 : sourceKind === "x" ? 20 : sourceKind === "arxiv" ? 12 : sourceKind === "github" ? 6 : sourceKind === "hn" || sourceKind === "devto" ? 2 : 10;
-  const social = Math.min(20, Math.log10(Math.max(1, stars + comments + 1)) * 8);
-  const sourceScore = sourcePriorityScore({ title, summary, priorityTier, preferred, noisePenalty, topicBoosts });
+  const freshness = Math.max(0, Math.round(18 - Math.min(18, ageHours / 3)));
+  const authority = sourceKind === "aihot" ? 6 : sourceKind === "x" ? 7 : sourceKind === "arxiv" ? 5 : sourceKind === "github" ? 3 : sourceKind === "hn" || sourceKind === "devto" ? 1 : 4;
+  const social = Math.min(6, Math.log10(Math.max(1, stars + comments + 1)) * 3);
+  const sourceScore = Math.round(sourcePriorityScore({ title, summary, priorityTier, preferred, noisePenalty, topicBoosts }) * 0.45);
   const sample = { title, summary, sourceKind, priorityTier };
-  const qualityScore = isCoreAiCandidate(sample) ? 14 : isWeakIndustryCandidate(sample) ? -24 : -18;
-  return Math.max(1, Math.min(99, Math.round(24 + keywordScore + freshness + authority + social + sourceScore + qualityScore)));
+  const qualityScore = isCoreAiCandidate(sample) ? 10 : isWeakIndustryCandidate(sample) ? -20 : -12;
+  return clampScore(28 + keywordScore + freshness + authority + social + sourceScore + qualityScore);
 }
 
 function reasonFor(item) {
   const tags = item.tags?.length ? item.tags.join("、") : "AI";
   if (item.sourceKind === "aihot" && item.reason) return item.reason;
   const hints = topicHints(`${item.title} ${item.summary}`);
-  const focus = hints.length ? `重点看${hints.join("、")}` : `与 ${tags} 相关`;
-  const sourceSignal = item.preferred ? "优先信源" : item.priorityTier === "community_fallback" ? "社区热度补充" : "公开信源";
-  return `来自 ${item.sourceName} 的最新 ${tags} 动态，${focus}。系统按${sourceSignal}、时效、主题相关性和可操作性入选，适合判断它是否会影响产品、研究、教育/文化应用或开发实践。`;
+  const focus = hints.length ? `重点看${hints.join("、")}` : `重点看${tags}`;
+  const snippet = summarize(item.summary || "", item.title).replace(/\s+/g, " ").trim();
+  const evidence = snippet && snippet !== item.title ? `摘要提到：${snippet}` : `标题直接指向：${item.title}`;
+  const source = item.sourceName || "该信源";
+  return `来自${source}的《${item.title}》。${focus}。${evidence}`;
+}
+
+function validatedEditorialReason(value) {
+  if (typeof value !== "string") return "";
+  const clean = stripHtml(value).slice(0, 600);
+  if (clean.length < 8 || BROKEN_SUMMARY_RE.test(clean) || GENERIC_SELECTED_REASON_RE.test(clean)) return "";
+  return clean;
+}
+
+function explicitReasonFor(raw = {}) {
+  return validatedEditorialReason(raw.aiSelectedReason)
+    || validatedEditorialReason(raw.editorialJudgment)
+    || validatedEditorialReason(raw.reason);
+}
+
+function editorialReasonFor(item = {}) {
+  return explicitReasonFor(item)
+    || explicitReasonFor(item.raw || {})
+    || reasonFor({ ...item, reason: "" });
+}
+
+function isAutomaticReason(item = {}) {
+  const reason = validatedEditorialReason(item.reason);
+  if (!reason) return true;
+  if (item.llmProvider === "rules" || String(item.llmProvider || "").startsWith("ollama:")) return true;
+  return reason === reasonFor({ ...item, reason: "" });
 }
 
 function isQualityCandidate(item) {
@@ -313,8 +443,10 @@ function normalizeItem(raw) {
   const preferred = Boolean(raw.preferred || raw.source?.preferred);
   const noisePenalty = Number(raw.noisePenalty || raw.source?.noisePenalty || 0);
   const topicBoosts = raw.topicBoosts || raw.source?.topicBoosts || {};
-  const baseScore = raw.finalScore || raw.qualityScore || scoreItem({ title, summary, sourceKind, publishedAt, stars: raw.stars, comments: raw.comments, priorityTier, preferred, noisePenalty, topicBoosts });
-  const score = Math.max(1, Math.min(99, Math.round(baseScore + (raw.finalScore || raw.qualityScore ? sourcePriorityScore({ title, summary, priorityTier, preferred, noisePenalty, topicBoosts }) : 0))));
+  const internalScore = scoreItem({ title, summary, sourceKind, publishedAt, stars: raw.stars, comments: raw.comments, priorityTier, preferred, noisePenalty, topicBoosts });
+  const externalScore = raw.finalScore ?? raw.qualityScore;
+  const score = externalScore === undefined ? internalScore : blendScore(internalScore, Number(externalScore || 0));
+  const explicitReason = explicitReasonFor(raw);
   const item = {
     id: raw.id || makeId(stableUrlKey(url) || title),
     url,
@@ -333,11 +465,11 @@ function normalizeItem(raw) {
     publishedAt,
     score,
     tags: [...new Set(tags)].slice(0, 6),
-    reason: raw.aiSelectedReason || raw.editorialJudgment || raw.reason || "",
+    reason: explicitReason,
     media: raw.media || raw.rawJson?.media || (raw.image || raw.thumbnail ? [{ url: raw.image || raw.thumbnail, type: "image" }] : []),
     raw,
   };
-  item.reason = reasonFor(item);
+  if (!explicitReason) item.reason = editorialReasonFor(item);
   return item;
 }
 
@@ -345,13 +477,22 @@ module.exports = {
   inferTags,
   isCoreAiCandidate,
   isNoiseCandidate,
+  isOriginalHttpUrl,
+  isPublicItem,
   isQualityCandidate,
+  isCuratedSourceAllowed,
+  canAppearInSelectedFeed,
+  editorialReasonFor,
+  explicitReasonFor,
+  isAutomaticReason,
+  isSelectedFeedEligible,
   isSelectedQualityCandidate,
   isWeakIndustryCandidate,
   makeId,
   normalizeItem,
   qualityClass,
   scoreItem,
+  selectedRankingScore,
   stripHtml,
   summarize,
 };

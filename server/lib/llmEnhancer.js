@@ -1,4 +1,5 @@
 const { readState, writeState } = require("./store");
+const { explicitReasonFor, isAutomaticReason } = require("./scoring");
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://127.0.0.1:11434/api/generate";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:0.5b";
@@ -185,10 +186,16 @@ async function enhanceRecentItems({ limit = 40, force = false } = {}) {
     const enhanced = enhancedById.get(item.id);
     if (!enhanced) return item;
     provider = provider === "none" ? enhanced.provider : provider;
+    const authoritativeReason = explicitReasonFor({
+      aiSelectedReason: item.aiSelectedReason ?? item.raw?.aiSelectedReason,
+      editorialJudgment: item.editorialJudgment ?? item.raw?.editorialJudgment,
+      reason: item.raw?.reason,
+    });
+    const storedReason = isAutomaticReason(item) ? "" : explicitReasonFor({ reason: item.reason });
     return {
       ...item,
       summary: enhanced.summary,
-      reason: enhanced.reason,
+      reason: authoritativeReason || storedReason || enhanced.reason,
       editorialBrief: enhanced.editorialBrief || item.editorialBrief || null,
       llmEnhancedAt: now,
       llmProvider: enhanced.provider,

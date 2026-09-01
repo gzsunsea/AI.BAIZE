@@ -1,9 +1,17 @@
 const cheerio = require("cheerio");
 const { XMLParser } = require("fast-xml-parser");
-const { normalizeItem, stripHtml } = require("./scoring");
+const { isOriginalHttpUrl, normalizeItem, stripHtml } = require("./scoring");
 
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+let arxivNextRequestAt = 0;
+
+async function waitForArxivSlot(delayMs = 1500) {
+  const now = Date.now();
+  const waitMs = Math.max(0, arxivNextRequestAt - now);
+  arxivNextRequestAt = Math.max(now, arxivNextRequestAt) + delayMs;
+  if (waitMs) await new Promise((resolve) => setTimeout(resolve, waitMs));
+}
 
 function sourceMeta(source) {
   return {
@@ -96,6 +104,10 @@ function absolutizeUrl(url = "", base = "") {
   }
 }
 
+function isGenericMediaUrl(url = "") {
+  return /^https?:\/\/avatars\.githubusercontent\.com\//i.test(String(url));
+}
+
 function compactMedia(media = []) {
   const seen = new Set();
   return media
@@ -106,12 +118,68 @@ function compactMedia(media = []) {
       alt: asset.alt || "",
     }))
     .filter((asset) => /^https?:\/\//i.test(asset.url))
+    .filter((asset) => !isGenericMediaUrl(asset.url))
     .filter((asset) => {
       if (seen.has(asset.url)) return false;
       seen.add(asset.url);
       return true;
     })
     .slice(0, 3);
+}
+
+function externalUrlsFromHtml(html = "", base = "") {
+  const baseHost = (() => {
+    try {
+      return new URL(base).host;
+    } catch {
+      return "";
+    }
+  })();
+  const normalized = String(html).replaceAll("\\/", "/").replaceAll("\\u002F", "/");
+  return [...normalized.matchAll(/https?:\/\/[^\s"'<>\\)]+/g)]
+    .map((match) => match[0].replace(/&amp;/g, "&"))
+    .filter((url) => {
+      try {
+        const parsed = new URL(url);
+        if (baseHost && parsed.host === baseHost) return false;
+        if (/schema\.org|w3\.org|tailwindcss|cdn\./i.test(parsed.host)) return false;
+        return true;
+      } catch {
+        return false;
+      }
+    });
+}
+
+function preferredOriginalUrl(html = "", base = "") {
+  const urls = externalUrlsFromHtml(html, base).filter((url) => !/https?:\/\/beian\.miit\.gov\.cn\/?/i.test(url));
+  const statusUrl = urls.find((url) => /https?:\/\/(x|twitter)\.com\/[^"'\s<>\\]+\/status\//i.test(url));
+  if (statusUrl) return statusUrl;
+  return urls.find((url) => !/https?:\/\/(x|twitter)\.com\//i.test(url)) || "";
+}
+
+async function resolveAihotItemUrls(items = [], source = {}) {
+  const limit = Number(source.detailResolveLimit || 16);
+  let resolved = 0;
+  const base = source.url || "";
+  const timeoutMs = Number(source.detailTimeoutMs || 3500);
+  const output = [];
+  for (const item of items) {
+    let next = item;
+    const url = String(item.url || "");
+    if (!isOriginalHttpUrl(url) && resolved < limit && /^\/items\//.test(url)) {
+      resolved += 1;
+      try {
+        const detailUrl = absolutizeUrl(url, base);
+        const html = await fetchText(detailUrl, {}, timeoutMs);
+        const originalUrl = preferredOriginalUrl(html, base);
+        if (originalUrl) next = { ...item, url: originalUrl };
+      } catch {
+        next = item;
+      }
+    }
+    output.push(next);
+  }
+  return output;
 }
 
 function articleMediaFromHtml(html = "", base = "") {
@@ -198,77 +266,137 @@ async function scrapeWebList(source) {
   return items;
 }
 
+function findJsonArrayAfterMarker(text = "", marker = '"initialItems":') {
+  const start = text.indexOf(marker);
+  if (start < 0) return "";
+  const arrStart = text.indexOf("[", start + marker.length);
+  if (arrStart < 0) return "";
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = arrStart; index < text.length; index += 1) {
+    const char = text[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === "[") depth += 1;
+    if (char === "]") {
+      depth -= 1;
+      if (depth === 0) return text.slice(arrStart, index + 1);
+    }
+  }
+  return "";
+}
+
 function parseAihotJson(html) {
-  const marker = '"initialItems":';
-  const start = html.indexOf(marker);
-  if (start < 0) return [];
-  const arrStart = html.indexOf("[", start + marker.length);
-  const endMarker = ',"initialHasNext"';
-  const arrEnd = html.indexOf(endMarker, arrStart);
-  if (arrStart < 0 || arrEnd < 0) return [];
-  const raw = html.slice(arrStart, arrEnd);
-  return JSON.parse(raw);
+  const candidates = [
+    String(html || ""),
+    String(html || "")
+      .replace(/\\"/g, '"')
+      .replace(/\\u002F/g, "/")
+      .replace(/\\u0026/g, "&")
+      .replace(/\\n/g, " "),
+  ];
+  for (const candidate of candidates) {
+    const raw = findJsonArrayAfterMarker(candidate);
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      continue;
+    }
+  }
+  return [];
+}
+
+function normalizeAihotCard($, node, source) {
+  const card = $(node);
+  const isMobileRow = card.is(".m-row-wrap");
+  const link = isMobileRow
+    ? card.find(".m-row[href], a[href]").first()
+    : card.find(".timeline-title[href], .timeline-title a[href], a[href]").first();
+  const bodyText = isMobileRow
+    ? card.find(".m-row-title").first().text() || card.find(".m-row-summary").first().text()
+    : card.find(".timeline-title").text() || card.find(".uc-body, .uc-body-p").text() || card.find(".timeline-summary").text();
+  const title = bodyText.replace(/\s+/g, " ").trim();
+  const summary = (isMobileRow
+    ? card.find(".m-row-summary").first().text() || card.find(".m-row-reason-clamp").first().text()
+    : card.find(".timeline-summary").text() || card.find(".uc-quoted").text() || title)
+    .replace(/\s+/g, " ")
+    .trim();
+  const reason = (isMobileRow ? card.find(".m-row-reason-clamp").first().text() : card.find(".timeline-reason").text())
+    .replace("推荐理由：", "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const scoreText = isMobileRow ? card.find(".m-score").first().text() : card.find(".timeline-score").text();
+  const tagNodes = isMobileRow ? card.find(".m-row-tags .tag, .m-tag, .m-chip") : card.find(".timeline-tags .tag");
+  return normalizeItem({
+    url: link.attr("href"),
+    title: title.length > 96 ? `${title.slice(0, 96)}...` : title,
+    summary: summary || title,
+    sourceName: (isMobileRow ? card.find(".m-row-src").first().text() : card.find(".timeline-source").text()) || source.name,
+    sourceKind: "aihot",
+    ...sourceMeta(source),
+    publishedAt: new Date().toISOString(),
+    finalScore: Number(scoreText) || undefined,
+    tags: tagNodes
+      .toArray()
+      .map((tag) => $(tag).text().trim())
+      .filter(Boolean),
+    reason,
+    media: compactMedia([
+      ...card.find("img").toArray().map((img) => ({ url: $(img).attr("src") || $(img).attr("data-src"), type: "image", alt: $(img).attr("alt") || "" })),
+      ...card.find("video, video source").toArray().map((video) => ({ url: $(video).attr("src") || $(video).attr("poster"), thumbnail: $(video).attr("poster"), type: "video" })),
+    ]),
+  });
 }
 
 async function scrapeAihot(source) {
   const html = await fetchText(source.url, {}, fetchTimeout(source, 9000));
   const embedded = parseAihotJson(html);
   if (embedded.length) {
-    return embedded.map((item) =>
-      normalizeItem({
-        ...item,
-        sourceKind: "aihot",
-        sourceName: item.source?.name || "AIHOT 公开页",
-        ...sourceMeta(source),
-      }),
-    );
+    const items = embedded
+      .map((item) =>
+        normalizeItem({
+          ...item,
+          sourceKind: "aihot",
+          sourceName: item.source?.name || "AIHOT 公开页",
+          ...sourceMeta(source),
+        }),
+      );
+    return (await resolveAihotItemUrls(items, source)).filter((item) => isOriginalHttpUrl(item.url));
   }
 
   const $ = cheerio.load(html);
-  return $(".timeline-card")
+  const items = $(".timeline-card, .m-row-wrap")
     .toArray()
-    .map((node) => {
-      const card = $(node);
-      const bodyText = card.find(".timeline-title").text() || card.find(".uc-body, .uc-body-p").text() || card.find(".timeline-summary").text();
-      const title = bodyText.replace(/\s+/g, " ").trim();
-      const summary = card.find(".timeline-summary").text() || card.find(".uc-quoted").text() || title;
-      return normalizeItem({
-        url: card.find(".timeline-title").attr("href") || card.find("a[href]").first().attr("href"),
-        title: title.length > 96 ? `${title.slice(0, 96)}...` : title,
-        summary,
-        sourceName: card.find(".timeline-source").text() || source.name,
-        sourceKind: "aihot",
-        ...sourceMeta(source),
-        publishedAt: new Date().toISOString(),
-        finalScore: Number(card.find(".timeline-score").text()) || undefined,
-        tags: card
-          .find(".timeline-tags .tag")
-          .toArray()
-          .map((tag) => $(tag).text().trim())
-          .filter(Boolean),
-        reason: card.find(".timeline-reason").text().replace("推荐理由：", "").trim(),
-        media: compactMedia([
-          ...card.find("img").toArray().map((img) => ({ url: $(img).attr("src") || $(img).attr("data-src"), type: "image", alt: $(img).attr("alt") || "" })),
-          ...card.find("video, video source").toArray().map((video) => ({ url: $(video).attr("src") || $(video).attr("poster"), thumbnail: $(video).attr("poster"), type: "video" })),
-        ]),
-      });
-    });
+    .map((node) => normalizeAihotCard($, node, source))
+    .filter((item) => item.title && item.url);
+  return (await resolveAihotItemUrls(items, source)).filter((item) => isOriginalHttpUrl(item.url));
 }
 
 async function scrapeXReference(source) {
-  const html = await fetchText(source.url, {}, fetchTimeout(source, 9000));
-  const embedded = parseAihotJson(html);
-  return embedded
-    .map((item) =>
-      normalizeItem({
-        ...item,
-        sourceKind: "x",
-        sourceName: item.source?.name ? `X · ${item.source.name}` : "X 高价值聚合线索",
-        ...sourceMeta(source),
-        tags: [...new Set([...(item.tags || []), "X 高价值", "社交信号"])],
-      }),
-    )
-    .filter((item) => /https?:\/\/(x|twitter)\.com\//i.test(item.url || ""))
+  const items = await scrapeAihot(source);
+  return items
+    .filter((item) => /https?:\/\/(x|twitter)\.com\/[^"'\s<>\\]+\/status\//i.test(item.url || ""))
+    .map((item) => ({
+      ...item,
+      sourceKind: "x",
+      priorityTier: "preferred_x",
+      preferred: true,
+      tags: [...new Set([...(item.tags || []), "X 高价值", "社交信号"])].slice(0, 8),
+    }))
     .slice(0, source.limit || 40);
 }
 
@@ -310,6 +438,7 @@ async function scrapeGithub(source) {
 }
 
 async function scrapeArxiv(source) {
+  await waitForArxivSlot(Number(source.requestDelayMs || 1500));
   const xml = await fetchText(source.url, { accept: "application/atom+xml" }, fetchTimeout(source, 9000));
   const parser = new XMLParser({ ignoreAttributes: false });
   const data = parser.parse(xml);
@@ -350,7 +479,27 @@ async function scrapeDevto(source) {
 
 async function scrapeRss(source) {
   const xml = await fetchText(source.url, { accept: "application/rss+xml,application/xml" }, fetchTimeout(source, 9000));
-  return rssEntriesToItems(xml, source);
+  const items = rssEntriesToItems(xml, source);
+  if (!source.hydrateMedia || !Number(source.mediaHydrationLimit || 0)) return items;
+  const candidates = items
+    .filter((item) => !item.media?.length && isOriginalHttpUrl(item.url))
+    .slice(0, Math.max(0, Number(source.mediaHydrationLimit || 0)));
+  const concurrency = Math.max(1, Math.min(3, Number(source.mediaHydrationConcurrency || 2)));
+  const queue = [...candidates];
+  const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+    while (queue.length) {
+      const item = queue.shift();
+      try {
+        const html = await fetchText(item.url, {}, Number(source.articleTimeoutMs || 4500));
+        const media = articleMediaFromHtml(html, item.url);
+        if (media.length) item.media = media;
+      } catch {
+        // RSS remains usable when an article page blocks or times out.
+      }
+    }
+  });
+  await Promise.all(workers);
+  return items;
 }
 
 function feedEntriesFromXml(xml) {
@@ -422,14 +571,14 @@ function isHighValueXText(text = "") {
   return /AI|agent|LLM|model|OpenAI|Claude|Anthropic|DeepMind|Gemini|Hugging Face|benchmark|eval|research|paper|robot|education|edtech|culture|creative|copyright|模型|智能体|多模态|推理|教育|文化|艺术|版权|开源/i.test(text);
 }
 
-async function fetchFirstMirror(handle, mirrors = [], budget = { attempts: 0, maxAttempts: 8 }) {
+async function fetchFirstMirror(handle, mirrors = [], budget = { attempts: 0, maxAttempts: 8 }, timeoutMs = 2500) {
   const errors = [];
   for (const template of mirrors) {
     if (budget.attempts >= budget.maxAttempts) break;
     budget.attempts += 1;
     const url = template.replaceAll("{handle}", handle);
     try {
-      return { url, xml: await fetchText(url, { accept: "application/rss+xml,application/xml,text/xml,*/*" }, 4500) };
+      return { url, xml: await fetchText(url, { accept: "application/rss+xml,application/xml,text/xml,*/*" }, timeoutMs) };
     } catch (error) {
       errors.push(`${url}: ${error.message}`);
     }
@@ -438,14 +587,15 @@ async function fetchFirstMirror(handle, mirrors = [], budget = { attempts: 0, ma
 }
 
 async function scrapeXProfiles(source) {
-  const handles = (source.handles || []).slice(0, 12);
+  const handles = (source.handles || []).slice(0, Number(source.maxHandles || 28));
   const mirrors = source.mirrors?.length ? source.mirrors : [source.url || "https://twiiit.com/{handle}/rss"];
   const items = [];
   const errors = [];
-  const budget = { attempts: 0, maxAttempts: Number(source.maxAttempts || 8) };
+  const perHandleAttempts = Math.max(1, Number(source.perHandleMaxAttempts || source.maxAttempts || Math.min(3, mirrors.length || 1)));
+  const mirrorTimeoutMs = Number(source.mirrorTimeoutMs || 2500);
   for (const handle of handles) {
     try {
-      const { xml } = await fetchFirstMirror(handle, mirrors, budget);
+      const { xml } = await fetchFirstMirror(handle, mirrors, { attempts: 0, maxAttempts: perHandleAttempts }, mirrorTimeoutMs);
       const nextItems = rssEntriesToItems(xml, { ...source, limit: 8 }, {
         sourceName: `X · @${handle}`,
         sourceKind: "x",
@@ -455,7 +605,6 @@ async function scrapeXProfiles(source) {
     } catch (error) {
       errors.push(`@${handle}: ${error.message}`);
     }
-    if (budget.attempts >= budget.maxAttempts) break;
     if (items.length >= (source.limit || 36)) break;
   }
   if (!items.length && errors.length) throw new Error(errors.slice(0, 4).join(" || "));

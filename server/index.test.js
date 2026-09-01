@@ -1,13 +1,137 @@
 const assert = require("node:assert/strict");
+const { once } = require("node:events");
 const test = require("node:test");
 
 const {
+  app,
   buildDailyArchive,
   buildDailyDigest,
   collectDailyDigestItemKeys,
   dailyIssueMeta,
+  itemsResponse,
+  normalizeFeedback,
+  publicHotTopics,
+  publicItemDetail,
+  publicToday,
   selectCuratedItems,
 } = require("./index");
+
+test("feedback normalization keeps a bounded quality context and known kind", () => {
+  assert.deepEqual(normalizeFeedback({ message: " useful ", kind: "useful", itemId: " item-1 ", context: " /feed?x=1 ", page: " /item/item-1 " }, "feedback-1", "2026-08-31T04:00:00.000Z"), {
+    id: "feedback-1",
+    message: "useful",
+    contact: "",
+    page: "/item/item-1",
+    kind: "useful",
+    itemId: "item-1",
+    context: "/feed?x=1",
+    status: "open",
+    createdAt: "2026-08-31T04:00:00.000Z",
+  });
+  assert.equal(normalizeFeedback({ message: "noise", kind: "unknown" }, "feedback-2", "2026-08-31T04:00:00.000Z").kind, "general");
+});
+
+test("items API keeps direct search scoped, ranks full matches, and echoes search metadata", () => {
+  const item = (id, publishedAt, extra = {}) => ({
+    id,
+    url: `https://example.com/search-${id}`,
+    title: "AI release",
+    summary: "Product update",
+    sourceName: "Official",
+    sourceKind: "rss",
+    priorityTier: "official_first_party",
+    score: 99,
+    publishedAt,
+    tags: ["产品更新"],
+    ...extra,
+  });
+  const state = {
+    clusters: [],
+    settings: { rules: { selectedThreshold: 72 } },
+    items: [
+      item("newest-direct", "2026-08-17T09:00:00.000Z", { title: "Needle AI model release" }),
+      item("older-direct", "2026-08-16T09:00:00.000Z", { title: "Needle AI model archive" }),
+      item("full-top", "2026-08-15T09:00:00.000Z", { title: "Needle AI model details", editorialBrief: { fact: "needle" } }),
+      item("full-content", "2026-08-14T09:00:00.000Z", { title: "AI model release", content: "needle appears only in full text" }),
+    ],
+  };
+
+  const direct = itemsResponse({ mode: "all", q: "needle" }, state);
+  assert.deepEqual(direct.items.map((entry) => entry.id), ["newest-direct", "older-direct", "full-top"]);
+  assert.deepEqual(direct.search, { query: "needle", mode: "direct", sort: "published_desc" });
+
+  const full = itemsResponse({ mode: "all", q: "needle", searchMode: "full" }, state);
+  assert.deepEqual(full.items.map((entry) => entry.id), ["full-top", "newest-direct", "older-direct", "full-content"]);
+  assert.deepEqual(full.search, { query: "needle", mode: "full", sort: "relevance" });
+});
+
+test("items API applies copied category and sort state and durable item details stay allowlisted", () => {
+  const state = {
+    clusters: [],
+    settings: { rules: { selectedThreshold: 72 } },
+    items: [
+      { ...story("culture-new", "Needle culture AI", 50), category: "culture", publishedAt: "2026-08-18T00:00:00.000Z", sourceName: "Culture" },
+      { ...story("culture-ranked", "Needle culture model", 90), category: "culture", publishedAt: "2026-08-17T00:00:00.000Z", editorialBrief: { fact: "needle" }, sourceName: "Culture", hidden: false, raw: { secret: true } },
+      { ...story("education", "Needle education AI", 99), category: "education", publishedAt: "2026-08-19T00:00:00.000Z" },
+    ],
+  };
+  const result = itemsResponse({ mode: "all", q: "needle", searchMode: "full", category: "culture", sort: "relevance" }, state);
+  assert.deepEqual(result.items.map((item) => item.id), ["culture-ranked", "culture-new"]);
+  const detail = publicItemDetail(state, "culture-ranked");
+  assert.equal(detail.item.id, "culture-ranked");
+  assert.equal(Object.hasOwn(detail.item, "raw"), false);
+  assert.equal(publicItemDetail(state, "missing"), null);
+});
+
+test("public item detail derives related metadata only from public cluster members", () => {
+  const state = {
+    items: [
+      {
+        ...story("public", "Public item", 80),
+        sourceId: "public-source",
+        sourceName: "Public Source",
+      },
+      {
+        ...story("hidden", "Hidden item", 100),
+        sourceId: "hidden-source",
+        sourceName: "Hidden Secret Source",
+        hidden: true,
+      },
+    ],
+    clusters: [{
+      id: "mixed-cluster",
+      items: ["public", "hidden"],
+      size: 2,
+      sources: ["Public Source", "Hidden Secret Source"],
+      topScore: 100,
+    }],
+  };
+
+  const detail = publicItemDetail(state, "public");
+
+  assert.deepEqual(detail.item.related, {
+    count: 1,
+    sources: ["Public Source"],
+    topScore: 80,
+  });
+});
+
+test("public today response caps signals, excludes reference items, and strips raw fields", () => {
+  const result = publicToday({ limit: 5 }, {
+    settings: { rules: { selectedThreshold: 72 } },
+    items: [
+      { ...story("today-official", "Official AI model release", 90), publishedAt: new Date().toISOString() },
+      { ...story("today-reference", "Reference AI model copy", 99), priorityTier: "reference", sourceKind: "aihot", publishedAt: new Date().toISOString() },
+    ],
+    clusters: [{ id: "today-reference-event", items: ["today-reference"] }],
+  });
+
+  assert.equal(result.limit, 5);
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].representative.id, "today-official");
+  assert.equal(Object.hasOwn(result.items[0], "raw"), false);
+  assert.equal(Object.hasOwn(result.items[0].representative, "raw"), false);
+});
 
 function story(id, title, score = 99) {
   return {
@@ -84,9 +208,148 @@ test("curated feed limits a single source and prioritizes preferred sources", ()
   const dominantCount = selected.filter((item) => item.sourceId === "dominant-media").length;
   const preferredCount = selected.filter((item) => ["official_first_party", "expert_rss"].includes(item.priorityTier)).length;
 
-  assert.equal(selected.length, 26);
-  assert.equal(dominantCount, 6);
+  assert.equal(selected.length, 25);
+  assert.equal(dominantCount, 5);
   assert.equal(preferredCount, 20);
+});
+
+test("curated feed excludes items without original http links", () => {
+  const selected = selectCuratedItems([
+    {
+      ...story("internal-detail", "AIHOT mirrored item without original link"),
+      url: "/items/internal-detail",
+      score: 99,
+      priorityTier: "reference",
+      sourceKind: "aihot",
+    },
+    story("external-original", "OpenAI external original link", 88),
+  ], {
+    selectedFeedLimit: 20,
+    selectedPreferredShare: 0.6,
+  });
+
+  assert.deepEqual(selected.map((item) => item.id), ["external-original"]);
+});
+
+test("curated feed excludes unpinned reference items but preserves pinned exceptions", () => {
+  const selected = selectCuratedItems([
+    story("official-primary", "Official AI platform release", 88),
+    {
+      ...story("reference-unpinned", "Reference bridge copy of the same release", 96),
+      sourceName: "AIHOT 公开页",
+      sourceKind: "aihot",
+      priorityTier: "reference",
+    },
+    {
+      ...story("reference-pinned", "Pinned analyst note", 84),
+      sourceName: "AIHOT 公开页",
+      sourceKind: "aihot",
+      priorityTier: "reference",
+      pinned: true,
+    },
+  ], {
+    selectedFeedLimit: 20,
+    selectedPreferredShare: 0.6,
+  });
+
+  assert.deepEqual(selected.map((item) => item.id), ["reference-pinned", "official-primary"]);
+});
+
+test("selected API calibrates legacy 99 scores at read time for threshold and ordering", () => {
+  const publishedAt = new Date().toISOString();
+  const state = {
+    clusters: [],
+    settings: { rules: { selectedThreshold: 72, selectedFeedLimit: 20 } },
+    items: [
+      {
+        ...story("community-saturated", "AI agent model discussion", 99),
+        summary: "A community post about an AI agent model.",
+        sourceName: "Hacker News",
+        sourceKind: "hn",
+        sourceId: "hn",
+        priorityTier: "community_fallback",
+        publishedAt,
+      },
+      {
+        ...story("official-saturated", "OpenAI launches a new multimodal AI agent API", 99),
+        summary: "The official release documents the model, API, evals, deployment workflow, and developer migration guidance.",
+        sourceName: "OpenAI",
+        sourceId: "openai-news",
+        priorityTier: "official_first_party",
+        publishedAt,
+      },
+    ],
+  };
+
+  const result = itemsResponse({ mode: "selected", pageSize: 20 }, state);
+
+  assert.deepEqual(result.items.map((entry) => entry.id), ["official-saturated"]);
+  assert.equal(result.items[0].score, 99);
+});
+
+test("curated feed reserves slots for preferred X signals", () => {
+  const official = Array.from({ length: 24 }, (_, index) => ({
+    ...story(`official-x-quota-${index}`, `Official AI model release ${index}`, 99 - (index % 3)),
+    sourceId: `official-x-quota-${index}`,
+    sourceName: `Official ${index}`,
+    priorityTier: "official_first_party",
+  }));
+  const cnMedia = Array.from({ length: 24 }, (_, index) => ({
+    ...story(`cn-x-quota-${index}`, `Chinese AI model update ${index}`, 96 - (index % 3)),
+    sourceId: `cn-x-quota-${index}`,
+    sourceName: `CN Media ${index}`,
+    priorityTier: "cn_media",
+  }));
+  const xSignals = Array.from({ length: 8 }, (_, index) => ({
+    ...story(`x-signal-${index}`, `X expert AI agent signal ${index}`, 82 - (index % 2)),
+    sourceId: "x-ai-leaders",
+    sourceName: `X · @expert${index}`,
+    sourceKind: "x",
+    priorityTier: "preferred_x",
+  }));
+
+  const selected = selectCuratedItems([...official, ...cnMedia, ...xSignals], {
+    selectedFeedLimit: 20,
+    selectedSourceShare: 0.5,
+    selectedPreferredShare: 0.6,
+    selectedXShare: 0.25,
+    selectedCnMediaLimit: 20,
+  });
+
+  assert.equal(selected.filter((item) => item.priorityTier === "preferred_x").length, 5);
+  assert.equal(selected.slice(0, 8).filter((item) => item.priorityTier === "preferred_x").length, 2);
+});
+
+test("curated feed keeps reference-tier X status URLs out until they are explicitly promoted", () => {
+  const official = Array.from({ length: 24 }, (_, index) => ({
+    ...story(`official-x-url-${index}`, `Official AI model release ${index}`, 99 - (index % 3)),
+    sourceId: `official-x-url-${index}`,
+    sourceName: `Official ${index}`,
+    priorityTier: "official_first_party",
+  }));
+  const reference = Array.from({ length: 16 }, (_, index) => ({
+    ...story(`reference-x-url-${index}`, `Reference AI product signal ${index}`, 96 - (index % 3)),
+    sourceId: `reference-x-url-${index}`,
+    sourceName: `Reference ${index}`,
+    priorityTier: "reference",
+  }));
+  const xSignals = Array.from({ length: 6 }, (_, index) => ({
+    ...story(`x-url-signal-${index}`, `X expert AI agent signal ${index}`, 85),
+    url: `https://x.com/expert${index}/status/${1000 + index}`,
+    sourceId: "aihot-public",
+    sourceName: `Expert ${index}`,
+    sourceKind: "aihot",
+    priorityTier: "reference",
+  }));
+
+  const selected = selectCuratedItems([...official, ...reference, ...xSignals], {
+    selectedFeedLimit: 20,
+    selectedSourceShare: 0.5,
+    selectedPreferredShare: 0.6,
+    selectedXShare: 0.25,
+  });
+
+  assert.equal(selected.filter((item) => /https:\/\/x\.com\/.+\/status\//.test(item.url)).length, 0);
 });
 
 test("daily issue metadata distinguishes same-day midday and evening updates", () => {
@@ -121,4 +384,166 @@ test("daily archive preserves multiple issues from the same Shanghai day", () =>
 
   assert.deepEqual(archive.map((item) => item.issueTime), ["16:30", "13:00"]);
   assert.equal(new Set(archive.map((item) => item.id)).size, 2);
+});
+
+test("public experience endpoints expose hot topics, reports, and structured validation", async (t) => {
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => server.close());
+  await once(server, "listening");
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  const hotResponse = await fetch(`${base}/api/public/hot-topics`);
+  assert.equal(hotResponse.status, 200);
+  const hot = await hotResponse.json();
+  assert.equal(Array.isArray(hot.items), true);
+  assert.equal(typeof hot.generatedAt, "string");
+  const assertPublicItem = (item) => {
+    for (const field of ["hidden", "pinned", "priorityTier", "sourceId", "mpMeta", "raw", "canonicalUrl", "updatedAt"]) {
+      assert.equal(Object.hasOwn(item, field), false, `public item leaked ${field}`);
+    }
+  };
+  assert.ok(["confirmed", "candidate", "empty"].includes(hot.availability));
+  assert.equal(Array.isArray(hot.candidates), true);
+  for (const candidate of hot.candidates) {
+    assertPublicItem(candidate);
+    assert.equal(candidate.availability, "candidate");
+    assert.equal(candidate.status, "emerging");
+    assert.equal(Object.hasOwn(candidate, "duplicateSources"), false);
+    assert.equal(Object.hasOwn(candidate, "duplicateCount"), false);
+  }
+  for (const topic of hot.items) {
+    assertPublicItem(topic.representative);
+    topic.relatedItems.forEach(assertPublicItem);
+  }
+
+  const publicItemsResponse = await fetch(`${base}/api/public/items?mode=selected&page=1&pageSize=1`);
+  assert.equal(publicItemsResponse.status, 200);
+  const publicItems = await publicItemsResponse.json();
+  publicItems.items.forEach(assertPublicItem);
+
+  const hotListResponse = await fetch(`${base}/api/public/hot`);
+  assert.equal(hotListResponse.status, 200);
+  const hotList = await hotListResponse.json();
+  assert.equal(hotList.windowHours, 72);
+  assert.equal(Array.isArray(hotList.items), true);
+
+  if (hotList.items.length) {
+    const storyResponse = await fetch(`${base}/api/public/stories/${encodeURIComponent(hotList.items[0].id)}`);
+    assert.equal(storyResponse.status, 200);
+    const story = await storyResponse.json();
+    assert.equal(Array.isArray(story.timeline), true);
+    assertPublicItem(story.event.representative);
+    story.latestUpdates.forEach(assertPublicItem);
+    story.timeline.forEach(assertPublicItem);
+  }
+
+  hotList.items.forEach((topic) => {
+    assertPublicItem(topic.representative);
+    topic.relatedItems.forEach(assertPublicItem);
+  });
+
+  const missingStory = await fetch(`${base}/api/public/stories/missing-story-id`);
+  assert.equal(missingStory.status, 404);
+  assert.deepEqual(await missingStory.json(), { error: "story not found" });
+
+  const reportResponse = await fetch(`${base}/api/public/reports?period=weekly&date=2026-07-22`);
+  assert.equal(reportResponse.status, 200);
+  const report = await reportResponse.json();
+  assert.equal(report.period, "weekly");
+  assert.deepEqual(report.range, { start: "2026-07-20", end: "2026-07-26" });
+  assert.equal(typeof report.editorialSummary, "string");
+  assert.equal(Array.isArray(report.trendLines), true);
+  assert.equal(Array.isArray(report.watchItems), true);
+  for (const item of report.sections.flatMap((section) => section.items).concat(report.watchItems)) {
+    assertPublicItem(item);
+  }
+  for (const trend of report.trendLines) trend.sampleItems.forEach(assertPublicItem);
+
+  const trendsResponse = await fetch(`${base}/api/public/trends?period=weekly&date=2026-07-22`);
+  assert.equal(trendsResponse.status, 200);
+  const trends = await trendsResponse.json();
+  assert.equal(trends.period, "weekly");
+  assert.equal(Array.isArray(trends.items), true);
+  for (const trend of trends.items) trend.sampleItems.forEach(assertPublicItem);
+
+  const invalidResponse = await fetch(`${base}/api/public/reports?period=yearly&date=2026-07-22`);
+  assert.equal(invalidResponse.status, 400);
+  assert.deepEqual(await invalidResponse.json(), { error: "invalid period" });
+});
+
+test("public hot topics serialize emerging candidates without internal fields", () => {
+  const result = publicHotTopics({
+    settings: { rules: { selectedThreshold: 72 } },
+    items: [{
+      ...story("candidate", "Official AI model release", 90),
+      publishedAt: "2026-08-31T02:00:00.000Z",
+      sourceName: "Official AI",
+      raw: { secret: true },
+    }],
+    clusters: [],
+  });
+  assert.equal(result.availability, "candidate");
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].availability, "candidate");
+  assert.equal(Object.hasOwn(result.candidates[0], "raw"), false);
+  assert.equal(Object.hasOwn(result.candidates[0], "priorityTier"), false);
+});
+
+test("public hot and story APIs exclude hidden and non-public cluster evidence", async (t) => {
+  const publishedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const item = (id, eventId, sourceId, score, extra = {}) => ({
+    id,
+    eventId,
+    sourceId,
+    sourceName: sourceId,
+    title: `${eventId} ${id}`,
+    summary: `${eventId} summary`,
+    url: `https://example.com/${id}`,
+    score,
+    publishedAt,
+    priorityTier: "official_first_party",
+    ...extra,
+  });
+  const state = {
+    settings: { rules: { selectedThreshold: 70 } },
+    items: [
+      item("public-1", "event-public", "public-one", 90),
+      item("public-2", "event-public", "public-two", 89),
+      item("hidden-representative", "event-public", "private", 100, { hidden: true }),
+      item("invalid-representative", "event-public", "invalid", 99, { url: "javascript:alert(1)" }),
+      item("hidden-single-public", "event-hidden", "only-public", 90),
+      item("hidden-second-source", "event-hidden", "private-second", 99, { hidden: true }),
+      item("invalid-single-public", "event-invalid", "only-public", 90),
+      item("invalid-second-source", "event-invalid", "invalid-second", 99, { url: "/relative" }),
+    ],
+    clusters: [
+      { id: "event-public", items: ["hidden-representative", "invalid-representative", "public-1", "public-2"] },
+      { id: "event-hidden", items: ["hidden-single-public", "hidden-second-source"] },
+      { id: "event-invalid", items: ["invalid-single-public", "invalid-second-source"] },
+    ],
+  };
+  const previousReadState = app.locals.readState;
+  app.locals.readState = () => state;
+  t.after(() => { app.locals.readState = previousReadState; });
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => server.close());
+  await once(server, "listening");
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  const hotResponse = await fetch(`${base}/api/public/hot`);
+  assert.equal(hotResponse.status, 200);
+  const hot = await hotResponse.json();
+  assert.deepEqual(hot.items.map((topic) => topic.id), ["event-public"]);
+  assert.equal(hot.items[0].representative.id, "public-1");
+  assert.deepEqual(hot.items[0].relatedItems.map((entry) => entry.id), ["public-1", "public-2"]);
+  assert.deepEqual(hot.items[0].sources, ["public-one", "public-two"]);
+
+  const storyResponse = await fetch(`${base}/api/public/stories/event-public`);
+  assert.equal(storyResponse.status, 200);
+  const storyBody = await storyResponse.json();
+  assert.deepEqual(storyBody.timeline.map((entry) => entry.id), ["public-1", "public-2"]);
+  assert.equal((await fetch(`${base}/api/public/stories/event-hidden`)).status, 404);
+  assert.equal((await fetch(`${base}/api/public/stories/event-invalid`)).status, 404);
 });
