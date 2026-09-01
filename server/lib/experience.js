@@ -70,7 +70,7 @@ function normalizedSourceIdentity(value = "") {
 
 function sourceLedger(cluster = {}, relatedItems = [], representative = {}) {
   const entries = [
-    ...relatedItems.map((item) => ({ identity: item.sourceName || item.sourceId, name: item.sourceName || item.sourceId })),
+    ...relatedItems.map((item) => ({ identity: item.sourceId || item.sourceName, name: item.sourceName || item.sourceId })),
     ...(cluster.sources || []).map((name) => ({ identity: name, name })),
     ...(representative.duplicateSources || []).map((name) => ({ identity: name, name })),
   ].filter((entry) => entry.identity && entry.name && !/^AIHOT(?:\s*公开页)?$/i.test(String(entry.name)));
@@ -91,7 +91,7 @@ function buildEventLifecycle(items = [], now = Date.now(), persistedSources = []
   const firstSeenAt = new Date(Math.min(...dated.map(({ time }) => time))).toISOString();
   const lastUpdatedAt = new Date(Math.max(...dated.map(({ time }) => time))).toISOString();
   const sourceIds = new Set(dated
-    .map(({ item }) => String(item.sourceId || item.sourceName || "").trim().toLowerCase())
+    .map(({ item }) => normalizedSourceIdentity(item.sourceId || item.sourceName))
     .filter(Boolean));
   for (const source of persistedSources) {
     const identity = normalizedSourceIdentity(source);

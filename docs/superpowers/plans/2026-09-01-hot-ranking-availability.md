@@ -116,7 +116,7 @@ git commit -m "test: define available hot ranking behavior"
 
 **Interfaces:**
 - Consumes: `isPublicItem`, `isCuratedSourceAllowed`, `isSelectedFeedEligible`, `selectedRankingScore`, `evidenceMeta`, and existing `enrichItem` callback.
-- Produces: `buildHotTopics(state, options)` returning `{ generatedAt, windowHours, rules, availability, items, candidates }`.
+- Produces: `buildHotTopics(state, options)` returning `{ generatedAt, windowHours, rules, availability, items, candidates }`; candidates are item-shaped records with `availability: "candidate"` and `status: "emerging"`.
 
 - [ ] **Step 1: Add the source identity and candidate helpers**
 
@@ -243,7 +243,7 @@ git commit -m "feat: expose emerging hot candidates publicly"
 
 **Interfaces:**
 - Consumes: public hot API response fields.
-- Produces: `HotTopic`, `HotPageData`, and source-level contracts for candidate copy.
+- Produces: `HotTopic`, `HotCandidate`, `HotPageData`, and source-level contracts for candidate copy.
 
 - [ ] **Step 1: Add the failing client assertions**
 
@@ -265,17 +265,22 @@ Expected: FAIL because the page has no candidate section or fallback copy.
 
 - [ ] **Step 3: Extend the types**
 
-Add to `HotTopic`:
+Keep confirmed `HotTopic` unchanged and add:
 
 ```ts
-availability?: "candidate" | "confirmed";
+type HotCandidate = Item & {
+  availability: "candidate";
+  status: "emerging";
+  sourceCount: 1;
+  sources: string[];
+};
 ```
 
 Add to `HotPageData` in `src/components/hot/HotPage.tsx`:
 
 ```ts
 availability?: "confirmed" | "candidate" | "empty";
-candidates?: HotTopic[];
+candidates?: HotCandidate[];
 ```
 
 - [ ] **Step 4: Run typecheck after the type contract**
@@ -300,7 +305,7 @@ git commit -m "test: define hot candidate UI contract"
 - Test: `src/lib/experience.test.mts`
 
 **Interfaces:**
-- Consumes: `data.items`, `data.candidates`, `data.availability`, `onOpenStory`, and existing navigation callbacks.
+- Consumes: `data.items`, `data.candidates`, `data.availability`, `onOpenStory`, `onOpenItem`, `onOpenFeed`, and existing navigation callbacks.
 - Produces: a confirmed ranking, an emerging candidate list, and honest empty-state actions.
 
 - [ ] **Step 1: Render candidates without changing confirmed semantics**
@@ -318,7 +323,7 @@ const candidates = data?.candidates || [];
     <ol>
       {candidates.map((candidate) => (
         <li key={candidate.id}>
-          <a href={storyLocation(candidate.id)} onClick={(event) => { if (!shouldInterceptLinkClick(event)) return; event.preventDefault(); onOpenStory(candidate.id); }}>
+          <a href={itemLocation(candidate.id)} onClick={(event) => { if (!shouldInterceptLinkClick(event)) return; event.preventDefault(); onOpenItem(candidate); }}>
             <b className="hot-rank">待</b>
             <span className="hot-topic-copy">
               <strong>{candidate.title}</strong>

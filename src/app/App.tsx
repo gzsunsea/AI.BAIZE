@@ -750,7 +750,7 @@ export function App() {
         onThemeCycle={() => setThemeMode(themeMode === "dark" ? "light" : themeMode === "light" ? "auto" : "dark")}
       >
         {route.page === "hot" ? (
-          <HotPage data={hotPageData} loading={hotPageLoading} error={hotPageError} onOpenStory={(id) => navigate({ ...currentRoute(), page: "story", storyId: id })} onRetry={loadHotPage} />
+          <HotPage data={hotPageData} loading={hotPageLoading} error={hotPageError} onOpenStory={(id) => navigate({ ...currentRoute(), page: "story", storyId: id })} onOpenItem={openItem} onOpenFeed={() => switchMode("selected")} onRetry={loadHotPage} />
         ) : route.page === "story" ? (
           <StoryPage story={story} loading={storyLoading} error={storyError} notFound={storyNotFound} backLabel={storyBackLabel(history.state?.storyOrigin)} onBack={closeWorkspace} onOpenItem={openStoryItem} onRetry={() => {
             if (!route.storyId) return;

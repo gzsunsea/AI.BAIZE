@@ -226,9 +226,11 @@
   .hot-page-head { align-items: flex-start; flex-wrap: wrap; }
 
   .hot-ranking-list > li > a { grid-template-columns: 38px minmax(0, 1fr); gap: var(--space-3); padding: var(--space-3); }
+  .hot-candidate-list > li > a { grid-template-columns: 38px minmax(0, 1fr); gap: var(--space-3); padding: var(--space-3); }
   .hot-rank { font-size: 18px; }
   .hot-topic-signals { grid-column: 2; justify-items: start; grid-template-columns: auto auto; }
   .hot-topic-copy strong { font-size: 15px; }
+  .hot-section-head { align-items: flex-start; flex-direction: column; gap: 8px; }
   .hot-retry,
   .story-back { max-width: 100%; white-space: normal; }
 

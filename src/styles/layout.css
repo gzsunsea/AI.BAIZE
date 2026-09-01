@@ -175,6 +175,20 @@
 .hot-status { padding: 3px 7px; border: 1px solid var(--border); border-radius: 999px; font-size: 11px; font-style: normal; }
 .hot-status.new::before { content: "NEW · "; }
 .hot-status.active::before { content: "ONGOING · "; }
+.hot-status.emerging { color: var(--editorial); border-color: color-mix(in srgb, var(--editorial) 45%, var(--border)); }
+.hot-candidates { display: grid; gap: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border); }
+.hot-section-head { display: flex; align-items: end; justify-content: space-between; gap: var(--space-4); }
+.hot-section-head > div { min-width: 0; }
+.hot-section-head > div > span { color: var(--editorial); font-size: 10px; font-weight: 900; letter-spacing: .16em; }
+.hot-section-head h2 { margin: 5px 0 6px; font-family: ui-serif, "Songti SC", STSong, serif; font-size: clamp(24px, 3vw, 32px); line-height: 1.15; }
+.hot-section-head p { max-width: 680px; margin: 0; font-size: 13px; }
+.hot-section-head > b { flex: 0 0 auto; color: var(--editorial); font-size: 12px; }
+.hot-candidate-list { display: grid; gap: var(--space-2); min-width: 0; padding: 0; margin: 0; list-style: none; }
+.hot-candidate-list > li > a { display: grid; width: 100%; grid-template-columns: 54px minmax(0, 1fr) auto; align-items: center; gap: var(--space-4); padding: var(--space-4) var(--space-5); border: 1px solid color-mix(in srgb, var(--editorial) 24%, var(--border)); border-radius: var(--radius-md); color: var(--text); background: color-mix(in srgb, var(--editorial) 4%, var(--surface)); text-align: left; }
+.hot-candidate-list > li > a:hover { background: color-mix(in srgb, var(--editorial) 8%, var(--surface)); }
+.hot-evidence-gap { display: block; margin-top: 7px; color: var(--editorial); font-size: 12px; line-height: 1.5; }
+.hot-empty-compact { padding: var(--space-4); }
+.hot-empty .primary { justify-self: start; margin-top: var(--space-2); }
 .hot-loading,
 .hot-empty,
 .story-missing,
