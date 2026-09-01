@@ -350,7 +350,7 @@ test("hot topics require independent sources and order by evidence before score"
   assert.equal(result.items[1].representative.enriched, true);
 });
 
-test("a pinned item meeting the selected threshold can form a topic", () => {
+test("a pinned single-source item appears as an emerging candidate", () => {
   const item = signal("p1", "pinned", "official", 80, { pinned: true });
   const result = buildHotTopics({
     items: [item],
@@ -360,8 +360,10 @@ test("a pinned item meeting the selected threshold can form a topic", () => {
     selectedThreshold: 80,
   });
 
-  assert.equal(result.items.length, 1);
-  assert.equal(result.items[0].id, "pinned");
+  assert.equal(result.items.length, 0);
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].id, "p1");
+  assert.equal(result.candidates[0].availability, "candidate");
 });
 
 test("hot topics discard stale items and count duplicate source ids once", () => {
@@ -456,16 +458,23 @@ test("recognized priority tiers and fallback source tiers affect heat", () => {
       sourceTier: "community",
       priorityTier: "unknown-tier",
     }),
+    signal("fallback-second", "fallback", "fallback-second-source", 79, {
+      sourceTier: "community",
+      priorityTier: "unknown-tier",
+    }),
     signal("official", "official", "official-source", 80, {
       pinned: true,
+      priorityTier: "official_first_party",
+    }),
+    signal("official-second", "official", "official-second-source", 79, {
       priorityTier: "official_first_party",
     }),
   ];
   const result = buildHotTopics({
     items,
     clusters: [
-      { id: "fallback", items: ["fallback"] },
-      { id: "official", items: ["official"] },
+      { id: "fallback", items: ["fallback", "fallback-second"] },
+      { id: "official", items: ["official", "official-second"] },
     ],
   }, { now: "2026-07-22T04:00:00.000Z", selectedThreshold: 80 });
 
