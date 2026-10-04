@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { coverageLabel, creatorCardForItem, groupItemsByLocalDate, itemToMarkdown, reportToMarkdown, todayIssueSummary, todaySignalLabel, todaySignalSummary, topicForMode, topicRequestUrls } from "./experience.mts";
+import { coverageLabel, creatorCardForItem, groupItemsByLocalDate, itemToMarkdown, reportCoverImage, reportToMarkdown, todayIssueSummary, todaySignalLabel, todaySignalSummary, topicForMode, topicRequestUrls } from "./experience.mts";
 import { filterAndSortFeedItems } from "./feedSearch.mts";
 
 test("today signal copy prefers evidence label and creator value", () => {
@@ -99,6 +99,38 @@ test("report coverage copy distinguishes complete, partial, and empty periods", 
   assert.equal(coverageLabel({ complete: true, days: 7, requiredDays: 7, start: "2026-07-20", end: "2026-07-26" }), "7/7 天完整覆盖");
   assert.equal(coverageLabel({ complete: false, days: 2, requiredDays: 7, start: "2026-07-20", end: "2026-07-21" }), "覆盖 2/7 天 · 2026-07-20 至 2026-07-21");
   assert.equal(coverageLabel({ complete: false, days: 0, requiredDays: 7, start: null, end: null }), "当前周期暂无快照");
+});
+
+test("report cover image helper accepts images and prefers their thumbnail", () => {
+  const image = { type: "image", url: "https://example.com/full.jpg", thumbnail: "https://example.com/thumb.jpg" };
+  assert.deepEqual(reportCoverImage({ media: [image] } as never), { asset: image, src: image.thumbnail });
+  assert.deepEqual(reportCoverImage({ media: [{ type: "image", url: image.url }] } as never), {
+    asset: { type: "image", url: image.url },
+    src: image.url,
+  });
+  assert.equal(reportCoverImage({ media: [{ type: "video", thumbnail: "https://example.com/poster.jpg" }] } as never), null);
+  assert.equal(reportCoverImage({ media: [{ type: "image" }] } as never), null);
+});
+
+test("report cover story preserves the text lead and uses the safe image proxy", () => {
+  const source = readFileSync(new URL("../components/reports/ReportsWorkspace.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../styles/reports.css", import.meta.url), "utf8").replace(/\s+/g, " ");
+
+  assert.match(source, /report\.coverStory/);
+  assert.match(source, /本期代表稿/);
+  assert.match(source, /\/api\/media\?url=/);
+  assert.match(source, /src=\{mediaProxyUrl\(coverImage\.src\)\}/);
+  assert.doesNotMatch(source, /src=\{coverImage\.src\}/);
+  assert.match(source, /alt=\{coverImage\.asset\.alt \|\| item\.title\}/);
+  assert.match(source, /onOpen\(item\)/);
+  assert.match(source, /onError/);
+  assert.match(source, /currentTarget\.hidden = true/);
+  assert.match(source, /classList\.add\("without-image"\)/);
+  assert.match(source, /report-cover-story/);
+  assert.match(source, /report-lead[\s\S]*report\.coverStory[\s\S]*report-themes/);
+  assert.match(css, /\.report-cover-story/);
+  assert.match(css, /\.report-cover-story\.without-image/);
+  assert.match(css, /@media \(max-width: 720px\)[\s\S]*?\.report-cover-story \{/);
 });
 
 test("Markdown export contains editorial metadata without inventing full text", () => {
@@ -243,6 +275,16 @@ test("agent endpoint links do not expose the POST-only ask route as a GET link",
   assert.match(appSource, /\["问白泽（POST）", "\/openapi\.json"\]/);
 });
 
+test("Agent page describes MCP as default-off and lists only its public read tools", () => {
+  const appSource = readFileSync(new URL("../app/App.tsx", import.meta.url), "utf8");
+  const agentPage = appSource.slice(appSource.indexOf("function AgentPage()"), appSource.indexOf("function DailyHeader"));
+
+  assert.match(agentPage, /MCP（只读，默认关闭）/);
+  assert.match(agentPage, /未配置 MCP_ENABLED=true 时不可用/);
+  assert.match(agentPage, /精选动态、关键词搜索、热点主题、事件时间线、日报\/周报\/月报五类只读工具/);
+  assert.match(agentPage, /<code>\{origin\}\/mcp<\/code>/);
+});
+
 test("hot center and story pages retain their semantic editorial landmarks", () => {
   const hotSource = readFileSync(new URL("../components/hot/HotPage.tsx", import.meta.url), "utf8");
   const storySource = readFileSync(new URL("../components/hot/StoryPage.tsx", import.meta.url), "utf8");
@@ -265,6 +307,15 @@ test("hot center and story pages retain their semantic editorial landmarks", () 
   assert.match(feedSource, /热度 \{topic\.heat\}/);
   assert.match(storySource, /事件时间线/);
   assert.match(storySource, /<time/);
+});
+
+test("story page identifies its event summary as a single representative report", () => {
+  const storySource = readFileSync(new URL("../components/hot/StoryPage.tsx", import.meta.url), "utf8");
+
+  assert.match(storySource, /代表报道摘要/);
+  assert.match(storySource, /representative\.sourceName/);
+  assert.match(storySource, /时间线原文核验/);
+  assert.doesNotMatch(storySource, /AI 综述/);
 });
 
 test("reports and story pages surface the editorial trend and lifecycle contracts", () => {

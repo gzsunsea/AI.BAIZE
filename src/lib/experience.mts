@@ -140,6 +140,11 @@ export function coverageLabel(coverage: { complete: boolean; days: number; requi
   return `覆盖 ${coverage.days}/${coverage.requiredDays} 天 · ${coverage.start} 至 ${coverage.end}`;
 }
 
+export function reportCoverImage(item: Pick<Item, "media">) {
+  const asset = item.media?.find((candidate) => candidate.type === "image" && Boolean(candidate.thumbnail || candidate.url));
+  return asset ? { asset, src: asset.thumbnail || asset.url || "" } : null;
+}
+
 export function itemToMarkdown(item: Item) {
   const brief = item.editorialBrief || {};
   const sections: string[] = [

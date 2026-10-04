@@ -41,6 +41,50 @@ test("today signals return at most five recent curated representative events", (
   assert.match(result.selectionNote, /信源质量/);
 });
 
+test("today signals prefer the first-party representative without demoting event rank or dropping coverage", () => {
+  const now = new Date();
+  const publishedAt = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+  const items = [
+    signal("event-a-official", "event-a", "official", 88, {
+      priorityTier: "official_first_party",
+      title: "Official AI model launch",
+      summary: "The model maker officially announced a new AI model and API release.",
+      publishedAt,
+    }),
+    signal("event-a-media", "event-a", "media", 94, {
+      priorityTier: "expert_rss",
+      preferred: true,
+      title: "Media analysis of the AI model launch",
+      summary: "A report analyzes the newly announced AI model and its API capabilities.",
+      publishedAt,
+    }),
+    signal("event-b-one", "event-b", "source-one", 94, {
+      priorityTier: "expert_rss",
+      title: "Expert analysis of AI agent deployment",
+      summary: "An expert examines how a new AI agent handles long-running deployment tasks.",
+      publishedAt,
+    }),
+    signal("event-b-two", "event-b", "source-two", 94, {
+      priorityTier: "expert_rss",
+      title: "AI agent deployment update",
+      summary: "A report covers a new AI agent deployment and its workflow integrations.",
+      publishedAt,
+    }),
+  ];
+  const result = buildTodaySignals({
+    items,
+    clusters: [
+      { id: "event-a", items: ["event-a-official", "event-a-media"] },
+      { id: "event-b", items: ["event-b-one", "event-b-two"] },
+    ],
+  }, { now, selectedThreshold: 72, limit: 5 });
+
+  assert.deepEqual(result.items.map((item) => item.id), ["event-a", "event-b"]);
+  assert.equal(result.items[0].representative.id, "event-a-official");
+  assert.deepEqual(result.items[0].relatedItems.map((item) => item.id).sort(), ["event-a-media", "event-a-official"]);
+  assert.equal(result.items[0].sourceCount, 2);
+});
+
 test("today issue metadata reports an honest empty state", () => {
   const result = buildTodaySignals({ items: [], clusters: [], settings: { rules: { selectedThreshold: 72 } } }, { now: "2026-08-28T04:00:00.000Z", limit: 5 });
   assert.equal(result.issueLabel, "今日暂无可用信号");
@@ -187,9 +231,9 @@ test("hot topics expose selected single-source candidates without calling them c
     publishedAt: "2026-08-31T02:00:00.000Z",
     priorityTier: "official_first_party",
   });
-  const result = buildHotTopics({ items: [item], clusters: [], settings: { rules: { selectedThreshold: 72 } } }, {
+  const result = buildHotTopics({ items: [item], clusters: [], settings: { rules: { selectedThreshold: 60 } } }, {
     now: "2026-08-31T04:00:00.000Z",
-    selectedThreshold: 72,
+    selectedThreshold: 60,
   });
   assert.equal(result.items.length, 0);
   assert.equal(result.candidates.length, 1);
@@ -246,6 +290,197 @@ test("story detail returns newest updates first and null for unknown ids", () =>
   assert.deepEqual(story.timeline.map((item) => item.id), ["new", "old"]);
   assert.equal(story.latestUpdates[0].id, "new");
   assert.equal(buildStory(state, "missing", {}), null);
+});
+
+test("story exposes strict related-event candidates separately from confirmed evidence", () => {
+  const anchor = signal("anchor-one", "event-confirmed", "Claude Devs", 92, {
+    title: "Claude Code will gracefully stop when the five-hour limit is reached",
+    priorityTier: "preferred_x",
+    publishedAt: "2026-08-17T03:00:00.000Z",
+  });
+  const confirming = signal("anchor-two", "event-confirmed", "Simon Willison", 88, {
+    title: "Claude Code will gracefully stop when the five-hour limit is reached",
+    priorityTier: "expert_rss",
+    publishedAt: "2026-08-17T02:00:00.000Z",
+  });
+  const related = signal("related-candidate", "event-unconfirmed", "IT之家 AI", 82, {
+    title: "Claude Code 启用新机制：任务中途触发5小时上限后改为寻找合适收尾点",
+    priorityTier: "cn_media",
+    publishedAt: "2026-08-17T03:30:00.000Z",
+  });
+  const unrelated = signal("unrelated-update", "event-unrelated", "Claude Code Releases", 84, {
+    title: "Claude Code Releases v2.1.283: fixes terminal redraw behavior",
+    priorityTier: "official_first_party",
+    publishedAt: "2026-08-17T03:40:00.000Z",
+  });
+  const hidden = signal("hidden-match", "event-hidden", "Hidden Source", 99, {
+    title: related.title,
+    priorityTier: "expert_rss",
+    hidden: true,
+    publishedAt: "2026-08-17T03:35:00.000Z",
+  });
+  const stale = signal("stale-match", "event-stale", "Old Source", 99, {
+    title: related.title,
+    priorityTier: "expert_rss",
+    publishedAt: "2026-08-10T03:00:00.000Z",
+  });
+  const state = {
+    items: [anchor, confirming, related, unrelated, hidden, stale],
+    clusters: [{ id: "event-confirmed", items: [anchor.id, confirming.id] }],
+  };
+  const now = "2026-08-17T04:00:00.000Z";
+
+  const story = buildStory(state, "event-confirmed", { now });
+  const hot = buildHotTopics(state, { now });
+
+  assert.deepEqual(story.relatedCandidates.map((candidate) => candidate.item.id), [related.id]);
+  assert.match(story.relatedCandidates[0].reason, /尚未确认/);
+  assert.equal(story.event.sourceCount, 2);
+  assert.equal(story.event.heat, hot.items[0].heat);
+  assert.equal(Object.hasOwn(story.event, "relatedCandidates"), false);
+});
+
+test("story surfaces the September DNS sandbox training-pause match without merging the July Hugging Face incident", () => {
+  const now = "2026-09-27T01:00:00.000Z";
+  const anchor = signal("openai-pause-anchor", "event-confirmed", "IT之家（RSS）", 92, {
+    title: "OpenAI 因多起模型失控事件暂停最强模型训练",
+    summary: "OpenAI 在多起模型行为失控报告增加后，暂停了旗下能力最强模型的训练。9 月 20 日一款沙盒测试中的模型利用漏洞获得互联网访问权限，截至 9 月 25 日所有涉及工具使用的训练、评估和推理工作仍处暂停状态。",
+    priorityTier: "cn_media",
+    publishedAt: "2026-09-26T22:52:43.000Z",
+  });
+  const confirming = signal("openai-pause-confirming", "event-confirmed", "OpenAI Alignment", 90, {
+    title: "An agent used DNS to reach an external chatbot",
+    summary: "An agent queried a public chatbot through insufficient DNS filtering in its training sandbox on Sep 20. All training, evaluation, and inference with tool-use remain paused.",
+    priorityTier: "official_first_party",
+    publishedAt: "2026-09-26T22:45:00.000Z",
+  });
+  const related = signal("openai-pause-related", "event-unconfirmed", "The Verge：AI（RSS）", 84, {
+    title: "OpenAI 暂停其最强模型的训练，此前沙盒中的模型利用漏洞接入互联网",
+    summary: "OpenAI 在沙盒测试中的模型于 9 月 20 日利用漏洞接入互联网后，决定暂停其最强模型训练，截至 9 月 25 日晚所有涉及工具使用的训练、评估和推理仍处暂停状态。",
+    priorityTier: "expert_rss",
+    publishedAt: "2026-09-26T16:34:59.000Z",
+  });
+  const previous = signal("openai-july-hf", "event-old", "July Security Report", 86, {
+    title: "OpenAI AI 智能体突破沙箱并入侵 Hugging Face",
+    summary: "7 月 20 日数千个 AI 智能体突破沙盒并攻击 Hugging Face，OpenAI 随后暂停强化学习训练两周。",
+    priorityTier: "expert_rss",
+    publishedAt: "2026-09-26T23:10:00.000Z",
+  });
+  const story = buildStory({
+    items: [anchor, confirming, related, previous],
+    clusters: [{ id: "event-confirmed", items: [anchor.id, confirming.id] }],
+  }, "event-confirmed", { now });
+
+  assert.deepEqual(story.relatedCandidates.map((candidate) => candidate.item.id), [related.id]);
+  assert.equal(story.relatedCandidates[0].eventType, "sandbox_escape_training_pause");
+});
+
+test("story surfaces named product-release matches as unconfirmed candidates without crossing event boundaries", () => {
+  const now = "2026-09-27T01:00:00.000Z";
+  const perplexityAnchor = signal("perplexity-anchor", "perplexity-amd", "Perplexity Blog", 94, {
+    title: "Portable Computer comes to AMD-powered agentic PCs",
+    summary: "Perplexity expands Portable Computer to AMD Ryzen AI Max systems.",
+    priorityTier: "official_first_party",
+    publishedAt: "2026-09-26T22:00:00.000Z",
+  });
+  const perplexityConfirming = signal("perplexity-confirming", "perplexity-amd", "Perplexity News", 90, {
+    title: "Perplexity Portable Computer AMD support is now available",
+    summary: "Portable Computer on AMD Ryzen AI Max processors is available today.",
+    priorityTier: "official_first_party",
+    publishedAt: "2026-09-26T21:30:00.000Z",
+  });
+  const perplexityCandidate = signal("perplexity-candidate", "perplexity-amd-unconfirmed", "Perplexity X", 86, {
+    title: "Perplexity 推出 Windows 便携电脑",
+    summary: "Portable Computer 现已在 AMD Ryzen AI Max 系列处理器上推出，可在本地运行 AI 智能体。",
+    priorityTier: "preferred_x",
+    publishedAt: "2026-09-26T23:00:00.000Z",
+  });
+  const perplexityNegative = signal("perplexity-negative", "perplexity-linux", "Perplexity Linux", 84, {
+    title: "Perplexity Portable Computer adds Linux RTX support",
+    summary: "Portable Computer is now available for Linux PCs with supported NVIDIA RTX GPUs.",
+    priorityTier: "official_first_party",
+    publishedAt: "2026-09-26T22:30:00.000Z",
+  });
+  const odysseyAnchor = signal("odyssey-anchor", "odyssey-agora-2", "Odyssey Blog", 94, {
+    title: "Introducing Agora-2: Advancing Multi-Agent World Simulation",
+    summary: "Agora-2 supports up to 20 humans and agents in a shared interactive world.",
+    priorityTier: "official_first_party",
+    publishedAt: "2026-09-26T20:00:00.000Z",
+  });
+  const odysseyConfirming = signal("odyssey-confirming", "odyssey-agora-2", "Odyssey News", 90, {
+    title: "Odyssey releases Agora-2 multi-agent world model",
+    summary: "Agora-2 is a playable research preview for up to 20 humans and agents.",
+    priorityTier: "official_first_party",
+    publishedAt: "2026-09-26T19:30:00.000Z",
+  });
+  const odysseyCandidate = signal("odyssey-candidate", "odyssey-agora-2-unconfirmed", "Odyssey X", 86, {
+    title: "Odyssey 发布多智能体世界模型 Agora-2，支持最多 20 个人类与智能体实时共享模拟环境",
+    priorityTier: "preferred_x",
+    publishedAt: "2026-09-26T23:30:00.000Z",
+  });
+  const odysseyNegative = signal("odyssey-negative", "odyssey-3", "Odyssey-3 News", 84, {
+    title: "Odyssey launches Odyssey-3, a single-agent world model",
+    priorityTier: "expert_rss",
+    publishedAt: "2026-09-26T22:30:00.000Z",
+  });
+  const state = {
+    items: [
+      perplexityAnchor, perplexityConfirming, perplexityCandidate, perplexityNegative,
+      odysseyAnchor, odysseyConfirming, odysseyCandidate, odysseyNegative,
+    ],
+    clusters: [
+      { id: "perplexity-amd", items: [perplexityAnchor.id, perplexityConfirming.id] },
+      { id: "odyssey-agora-2", items: [odysseyAnchor.id, odysseyConfirming.id] },
+    ],
+  };
+  const perplexityStory = buildStory(state, "perplexity-amd", { now });
+  const odysseyStory = buildStory(state, "odyssey-agora-2", { now });
+
+  assert.deepEqual(perplexityStory.timeline.map((item) => item.id), [perplexityAnchor.id, perplexityConfirming.id]);
+  assert.deepEqual(perplexityStory.relatedCandidates.map((candidate) => candidate.item.id), [perplexityCandidate.id]);
+  assert.equal(perplexityStory.relatedCandidates[0].eventType, "perplexity_portable_computer_amd_support");
+  assert.match(perplexityStory.relatedCandidates[0].reason, /尚未确认/);
+  assert.deepEqual(odysseyStory.timeline.map((item) => item.id), [odysseyAnchor.id, odysseyConfirming.id]);
+  assert.deepEqual(odysseyStory.relatedCandidates.map((candidate) => candidate.item.id), [odysseyCandidate.id]);
+  assert.equal(odysseyStory.relatedCandidates[0].eventType, "odyssey_agora_2_release");
+  assert.match(odysseyStory.relatedCandidates[0].reason, /尚未确认/);
+});
+
+test("reports keep related cross-language candidates separate until an event is confirmed", () => {
+  const anchor = signal("anchor-en", "event-english", "Claude Devs", 92, {
+    title: "Claude Code will gracefully stop when the five-hour limit is reached",
+    priorityTier: "preferred_x",
+    publishedAt: "2026-08-17T03:00:00.000Z",
+  });
+  const confirming = signal("anchor-confirming", "event-confirmed", "Simon Willison", 88, {
+    title: "Claude Code will gracefully stop when the five-hour limit is reached",
+    priorityTier: "expert_rss",
+    publishedAt: "2026-08-17T02:00:00.000Z",
+  });
+  const candidate = signal("candidate-zh", "event-chinese", "IT之家 AI", 82, {
+    title: "Claude Code 启用新机制：任务中途触发5小时上限后改为寻找合适收尾点",
+    priorityTier: "cn_media",
+    publishedAt: "2026-08-17T03:30:00.000Z",
+  });
+  const story = buildStory({
+    items: [anchor, confirming, candidate],
+    clusters: [{ id: "event-confirmed", items: [anchor.id, confirming.id] }],
+  }, "event-confirmed", { now: "2026-08-17T04:00:00.000Z" });
+  const digestItems = [anchor, candidate].map(({ id, eventId, title, publishedAt, score, tags }) => ({
+    id,
+    eventId,
+    title,
+    publishedAt,
+    score,
+    tags,
+  }));
+  const report = buildReport({
+    dailyDigests: [digest("2026-08-17T04:00:00.000Z", digestItems)],
+  }, { period: "daily", date: "2026-08-17", now: "2026-08-17T05:00:00.000Z" });
+
+  assert.deepEqual(story.relatedCandidates.map((related) => related.item.id), [candidate.id]);
+  assert.equal(report.storyCount, 2);
+  assert.deepEqual(report.sections[0].items.map((item) => item.eventId), ["event-english", "event-chinese"]);
 });
 
 test("story lifecycle distinguishes emerging, confirmed, developing, and stale events", () => {
@@ -319,6 +554,7 @@ test("reports exclude reference-only material from public editorial sections and
     }],
   }, { period: "weekly", date: "2026-08-30", now: "2026-08-31T04:00:00.000Z" });
   assert.deepEqual(report.sections.flatMap((section) => section.items).map((item) => item.id), ["official"]);
+  assert.equal(report.coverStory.id, "official");
   assert.deepEqual(report.trendLines[0].sampleItems.map((item) => item.id), ["official"]);
 });
 
@@ -594,6 +830,70 @@ test("report cover uses a concise issue headline instead of the longest lead sto
   assert.notEqual(report.headline, longTitle);
 });
 
+test("reports choose a deterministic representative from final sections without reordering them", () => {
+  const regular = signal("regular", "event-regular", "expert", 99, {
+    priorityTier: "expert_rss",
+    publishedAt: "2026-07-22T03:00:00.000Z",
+  });
+  const pinned = signal("pinned", "event-pinned", "community", 60, {
+    pinned: true,
+    priorityTier: "community_fallback",
+    publishedAt: "2026-07-22T02:00:00.000Z",
+  });
+  const report = buildReport({ dailyDigests: [{
+    generatedAt: "2026-07-22T04:00:00.000Z",
+    sections: [
+      { key: "model", title: "模型", items: [regular] },
+      { key: "product", title: "产品", items: [pinned] },
+    ],
+  }] }, {
+    period: "daily",
+    date: "2026-07-22",
+    now: "2026-07-22T12:00:00.000Z",
+  });
+
+  assert.equal(report.coverStory.id, "pinned");
+  assert.deepEqual(report.sections.map((section) => [section.key, section.items.map(({ id }) => id)]), [
+    ["model", ["regular"]],
+    ["product", ["pinned"]],
+  ]);
+  assert.equal(report.storyCount, 2);
+  assert.equal(report.headline, "今日值得关注的 2 条 AI 动态");
+});
+
+test("report cover story resolves exact ranking ties by stable item ID", () => {
+  const z = signal("z-tie", "event-z", "official", 80, {
+    priorityTier: "official_first_party",
+    publishedAt: "2026-07-22T01:00:00.000Z",
+    title: "Stable AI model announcement",
+    summary: "The official announcement describes an AI model release.",
+  });
+  const a = signal("a-tie", "event-a", "official", 80, {
+    priorityTier: "official_first_party",
+    publishedAt: "2026-07-22T01:00:00.000Z",
+    title: "Stable AI model announcement",
+    summary: "The official announcement describes an AI model release.",
+  });
+  const report = buildReport({ dailyDigests: [digest("2026-07-22T04:00:00.000Z", [z, a])] }, {
+    period: "daily",
+    date: "2026-07-22",
+    now: "2026-07-22T12:00:00.000Z",
+  });
+
+  assert.deepEqual(report.sections[0].items.map(({ id }) => id), ["z-tie", "a-tie"]);
+  assert.equal(report.coverStory.id, "a-tie");
+});
+
+test("reports without visible stories have a null cover story", () => {
+  const report = buildReport({}, {
+    period: "daily",
+    date: "2026-07-22",
+    now: "2026-07-22T12:00:00.000Z",
+  });
+
+  assert.equal(report.coverStory, null);
+});
+
 test("monthly reports keep a bounded set of the highest-scoring stories per section", () => {
   const dailyDigests = Array.from({ length: 25 }, (_, index) => digest(
     `2026-07-${String(index + 1).padStart(2, "0")}T04:00:00.000Z`,
@@ -608,4 +908,5 @@ test("monthly reports keep a bounded set of the highest-scoring stories per sect
 
   assert.equal(report.storyCount, 18);
   assert.deepEqual(report.sections[0].items.map((item) => item.id), Array.from({ length: 18 }, (_, index) => `story-${index}`));
+  assert.ok(report.sections[0].items.some((item) => item.id === report.coverStory.id));
 });

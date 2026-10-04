@@ -1051,6 +1051,12 @@ function AgentPage() {
             <code>{origin}{path}</code>
           </a>
         ))}
+        <div className="agent-card">
+          <strong>MCP（只读，默认关闭）</strong>
+          <p>当前环境未配置 MCP_ENABLED=true 时不可用；启用还需配置 Host 白名单，本次代码变更不会自动启用或部署。</p>
+          <p>仅提供精选动态、关键词搜索、热点主题、事件时间线、日报/周报/月报五类只读工具。</p>
+          <code>{origin}/mcp</code>
+        </div>
       </div>
       <section className="agent-panel">
         <h2>常用端点</h2>

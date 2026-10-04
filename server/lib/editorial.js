@@ -1,4 +1,4 @@
-const { editorialReasonFor } = require("./scoring");
+const { editorialReasonFor, isCuratedSourceAllowed } = require("./scoring");
 
 function textOf(item) {
   return `${item.sourceName || ""} ${item.sourceKind || ""} ${item.url || ""} ${item.title || ""} ${item.summary || ""} ${(item.tags || []).join(" ")}`;
@@ -6,6 +6,15 @@ function textOf(item) {
 
 function tierOf(item = {}) {
   return item.priorityTier || item.sourceTier || item.tier || "";
+}
+
+function sourceIdentity(item = {}) {
+  const value = typeof item === "string" ? item : item.sourceName || item.sourceId || "";
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[（(]\s*rss\s*[)）]/gi, "")
+    .replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
 function sourceChannel(item) {
@@ -70,9 +79,18 @@ function channelLabel(channel) {
 
 function evidenceMeta(item = {}, relatedItems = []) {
   const members = [item, ...(Array.isArray(relatedItems) ? relatedItems : [])];
-  const identities = new Set(members
-    .map((member) => String(member?.sourceId || member?.sourceName || "").trim().toLowerCase())
-    .filter(Boolean));
+  const identities = new Set();
+  for (const member of members) {
+    if (isCuratedSourceAllowed(member)) {
+      const identity = sourceIdentity(member);
+      if (identity) identities.add(identity);
+    }
+    for (const source of [...(member.relatedCoverage || []), ...(member.related?.coverage || [])]) {
+      if (!isCuratedSourceAllowed(source)) continue;
+      const identity = sourceIdentity(source);
+      if (identity) identities.add(identity);
+    }
+  }
   const tier = tierOf(item).toLowerCase();
   const sourceCount = identities.size;
   let evidenceLevel = "single_source";
@@ -190,6 +208,7 @@ function attachRelated(items, clusters = []) {
       related: {
         count: Math.max(cluster?.size || 0, 1) + (cluster?.duplicateCount || item.duplicateCount || 0),
         sources: cluster?.sources || item.duplicateSources || [],
+        coverage: cluster?.coverage || item.relatedCoverage || [],
         topScore: cluster?.topScore || item.score,
       },
     };
@@ -205,6 +224,7 @@ module.exports = {
   itemCategory,
   mpMetrics,
   scoreBreakdown,
+  sourceIdentity,
   serializePublicItem,
   sourceChannel,
 };

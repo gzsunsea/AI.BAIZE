@@ -1,3 +1,5 @@
+const { titleFingerprint } = require("./contentIdentity");
+
 const AI_KEYWORDS = [
   "ai",
   "artificial intelligence",
@@ -195,10 +197,18 @@ function isCoreAiCandidate(item = {}) {
   return isAiInfraCandidate(item);
 }
 
+function isAiCopyrightTrainingCandidate(item = {}) {
+  const text = itemText(item);
+  const copyrightMaterialUsedForTraining = /(?:盗版|未经授权|侵权|copyrighted|pirated|unauthorized).{0,40}(?:书籍|图书|作品|图片|内容|数据(?:集)?|books?|works?|images?|content|data).{0,35}(?:训练|train(?:ing|ed)?|pre[- ]?training)|(?:训练|train(?:ing|ed)?|pre[- ]?training).{0,50}(?:盗版|未经授权|侵权|copyrighted|pirated|unauthorized).{0,40}(?:书籍|图书|作品|图片|内容|数据(?:集)?|books?|works?|images?|content|data)/iu.test(text);
+  const denial = /\b(?:did not|didn't|does not|doesn't|has not|hasn't|never|without)\s+(?:use|using|train|trained|training)\b|\b(?:deny|denies|denied)\s+(?:using|use|training|train)\b|(?:并未|没有|未曾|不曾|不会|不使用|未使用).{0,50}(?:盗版|未经授权|侵权|copyrighted|pirated|unauthorized|版权|著作权|训练|training)|(?:盗版|未经授权|侵权|copyrighted|pirated|unauthorized|版权|著作权).{0,50}(?:并未|没有|未曾|不曾|不会|不使用|未使用)/iu.test(text);
+  return isCoreAiCandidate(item) && copyrightMaterialUsedForTraining && !denial;
+}
+
 function isWeakIndustryCandidate(item = {}) {
   const text = itemText(item);
   const title = item.title || "";
   if (!WEAK_INDUSTRY_RE.test(text)) return false;
+  if (isAiCopyrightTrainingCandidate(item)) return false;
   if (/CEO|高管|董事长|总裁|黄仁勋|创始人/i.test(title) && !/发布|推出|开源|更新|接入|支持|可用|release|launch|模型发布/i.test(title)) return true;
   const coreActionInTitle = /发布|推出|上线|开源|更新|接入|支持|可用|preview|available|release|launch|模型发布|API|SDK|工具|平台|论文|研究|benchmark|eval|inference|training|训练|推理|Agent|智能体|Copilot|Codex|Claude Code|Grok/i.test(title);
   if (WEAK_INDUSTRY_RE.test(title) && !coreActionInTitle) return true;
@@ -231,7 +241,8 @@ function isNoiseCandidate(item = {}) {
 
 function qualityClass(item = {}) {
   if (isNoiseCandidate(item)) return "noise";
-  if (isWeakIndustryCandidate(item) || (AI_ENTITY_RE.test(itemText(item)) && WEAK_INDUSTRY_RE.test(itemText(item)))) return "industry_weak";
+  const broadWeakIndustry = AI_ENTITY_RE.test(itemText(item)) && WEAK_INDUSTRY_RE.test(itemText(item));
+  if ((isWeakIndustryCandidate(item) || broadWeakIndustry) && !isAiCopyrightTrainingCandidate(item)) return "industry_weak";
   if (isCoreAiCandidate(item)) return isAiInfraCandidate(item) && !CORE_AI_RE.test(itemText(item)) ? "ai_infra" : "core_ai";
   return "noise";
 }
@@ -299,11 +310,21 @@ function blendScore(internalScore, externalScore) {
 
 function selectionConfirmationCount(item = {}) {
   const currentSource = String(item.sourceName || "").trim().toLowerCase();
-  const independentSources = new Set((item.duplicateSources || [])
-    .map((source) => String(source || "").trim().toLowerCase())
-    .filter(Boolean)
-    .filter((source) => !currentSource || source !== currentSource));
-  return independentSources.size;
+  if (Array.isArray(item.relatedCoverage) && item.relatedCoverage.length) {
+    const currentUrl = stableUrlKey(item.url);
+    const currentTitleFingerprint = item.titleFingerprint || titleFingerprint(item.title);
+    const independentSources = new Set(item.relatedCoverage
+      .filter((source) => String(source.sourceName || "").trim().toLowerCase() !== currentSource)
+      .filter((source) => {
+        const url = stableUrlKey(source.url);
+        const headline = source.titleFingerprint || titleFingerprint(source.title);
+        return Boolean(url && url !== currentUrl && headline && headline !== currentTitleFingerprint);
+      })
+      .map((source) => String(source.sourceName || "").trim().toLowerCase())
+      .filter(Boolean));
+    return independentSources.size;
+  }
+  return 0;
 }
 
 function selectionAuthorityCredit(item = {}) {

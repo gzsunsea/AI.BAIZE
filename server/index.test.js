@@ -7,6 +7,7 @@ const {
   buildDailyArchive,
   buildDailyDigest,
   collectDailyDigestItemKeys,
+  createMcpProviders,
   dailyIssueMeta,
   itemsResponse,
   normalizeFeedback,
@@ -15,6 +16,287 @@ const {
   publicToday,
   selectCuratedItems,
 } = require("./index");
+
+test("MCP providers reuse public filters and project only public feed, story, topic, and digest fields", async (t) => {
+  const publishedAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const item = (id, sourceId, extra = {}) => ({
+    id,
+    eventId: "event-public",
+    sourceId,
+    sourceName: sourceId,
+    sourceKind: "rss",
+    priorityTier: "official_first_party",
+    title: "Official AI model launch",
+    summary: "Public summary",
+    url: `https://example.com/${id}`,
+    score: 98,
+    publishedAt,
+    tags: ["模型发布"],
+    raw: { privateSentinel: "never expose" },
+    mpMeta: { privateSentinel: "never expose" },
+    ...extra,
+  });
+  const first = item("public-1", "official-one", {
+    media: [{ type: "image", url: "https://images.example.com/public-1.jpg", alt: "Public image" }],
+  });
+  const second = item("public-2", "official-two");
+  const hidden = item("hidden-1", "private-source", { hidden: true, title: "Private hidden item" });
+  const state = {
+    settings: { rules: { selectedThreshold: 70 } },
+    items: [first, second, hidden],
+    clusters: [{ id: "event-public", items: ["public-1", "public-2", "hidden-1"], privateSentinel: "never expose" }],
+    dailyDigests: [{
+      generatedAt: publishedAt,
+      privateSentinel: "never expose",
+      sections: [{ key: "model", title: "模型发布/更新", privateSentinel: "never expose", items: [first, hidden] }],
+    }],
+  };
+  const previousReadState = app.locals.readState;
+  app.locals.readState = () => state;
+  t.after(() => { app.locals.readState = previousReadState; });
+
+  const providers = createMcpProviders();
+  assert.throws(
+    () => providers.getSelectedFeed({ take: 20, since: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString() }),
+    (error) => error.statusCode === 400,
+  );
+  const feed = await providers.getSelectedFeed({ take: 20 });
+  assert.deepEqual(feed.items.map(({ id }) => id), ["public-1", "public-2"]);
+  assert.equal(Object.hasOwn(feed.items[0], "raw"), false);
+  assert.equal(Object.hasOwn(feed.items[0], "priorityTier"), false);
+
+  const story = await providers.getEventTimeline({ eventId: "event-public" });
+  assert.deepEqual(story.timeline.map(({ id }) => id), ["public-1", "public-2"]);
+  assert.equal(Object.hasOwn(story.event, "rules"), false);
+  assert.equal(Object.hasOwn(story.event.representative, "raw"), false);
+
+  const topics = await providers.getHotTopics({ take: 10 });
+  assert.deepEqual(Object.keys(topics).sort(), ["availability", "generatedAt", "items", "windowHours"]);
+  assert.deepEqual(topics.items.map(({ id }) => id), ["event-public"]);
+  assert.equal(Object.hasOwn(topics.items[0], "coverage"), false);
+  assert.equal(Object.hasOwn(topics.items[0].representative, "raw"), false);
+  assert.equal(JSON.stringify(topics).includes("private-source"), false);
+  assert.equal(JSON.stringify(story).includes("private-source"), false);
+  const storyAndTopicItems = [
+    story.event.representative,
+    ...story.latestUpdates,
+    ...story.timeline,
+    ...story.relatedCandidates.map(({ item: candidate }) => candidate),
+    ...topics.items.flatMap((topic) => [topic.representative, ...topic.relatedItems]),
+  ].filter(Boolean);
+  for (const publicItem of storyAndTopicItems) {
+    for (const field of ["raw", "mpMeta", "priorityTier", "hidden", "pinned", "canonicalUrl", "updatedAt"]) {
+      assert.equal(Object.hasOwn(publicItem, field), false, `MCP event/topic leaked ${field}`);
+    }
+  }
+
+  const digest = await providers.getDigest({ period: "daily" });
+  assert.equal(digest.period, "daily");
+  assert.equal(digest.coverStory.id, "public-1");
+  assert.deepEqual(digest.coverStory.media, first.media);
+  assert.equal(Object.hasOwn(digest, "issueId"), false);
+  const monthly = await providers.getDigest({ period: "monthly" });
+  assert.equal(monthly.coverStory.id, "public-1");
+  for (const report of [digest, monthly]) {
+    for (const field of ["raw", "mpMeta", "priorityTier", "hidden", "pinned", "canonicalUrl", "updatedAt"]) {
+      assert.equal(Object.hasOwn(report.coverStory, field), false, `MCP report cover leaked ${field}`);
+    }
+    assert.equal(JSON.stringify(report.coverStory).includes("never expose"), false);
+    const reportItems = [
+      ...report.sections.flatMap(({ items: entries }) => entries),
+      ...report.trendLines.flatMap(({ sampleItems }) => sampleItems),
+      ...report.watchItems,
+    ];
+    for (const publicItem of reportItems) {
+      for (const field of ["raw", "mpMeta", "priorityTier", "hidden"]) {
+        assert.equal(Object.hasOwn(publicItem, field), false, `MCP report leaked ${field}`);
+      }
+    }
+    assert.equal(JSON.stringify(report).includes("never expose"), false);
+    assert.equal(JSON.stringify(report).includes("hidden-1"), false);
+  }
+  assert.equal(JSON.stringify({ feed, story, topics }).includes("never expose"), false);
+  assert.equal(JSON.stringify({ feed, story, topics, digest, monthly }).includes("hidden-1"), false);
+});
+
+test("MCP tool results match public REST ordering and projections for the same state", async (t) => {
+  const publishedAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const item = (id, sourceId, extra = {}) => ({
+    id,
+    eventId: "event-public",
+    sourceId,
+    sourceName: sourceId,
+    sourceKind: "rss",
+    priorityTier: "official_first_party",
+    title: "Claude AI model launch",
+    summary: "Public summary",
+    url: `https://example.com/${id}`,
+    score: 98,
+    publishedAt,
+    tags: ["模型发布"],
+    raw: { privateSentinel: "never expose" },
+    mpMeta: { privateSentinel: "never expose" },
+    ...extra,
+  });
+  const first = item("public-1", "official-one", {
+    media: [{ type: "image", url: "https://images.example.com/public-1.jpg", alt: "Public image" }],
+  });
+  const second = item("public-2", "official-two");
+  const hidden = item("hidden-1", "private-source", { hidden: true, title: "Private hidden item" });
+  const state = {
+    settings: { rules: { selectedThreshold: 70 } },
+    items: [first, second, hidden],
+    clusters: [{ id: "event-public", items: ["public-1", "public-2", "hidden-1"], privateSentinel: "never expose" }],
+    dailyDigests: [{
+      generatedAt: publishedAt,
+      privateSentinel: "never expose",
+      sections: [{ key: "model", title: "模型发布/更新", privateSentinel: "never expose", items: [first, second, hidden] }],
+    }],
+  };
+  const previousReadState = app.locals.readState;
+  app.locals.readState = () => state;
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => {
+    app.locals.readState = previousReadState;
+    server.close();
+  });
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const { createReadOnlyMcpHandler } = await import("./lib/mcpServer.mjs");
+  const { Client, StreamableHTTPClientTransport } = await import("@modelcontextprotocol/client");
+  const handler = createReadOnlyMcpHandler({
+    createProviders: createMcpProviders,
+    allowedHosts: ["test.local"],
+    allowedOrigins: ["test.local"],
+  });
+  const transport = new StreamableHTTPClientTransport(new URL("http://test.local/mcp"), {
+    fetch: (url, init) => handler.fetch(new Request(url, init)),
+  });
+  const client = new Client({ name: "aibaize-parity-test", version: "1.0.0" }, { versionNegotiation: { mode: "auto" } });
+  t.after(async () => {
+    await client.close();
+    await transport.close();
+    await handler.close();
+  });
+  await client.connect(transport);
+
+  const feedResult = await client.callTool({ name: "get_selected_feed", arguments: { take: 20 } });
+  const feed = feedResult.structuredContent;
+  assert.deepEqual(JSON.parse(feedResult.content[0].text), feed);
+  const restFeed = await (await fetch(`${base}/api/public/items?mode=selected&take=20`)).json();
+  assert.deepEqual(feed.items.map(({ id }) => id), restFeed.items.map(({ id }) => id));
+  assert.deepEqual(feed.items.map(({ publishedAt: value }) => value), restFeed.items.map(({ publishedAt: value }) => value));
+
+  const searchResult = await client.callTool({ name: "search_items", arguments: { query: "Claude", days: 7, take: 20 } });
+  const search = searchResult.structuredContent;
+  assert.deepEqual(JSON.parse(searchResult.content[0].text), search);
+  const searchSince = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const restSearch = await (await fetch(`${base}/api/public/items?mode=selected&q=Claude&since=${encodeURIComponent(searchSince)}&take=20`)).json();
+  assert.deepEqual(search.items.map(({ id }) => id), restSearch.items.map(({ id }) => id));
+
+  const topicsResult = await client.callTool({ name: "get_hot_topics", arguments: { take: 10 } });
+  const topics = topicsResult.structuredContent;
+  assert.deepEqual(JSON.parse(topicsResult.content[0].text), topics);
+  const restTopics = await (await fetch(`${base}/api/public/hot-topics`)).json();
+  assert.deepEqual(topics.items.map(({ id }) => id), restTopics.items.slice(0, 10).map(({ id }) => id));
+  assert.equal(topics.items[0].representative.id, restTopics.items[0].representative.id);
+  assert.equal(topics.items[0].latestAt, restTopics.items[0].latestAt);
+  assert.equal(JSON.stringify(topics).includes("private-source"), false);
+
+  const storyResult = await client.callTool({ name: "get_event_timeline", arguments: { eventId: "event-public" } });
+  const story = storyResult.structuredContent;
+  assert.deepEqual(JSON.parse(storyResult.content[0].text), story);
+  const restStory = await (await fetch(`${base}/api/public/stories/event-public`)).json();
+  assert.deepEqual(story.timeline.map(({ id }) => id), restStory.timeline.map(({ id }) => id));
+  assert.deepEqual(story.timeline.map(({ publishedAt: value }) => value), restStory.timeline.map(({ publishedAt: value }) => value));
+  assert.equal(story.event.representative.id, restStory.event.representative.id);
+
+  for (const period of ["daily", "weekly", "monthly"]) {
+    const digestResult = await client.callTool({ name: "get_digest", arguments: { period } });
+    const digest = digestResult.structuredContent;
+    assert.deepEqual(JSON.parse(digestResult.content[0].text), digest);
+    const restDigest = await (await fetch(`${base}/api/public/reports?period=${period}`)).json();
+    assert.equal(digest.coverStory.id, "public-1");
+    assert.equal(digest.coverStory.id, restDigest.coverStory.id);
+    assert.deepEqual(digest.coverStory, restDigest.coverStory);
+    assert.deepEqual(digest.range, restDigest.range);
+    assert.deepEqual(digest.sections.map(({ key, items: entries }) => [key, entries.map(({ id }) => id)]),
+      restDigest.sections.map(({ key, items: entries }) => [key, entries.map(({ id }) => id)]));
+    assert.equal(JSON.stringify(digest).includes("privateSentinel"), false);
+    assert.equal(JSON.stringify(digest).includes("never expose"), false);
+    assert.equal(JSON.stringify(digest).includes("hidden-1"), false);
+    assert.equal(digestResult.content[0].text.includes("privateSentinel"), false);
+    assert.equal(digestResult.content[0].text.includes("never expose"), false);
+    assert.equal(digestResult.content[0].text.includes("hidden-1"), false);
+  }
+});
+
+test("MCP endpoint stays unavailable unless explicitly enabled", async (t) => {
+  const previous = process.env.MCP_ENABLED;
+  delete process.env.MCP_ENABLED;
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => {
+    if (previous === undefined) delete process.env.MCP_ENABLED;
+    else process.env.MCP_ENABLED = previous;
+    server.close();
+  });
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const response = await fetch(`${base}/mcp`);
+  assert.equal(response.status, 404);
+  assert.deepEqual(await response.json(), { error: "not found" });
+  assert.equal((await fetch(`${base}/api/stats`)).status, 200);
+  assert.equal((await fetch(`${base}/feed.xml`)).status, 200);
+  assert.equal((await fetch(`${base}/`)).status, 200);
+  process.env.MCP_ENABLED = "1";
+  const nonLiteral = await fetch(`${base}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  assert.equal(nonLiteral.status, 404);
+  assert.deepEqual(await nonLiteral.json(), { error: "not found" });
+});
+
+test("enabled MCP endpoint serves exactly the public read-only tools over Express HTTP", async (t) => {
+  const envKeys = ["MCP_ENABLED", "MCP_ALLOWED_HOSTS", "MCP_ALLOWED_ORIGINS"];
+  const previous = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+  Object.assign(process.env, {
+    MCP_ENABLED: "true",
+    MCP_ALLOWED_HOSTS: "127.0.0.1",
+    MCP_ALLOWED_ORIGINS: "127.0.0.1",
+  });
+  const previousReadState = app.locals.readState;
+  app.locals.readState = () => ({ settings: { rules: { selectedThreshold: 70 } }, items: [], clusters: [], dailyDigests: [] });
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => {
+    app.locals.readState = previousReadState;
+    for (const key of envKeys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+    server.close();
+  });
+  await once(server, "listening");
+  const { Client, StreamableHTTPClientTransport } = await import("@modelcontextprotocol/client");
+  const client = new Client({ name: "aibaize-http-test", version: "1.0.0" }, { versionNegotiation: { mode: "auto" } });
+  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${server.address().port}/mcp`));
+  t.after(async () => client.close());
+  await client.connect(transport);
+
+  assert.deepEqual((await client.listTools()).tools.map(({ name }) => name).sort(), [
+    "get_digest", "get_event_timeline", "get_hot_topics", "get_selected_feed", "search_items",
+  ]);
+  const calls = [
+    await client.callTool({ name: "get_selected_feed", arguments: {} }),
+    await client.callTool({ name: "search_items", arguments: { query: "AI" } }),
+    await client.callTool({ name: "get_hot_topics", arguments: {} }),
+    await client.callTool({ name: "get_event_timeline", arguments: { eventId: "missing" } }),
+    await client.callTool({ name: "get_digest", arguments: {} }),
+  ];
+  assert.equal(calls[0].structuredContent.items.length, 0);
+  assert.equal(calls[1].structuredContent.items.length, 0);
+  assert.equal(calls[2].structuredContent.items.length, 0);
+  assert.equal(calls[3].isError, true);
+  assert.equal(calls[4].structuredContent.period, "daily");
+});
 
 test("feedback normalization keeps a bounded quality context and known kind", () => {
   assert.deepEqual(normalizeFeedback({ message: " useful ", kind: "useful", itemId: " item-1 ", context: " /feed?x=1 ", page: " /item/item-1 " }, "feedback-1", "2026-08-31T04:00:00.000Z"), {
@@ -474,10 +756,10 @@ test("public experience endpoints expose hot topics, reports, and structured val
 
 test("public hot topics serialize emerging candidates without internal fields", () => {
   const result = publicHotTopics({
-    settings: { rules: { selectedThreshold: 72 } },
+    settings: { rules: { selectedThreshold: 60 } },
     items: [{
       ...story("candidate", "Official AI model release", 90),
-      publishedAt: "2026-08-31T02:00:00.000Z",
+      publishedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
       sourceName: "Official AI",
       raw: { secret: true },
     }],
@@ -508,8 +790,16 @@ test("public hot and story APIs exclude hidden and non-public cluster evidence",
   const state = {
     settings: { rules: { selectedThreshold: 70 } },
     items: [
-      item("public-1", "event-public", "public-one", 90),
-      item("public-2", "event-public", "public-two", 89),
+      item("public-1", "event-public", "public-one", 90, { title: "Claude Code will gracefully stop when the five-hour limit is reached" }),
+      item("public-2", "event-public", "public-two", 89, { title: "Claude Code will gracefully stop when the five-hour limit is reached" }),
+      item("related-candidate", "event-related", "third-source", 85, {
+        title: "Claude Code 启用新机制：任务中途触发5小时上限后改为寻找合适收尾点",
+        raw: { internal: true },
+      }),
+      item("hidden-related-candidate", "event-hidden-related", "private-third-source", 99, {
+        title: "Claude Code 启用新机制：任务中途触发5小时上限后改为寻找合适收尾点",
+        hidden: true,
+      }),
       item("hidden-representative", "event-public", "private", 100, { hidden: true }),
       item("invalid-representative", "event-public", "invalid", 99, { url: "javascript:alert(1)" }),
       item("hidden-single-public", "event-hidden", "only-public", 90),
@@ -544,6 +834,10 @@ test("public hot and story APIs exclude hidden and non-public cluster evidence",
   assert.equal(storyResponse.status, 200);
   const storyBody = await storyResponse.json();
   assert.deepEqual(storyBody.timeline.map((entry) => entry.id), ["public-1", "public-2"]);
+  assert.deepEqual(storyBody.relatedCandidates.map((candidate) => candidate.item.id), ["related-candidate"]);
+  assert.equal(Object.hasOwn(storyBody.relatedCandidates[0].item, "raw"), false);
+  assert.equal(Object.hasOwn(storyBody.relatedCandidates[0].item, "priorityTier"), false);
+  assert.match(storyBody.relatedCandidates[0].reason, /尚未确认/);
   assert.equal((await fetch(`${base}/api/public/stories/event-hidden`)).status, 404);
   assert.equal((await fetch(`${base}/api/public/stories/event-invalid`)).status, 404);
 });

@@ -1,9 +1,5 @@
 const path = require("node:path");
 const crypto = require("node:crypto");
-const dns = require("node:dns").promises;
-const http = require("node:http");
-const https = require("node:https");
-const net = require("node:net");
 const express = require("express");
 const cron = require("node-cron");
 const { readState, writeState } = require("./lib/store");
@@ -24,17 +20,24 @@ const {
 const { canonicalUrl, titleFingerprint } = require("./lib/dedupe");
 const { answerQuestion } = require("./lib/askBaize");
 const { buildHotTopics, buildReport, buildStory, buildTodaySignals } = require("./lib/experience");
+const { createPinnedLookup, fetchPublicMedia, requestMediaHop } = require("./lib/mediaFetch");
 
 const PORT = Number(process.env.PORT || 8080);
 const DEFAULT_ADMIN_TOKEN = "aihot-admin";
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || DEFAULT_ADMIN_TOKEN;
 const app = express();
+app.set("trust proxy", "loopback");
 
 function readAppState() {
   return typeof app.locals.readState === "function" ? app.locals.readState() : readState();
 }
 
 app.disable("x-powered-by");
+app.use("/mcp", (req, res, next) => {
+  if (process.env.MCP_ENABLED !== "true") return res.status(404).json({ error: "not found" });
+  return next();
+});
+app.use("/mcp", express.json({ limit: "64kb" }));
 app.use(express.json({ limit: "1mb" }));
 
 app.use((_req, res, next) => {
@@ -54,7 +57,7 @@ app.use((req, res, next) => {
 });
 
 function clientKey(req) {
-  return String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || req.ip || "unknown").split(",")[0].trim();
+  return String(req.ip || req.socket.remoteAddress || "unknown");
 }
 
 function rateLimit({ windowMs, max, message }) {
@@ -87,6 +90,35 @@ const adminWriteLimit = rateLimit({
   windowMs: Number(process.env.ADMIN_WRITE_RATE_WINDOW_MS || 60_000),
   max: Number(process.env.ADMIN_WRITE_RATE_MAX || 60),
 });
+
+const mcpReadLimit = rateLimit({
+  windowMs: Number(process.env.MCP_RATE_WINDOW_MS || 60_000),
+  max: Number(process.env.MCP_RATE_MAX || 60),
+  message: "Too many MCP requests",
+});
+
+let mcpRuntimePromise;
+function parseMcpHostnames(value) {
+  return String(value || "").split(",").map((hostname) => hostname.trim()).filter(Boolean);
+}
+
+async function loadMcpRuntime() {
+  if (mcpRuntimePromise) return mcpRuntimePromise;
+  const allowedHosts = parseMcpHostnames(process.env.MCP_ALLOWED_HOSTS);
+  const allowedOrigins = parseMcpHostnames(process.env.MCP_ALLOWED_ORIGINS);
+  if (!allowedHosts.length) throw new Error("MCP host allowlist is required");
+  mcpRuntimePromise = import("./lib/mcpServer.mjs")
+    .then(({ createReadOnlyMcpHandler }) => createReadOnlyMcpHandler({
+      createProviders: createMcpProviders,
+      allowedHosts,
+      allowedOrigins,
+    }))
+    .catch((error) => {
+      mcpRuntimePromise = undefined;
+      throw error;
+    });
+  return mcpRuntimePromise;
+}
 
 function safeEqual(a = "", b = "") {
   const left = Buffer.from(String(a));
@@ -558,9 +590,11 @@ app.get("/api/items", (req, res) => {
   res.json(itemsResponse(req.query));
 });
 
-function publicItems(query) {
-  const state = readState();
-  return attachRelated(visibleItems(query).map(enrichItem), state.clusters || []).map(serializePublicItem);
+function publicItems(query, state = readAppState()) {
+  const since = query.since ? Date.parse(String(query.since)) : 0;
+  return attachRelated(visibleItems(query, state)
+    .filter((item) => !since || new Date(item.publishedAt || 0).getTime() >= since)
+    .map(enrichItem), state.clusters || []).map(serializePublicItem);
 }
 
 function publicToday(query = {}, state = readState()) {
@@ -782,13 +816,18 @@ app.get("/api/public/hot", (_req, res) => {
 });
 
 app.get("/api/public/stories/:id", (req, res) => {
-  const state = readAppState();
-  const story = buildStory(state, String(req.params.id), {
+  const story = publicStoryDetail(readAppState(), String(req.params.id));
+  if (!story) return res.status(404).json({ error: "story not found" });
+  return res.json(story);
+});
+
+function publicStoryDetail(state, id) {
+  const story = buildStory(state, id, {
     selectedThreshold: state.settings?.rules?.selectedThreshold || 70,
     enrichItem,
   });
-  if (!story) return res.status(404).json({ error: "story not found" });
-  return res.json({
+  if (!story) return null;
+  return {
     ...story,
     event: {
       ...story.event,
@@ -796,8 +835,12 @@ app.get("/api/public/stories/:id", (req, res) => {
     },
     latestUpdates: story.latestUpdates.map(serializePublicItem),
     timeline: story.timeline.map(serializePublicItem),
-  });
-});
+    relatedCandidates: story.relatedCandidates.map((candidate) => ({
+      ...candidate,
+      item: serializePublicItem(candidate.item),
+    })),
+  };
+}
 
 app.get("/api/public/hot-topics", (_req, res) => {
   const state = readAppState();
@@ -806,29 +849,33 @@ app.get("/api/public/hot-topics", (_req, res) => {
 
 app.get("/api/public/reports", (req, res) => {
   try {
-    const state = readState();
-    const report = buildReport(state, {
-      period: String(req.query.period || "daily"),
-      date: req.query.date ? String(req.query.date) : undefined,
-      buildVirtualDigest: (dateKey) => {
-        const range = shanghaiDayRange(`${dateKey}T12:00:00+08:00`);
-        return buildDailyDigest(state, {}, {
-          since: range.start,
-          until: range.end,
-          generatedAt: range.start + 12 * 60 * 60 * 1000,
-          virtual: true,
-        });
-      },
-    });
-    res.json(serializePublicReport(report));
+    res.json(publicReport(req.query));
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.message || "report generation failed" });
   }
 });
 
+function publicReport(query = {}, state = readAppState()) {
+  const report = buildReport(state, {
+    period: String(query.period || "daily"),
+    date: query.date ? String(query.date) : undefined,
+    buildVirtualDigest: (dateKey) => {
+      const range = shanghaiDayRange(`${dateKey}T12:00:00+08:00`);
+      return buildDailyDigest(state, {}, {
+        since: range.start,
+        until: range.end,
+        generatedAt: range.start + 12 * 60 * 60 * 1000,
+        virtual: true,
+      });
+    },
+  });
+  return serializePublicReport(report);
+}
+
 function serializePublicReport(report = {}) {
   return {
     ...report,
+    coverStory: report.coverStory ? serializePublicItem(report.coverStory) : null,
     sections: (report.sections || []).map((section) => ({
       ...section,
       items: (section.items || []).map(serializePublicItem),
@@ -838,6 +885,111 @@ function serializePublicReport(report = {}) {
       sampleItems: (line.sampleItems || []).map(serializePublicItem),
     })),
     watchItems: (report.watchItems || []).map(serializePublicItem),
+  };
+}
+
+function projectMcpStory(story) {
+  if (!story) return null;
+  const eventFields = [
+    "id", "rank", "title", "summary", "heat", "status", "ageHours", "sourceCount", "sources",
+    "publishedAt", "latestAt", "lifecycle",
+  ];
+  const event = Object.fromEntries(eventFields
+    .filter((field) => story.event?.[field] !== undefined)
+    .map((field) => [field, story.event[field]]));
+  if (story.event?.representative) event.representative = serializePublicItem(story.event.representative);
+  return {
+    summary: story.summary,
+    sources: story.sources,
+    event,
+    latestUpdates: (story.latestUpdates || []).map(serializePublicItem),
+    timeline: (story.timeline || []).map(serializePublicItem),
+    relatedCandidates: (story.relatedCandidates || []).map((candidate) => ({
+      item: serializePublicItem(candidate.item),
+      eventType: candidate.eventType,
+      reason: candidate.reason,
+    })),
+  };
+}
+
+function projectMcpReport(report) {
+  if (!report) return null;
+  const reportFields = [
+    "period", "range", "coverage", "headline", "editorialSummary", "storyCount",
+    "estimatedReadingMinutes", "navigation",
+  ];
+  const result = Object.fromEntries(reportFields
+    .filter((field) => report[field] !== undefined)
+    .map((field) => [field, report[field]]));
+  result.sections = (report.sections || []).map((section) => ({
+    key: section.key,
+    title: section.title,
+    items: (section.items || []).map(serializePublicItem),
+  }));
+  result.themes = (report.themes || []).map(({ key, label, count }) => ({ key, label, count }));
+  result.trendLines = (report.trendLines || []).map((line) => ({
+    key: line.key,
+    label: line.label,
+    count: line.count,
+    eventCount: line.eventCount,
+    sourceCount: line.sourceCount,
+    latestAt: line.latestAt,
+    evidenceLevel: line.evidenceLevel,
+    sampleItems: (line.sampleItems || []).map(serializePublicItem),
+  }));
+  result.watchItems = (report.watchItems || []).map(serializePublicItem);
+  result.coverStory = report.coverStory ? serializePublicItem(report.coverStory) : null;
+  return result;
+}
+
+function createMcpProviders() {
+  return {
+    getSelectedFeed: ({ take, since }) => {
+      const state = readAppState();
+      let sinceTime = 0;
+      if (since !== undefined) {
+        sinceTime = Date.parse(since);
+        if (!Number.isFinite(sinceTime)) {
+          const error = new Error("invalid since date");
+          error.statusCode = 400;
+          throw error;
+        }
+        if (sinceTime < Date.now() - 30 * 24 * 60 * 60 * 1000) {
+          const error = new Error("since date exceeds maximum range");
+          error.statusCode = 400;
+          throw error;
+        }
+      }
+      const items = publicItems({ mode: "selected", ...(since ? { since } : {}) }, state).slice(0, take);
+      return { items };
+    },
+    searchItems: ({ query, mode, days, take }) => {
+      const state = readAppState();
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      return { items: publicItems({ mode, q: query, since }, state).slice(0, take) };
+    },
+    getHotTopics: ({ take }) => {
+      const topics = publicHotTopics(readAppState());
+      return {
+        generatedAt: topics.generatedAt,
+        windowHours: topics.windowHours,
+        availability: topics.availability,
+        items: topics.items.slice(0, take).map((topic) => {
+          const fields = [
+            "id", "rank", "title", "summary", "heat", "status", "ageHours", "sourceCount", "sources",
+            "publishedAt", "latestAt", "lifecycle",
+          ];
+          const projected = Object.fromEntries(fields
+            .filter((field) => topic[field] !== undefined)
+            .map((field) => [field, topic[field]]));
+          projected.representative = serializePublicItem(topic.representative);
+          projected.relatedItems = (topic.relatedItems || []).map(serializePublicItem);
+          return projected;
+        }),
+      };
+    },
+    getEventTimeline: ({ eventId }) => projectMcpStory(publicStoryDetail(readAppState(), eventId)),
+    getDigest: ({ period, date }) => projectMcpReport(publicReport({ period, date }, readAppState())),
   };
 }
 
@@ -1352,244 +1504,31 @@ app.put("/api/admin/sources", requireAdmin, adminWriteLimit, (req, res) => {
   res.json({ ok: true, sources: state.sources });
 });
 
-function ipv6Value(address = "") {
-  let value = address.toLowerCase().split("%")[0];
-  if (value.includes(".")) {
-    const lastColon = value.lastIndexOf(":");
-    const octets = value.slice(lastColon + 1).split(".").map(Number);
-    if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) return null;
-    value = `${value.slice(0, lastColon)}:${((octets[0] << 8) | octets[1]).toString(16)}:${((octets[2] << 8) | octets[3]).toString(16)}`;
+app.all("/mcp", (req, res, next) => {
+  if (process.env.MCP_ENABLED !== "true") return res.status(404).json({ error: "not found" });
+  return next();
+}, mcpReadLimit, async (req, res) => {
+  try {
+    const runtime = await loadMcpRuntime();
+    if (!runtime.validateRequest(req, res)) return;
+    await runtime.handle(req, res, req.body);
+  } catch (error) {
+    console.error("[mcp] request failed", error?.name || "Error");
+    if (!res.headersSent) res.status(503).json({ error: "MCP temporarily unavailable" });
   }
-  const halves = value.split("::");
-  if (halves.length > 2) return null;
-  const head = halves[0] ? halves[0].split(":") : [];
-  const tail = halves[1] ? halves[1].split(":") : [];
-  const fill = halves.length === 2 ? 8 - head.length - tail.length : 0;
-  const groups = [...head, ...Array(Math.max(0, fill)).fill("0"), ...tail];
-  if (groups.length !== 8 || groups.some((group) => !/^[0-9a-f]{1,4}$/.test(group))) return null;
-  return groups.reduce((result, group) => (result << 16n) + BigInt(`0x${group}`), 0n);
-}
+});
 
-function ipv6InCidr(value, network, prefix) {
-  const networkValue = ipv6Value(network);
-  if (value === null || networkValue === null) return false;
-  const shift = BigInt(128 - prefix);
-  return (value >> shift) === (networkValue >> shift);
-}
-
-const NON_PUBLIC_IPV6_CIDRS = [
-  ["64:ff9b:1::", 48],
-  ["100::", 64],
-  ["2001::", 23],
-  ["2001:db8::", 32],
-  ["2002::", 16],
-  ["3ffe::", 16],
-  ["3fff::", 20],
-  ["5f00::", 16],
-  ["fc00::", 7],
-  ["fe80::", 10],
-  ["fec0::", 10],
-  ["ff00::", 8],
-];
-
-// IANA IPv6 Global Unicast Address Space allocations, updated 2025-10-10:
-// https://www.iana.org/assignments/ipv6-unicast-address-assignments/
-// Unlisted address space within 2000::/3 remains reserved for future allocation.
-const ALLOCATED_GLOBAL_IPV6_CIDRS = [
-  ["2001::", 23],
-  ["2001:200::", 23],
-  ["2001:400::", 23],
-  ["2001:600::", 23],
-  ["2001:800::", 22],
-  ["2001:c00::", 23],
-  ["2001:e00::", 23],
-  ["2001:1200::", 23],
-  ["2001:1400::", 22],
-  ["2001:1800::", 23],
-  ["2001:1a00::", 23],
-  ["2001:1c00::", 22],
-  ["2001:2000::", 19],
-  ["2001:4000::", 23],
-  ["2001:4200::", 23],
-  ["2001:4400::", 23],
-  ["2001:4600::", 23],
-  ["2001:4800::", 23],
-  ["2001:4a00::", 23],
-  ["2001:4c00::", 23],
-  ["2001:5000::", 20],
-  ["2001:8000::", 19],
-  ["2001:a000::", 20],
-  ["2001:b000::", 20],
-  ["2002::", 16],
-  ["2003::", 18],
-  ["2400::", 12],
-  ["2410::", 12],
-  ["2600::", 12],
-  ["2610::", 23],
-  ["2620::", 23],
-  ["2630::", 12],
-  ["2800::", 12],
-  ["2a00::", 12],
-  ["2a10::", 12],
-  ["2c00::", 12],
-];
-
-// Globally reachable more-specific assignments inside the otherwise non-global 2001::/23:
-// https://www.iana.org/assignments/iana-ipv6-special-registry/
-const GLOBAL_IPV6_SPECIAL_PURPOSE_CIDRS = [
-  ["2001:1::1", 128],
-  ["2001:1::2", 128],
-  ["2001:1::3", 128],
-  ["2001:3::", 32],
-  ["2001:4:112::", 48],
-  ["2001:20::", 28],
-  ["2001:30::", 28],
-];
-
-// IANA IPv4 Special-Purpose Address Registry entries that are not globally reachable.
-const NON_GLOBAL_IPV4_CIDRS = [
-  ["0.0.0.0", 8],
-  ["10.0.0.0", 8],
-  ["100.64.0.0", 10],
-  ["127.0.0.0", 8],
-  ["169.254.0.0", 16],
-  ["172.16.0.0", 12],
-  ["192.0.2.0", 24],
-  ["192.88.99.0", 24],
-  ["192.168.0.0", 16],
-  ["198.18.0.0", 15],
-  ["198.51.100.0", 24],
-  ["203.0.113.0", 24],
-  ["224.0.0.0", 4],
-  ["240.0.0.0", 4],
-];
-
-function ipv4Value(address = "") {
-  const octets = address.split(".").map(Number);
-  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) return null;
-  return octets.reduce((value, octet) => value * 256 + octet, 0);
-}
-
-function ipv4InCidr(value, network, prefix) {
-  const networkValue = ipv4Value(network);
-  if (value === null || networkValue === null) return false;
-  const blockSize = 2 ** (32 - prefix);
-  return Math.floor(value / blockSize) === Math.floor(networkValue / blockSize);
-}
-
-function isGloballyRoutableIp(address = "") {
-  const normalized = address.toLowerCase().replace(/^\[|\]$/g, "").split("%")[0];
-  const family = net.isIP(normalized);
-  if (family === 4) {
-    const value = ipv4Value(normalized);
-    if (value === null) return false;
-    const ietfProtocolAssignments = ipv4InCidr(value, "192.0.0.0", 24);
-    const globallyReachableIetfAnycast = normalized === "192.0.0.9" || normalized === "192.0.0.10";
-    if (ietfProtocolAssignments && !globallyReachableIetfAnycast) return false;
-    return !NON_GLOBAL_IPV4_CIDRS.some(([network, prefix]) => ipv4InCidr(value, network, prefix));
+app.use((error, req, res, next) => {
+  if (req.path !== "/mcp" && req.path !== "/mcp/") return next(error);
+  if (res.headersSent) return next(error);
+  if (error?.type === "entity.too.large" || error?.status === 413) {
+    return res.status(413).json({ error: "request too large" });
   }
-  if (family === 6) {
-    const value = ipv6Value(normalized);
-    if (value === null) return false;
-    const embeddedIpv4Prefix = [
-      ["::", 96],
-      ["::ffff:0:0", 96],
-      ["::ffff:0:0:0", 96],
-      ["64:ff9b::", 96],
-    ].find(([network, prefix]) => ipv6InCidr(value, network, prefix));
-    if (embeddedIpv4Prefix) {
-      const ipv4 = Number(value & 0xffffffffn);
-      return isGloballyRoutableIp(`${(ipv4 >>> 24) & 255}.${(ipv4 >>> 16) & 255}.${(ipv4 >>> 8) & 255}.${ipv4 & 255}`);
-    }
-    const isAllocatedGlobalUnicast = ALLOCATED_GLOBAL_IPV6_CIDRS
-      .some(([network, prefix]) => ipv6InCidr(value, network, prefix));
-    if (!isAllocatedGlobalUnicast) return false;
-    if (GLOBAL_IPV6_SPECIAL_PURPOSE_CIDRS.some(([network, prefix]) => ipv6InCidr(value, network, prefix))) {
-      return true;
-    }
-    return !NON_PUBLIC_IPV6_CIDRS.some(([network, prefix]) => ipv6InCidr(value, network, prefix));
+  if (error?.type === "entity.parse.failed" || error instanceof SyntaxError) {
+    return res.status(400).json({ error: "invalid JSON" });
   }
-  return false;
-}
-
-async function assertPublicHttpTarget(target, lookup = dns.lookup) {
-  if (!/^https?:$/.test(target.protocol)) {
-    throw new Error("Unsupported media url");
-  }
-  const hostname = target.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (!hostname || hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")) {
-    throw new Error("Blocked private media url");
-  }
-  if (net.isIP(hostname)) {
-    if (!isGloballyRoutableIp(hostname)) throw new Error("Blocked private media url");
-    return { address: hostname, family: net.isIP(hostname) };
-  }
-  const addresses = await lookup(hostname, { all: true, verbatim: true });
-  if (!addresses.length || addresses.some((entry) => !isGloballyRoutableIp(entry.address))) {
-    throw new Error("Blocked private media url");
-  }
-  return addresses[0];
-}
-
-function createPinnedLookup(resolved) {
-  return (_hostname, options, callback) => {
-    if (typeof options === "function") {
-      callback = options;
-      options = {};
-    }
-    if (options?.all) {
-      callback(null, [{ address: resolved.address, family: resolved.family }]);
-      return;
-    }
-    callback(null, resolved.address, resolved.family);
-  };
-}
-
-function requestMediaHop(target, resolved) {
-  return new Promise((resolve, reject) => {
-    const transport = target.protocol === "https:" ? https : http;
-    const request = transport.request(target, {
-      headers: {
-        "user-agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/124 Safari/537.36",
-        accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        referer: `${target.protocol}//${target.host}/`,
-      },
-      lookup: createPinnedLookup(resolved),
-    }, (upstream) => {
-      const chunks = [];
-      let size = 0;
-      upstream.on("data", (chunk) => {
-        size += chunk.length;
-        if (size > 15 * 1024 * 1024) {
-          request.destroy(new Error("Media response too large"));
-          return;
-        }
-        chunks.push(chunk);
-      });
-      upstream.on("end", () => resolve({
-        status: upstream.statusCode || 502,
-        headers: upstream.headers,
-        body: Buffer.concat(chunks),
-      }));
-      upstream.on("error", reject);
-    });
-    request.setTimeout(12000, () => request.destroy(new Error("Media request timed out")));
-    request.on("error", reject);
-    request.end();
-  });
-}
-
-async function fetchPublicMedia(target, options = {}, redirectCount = 0) {
-  const resolved = await assertPublicHttpTarget(target, options.lookup || dns.lookup);
-  const response = await (options.requestHop || requestMediaHop)(target, resolved);
-  if (response.status >= 300 && response.status < 400) {
-    const location = response.headers?.location;
-    if (!location) throw new Error("Media redirect missing location");
-    if (redirectCount >= 4) throw new Error("Too many media redirects");
-    return fetchPublicMedia(new URL(location, target), options, redirectCount + 1);
-  }
-  return response;
-}
+  return res.status(503).json({ error: "MCP temporarily unavailable" });
+});
 
 app.get("/api/media", async (req, res) => {
   const rawUrl = String(req.query.url || "");
@@ -1643,6 +1582,7 @@ module.exports = {
   buildDailyArchive,
   buildDailyDigest,
   collectDailyDigestItemKeys,
+  createMcpProviders,
   createPinnedLookup,
   dailyIssueMeta,
   digestItemKeys,

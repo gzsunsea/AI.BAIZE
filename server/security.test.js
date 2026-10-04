@@ -25,6 +25,160 @@ test("admin token is accepted only from header, not query string", async (t) => 
   assert.equal(headerRes.status, 200);
 });
 
+test("public write limiting uses the client address appended by the trusted proxy", async (t) => {
+  const { server, base } = await listen();
+  t.after(() => server.close());
+  const limit = Number(process.env.PUBLIC_WRITE_RATE_MAX || 30);
+  const statuses = [];
+
+  for (let index = 1; index <= limit + 1; index += 1) {
+    const response = await fetch(`${base}/api/public/ask`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-for": `198.51.100.${index}, 203.0.113.77`,
+      },
+      body: JSON.stringify({ question: "What changed?" }),
+    });
+    statuses.push(response.status);
+    await response.arrayBuffer();
+  }
+
+  assert.deepEqual(statuses.slice(0, limit), Array(limit).fill(200));
+  assert.equal(statuses[limit], 429);
+});
+
+test("enabled MCP fails closed when its Host allowlist is empty", async (t) => {
+  const previous = Object.fromEntries(["MCP_ENABLED", "MCP_ALLOWED_HOSTS", "MCP_ALLOWED_ORIGINS"].map((key) => [key, process.env[key]]));
+  Object.assign(process.env, { MCP_ENABLED: "true", MCP_ALLOWED_HOSTS: "", MCP_ALLOWED_ORIGINS: "127.0.0.1" });
+  const { server, base } = await listen();
+  t.after(() => {
+    server.close();
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  const response = await fetch(`${base}/mcp`);
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: "MCP temporarily unavailable" });
+});
+
+test("MCP Host and Origin guards reject untrusted requests and permit clients without Origin", async (t) => {
+  const previous = Object.fromEntries(["MCP_ENABLED", "MCP_ALLOWED_HOSTS", "MCP_ALLOWED_ORIGINS"].map((key) => [key, process.env[key]]));
+  Object.assign(process.env, {
+    MCP_ENABLED: "true",
+    MCP_ALLOWED_HOSTS: "127.0.0.1",
+    MCP_ALLOWED_ORIGINS: "127.0.0.1",
+  });
+  const { server, base } = await listen();
+  t.after(() => {
+    server.close();
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  const http = require("node:http");
+  const request = (headers = {}) => new Promise((resolve, reject) => {
+    const url = new URL(`${base}/mcp`);
+    const outgoing = http.request({ hostname: url.hostname, port: url.port, path: url.pathname, headers }, (incoming) => {
+      const chunks = [];
+      incoming.on("data", (chunk) => chunks.push(chunk));
+      incoming.on("end", () => resolve({ status: incoming.statusCode, body: Buffer.concat(chunks).toString() }));
+    });
+    outgoing.on("error", reject);
+    outgoing.end();
+  });
+  const deniedHost = await request({ host: "attacker.example" });
+  assert.equal(deniedHost.status, 403);
+  const deniedOrigin = await request({ origin: "https://attacker.example" });
+  assert.equal(deniedOrigin.status, 403);
+  const malformedOrigin = await request({ origin: "not an origin" });
+  assert.equal(malformedOrigin.status, 403);
+  const noOrigin = await request();
+  assert.notEqual(noOrigin.status, 403);
+  const allowedOrigin = await request({ origin: `${base}` });
+  assert.notEqual(allowedOrigin.status, 403);
+  assert.equal([deniedHost.body, deniedOrigin.body, malformedOrigin.body]
+    .some((body) => /stack|node_modules|server\/index/i.test(body)), false);
+});
+
+test("MCP JSON parser returns bounded, sanitized errors", async (t) => {
+  const previous = Object.fromEntries(["MCP_ENABLED", "MCP_ALLOWED_HOSTS", "MCP_ALLOWED_ORIGINS"].map((key) => [key, process.env[key]]));
+  Object.assign(process.env, {
+    MCP_ENABLED: "true",
+    MCP_ALLOWED_HOSTS: "127.0.0.1",
+    MCP_ALLOWED_ORIGINS: "127.0.0.1",
+  });
+  const { server, base } = await listen();
+  t.after(() => {
+    server.close();
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  const malformed = await fetch(`${base}/mcp`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{invalid",
+  });
+  assert.equal(malformed.status, 400);
+  assert.deepEqual(await malformed.json(), { error: "invalid JSON" });
+
+  const malformedTrailingSlash = await fetch(`${base}/mcp/`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{invalid",
+  });
+  assert.equal(malformedTrailingSlash.status, 400);
+  assert.deepEqual(await malformedTrailingSlash.json(), { error: "invalid JSON" });
+
+  const oversized = await fetch(`${base}/mcp`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ payload: "x".repeat(65_536) }),
+  });
+  assert.equal(oversized.status, 413);
+  assert.deepEqual(await oversized.json(), { error: "request too large" });
+});
+
+test("MCP limiter isolates trusted client IPs and ignores spoofed forwarded prefixes", async (t) => {
+  const previous = Object.fromEntries(["MCP_ENABLED", "MCP_ALLOWED_HOSTS", "MCP_ALLOWED_ORIGINS"].map((key) => [key, process.env[key]]));
+  Object.assign(process.env, {
+    MCP_ENABLED: "true",
+    MCP_ALLOWED_HOSTS: "127.0.0.1",
+    MCP_ALLOWED_ORIGINS: "127.0.0.1",
+  });
+  const { server, base } = await listen();
+  t.after(() => {
+    server.close();
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+  const limit = 60;
+  const request = (forwardedFor) => fetch(`${base}/mcp`, {
+    headers: { "x-forwarded-for": forwardedFor },
+  });
+  for (let index = 1; index <= limit; index += 1) {
+    const response = await request(`198.51.100.${index}, 203.0.113.77`);
+    assert.notEqual(response.status, 429, `request ${index} unexpectedly rate limited`);
+    await response.arrayBuffer();
+  }
+  const independentClient = await request("198.51.100.200, 203.0.113.78");
+  assert.notEqual(independentClient.status, 429);
+  await independentClient.arrayBuffer();
+  const sameClientSpoofedPrefix = await request("198.51.100.201, 203.0.113.77");
+  assert.equal(sameClientSpoofedPrefix.status, 429);
+  await sameClientSpoofedPrefix.arrayBuffer();
+});
+
 test("media proxy rejects loopback and private network targets", async (t) => {
   const { server, base } = await listen();
   t.after(() => server.close());
@@ -63,6 +217,20 @@ test("media fetch pins the validated DNS address used by the request hop", async
   assert.equal(result.body.toString(), "93.184.216.34");
 });
 
+test("media fetch forwards an explicit response size ceiling to each request hop", async () => {
+  let requestOptions;
+  await fetchPublicMedia(new URL("https://public.example/image.png"), {
+    maxBytes: 2 * 1024 * 1024,
+    lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+    requestHop: async (_target, _resolved, options) => {
+      requestOptions = options;
+      return { status: 200, headers: { "content-type": "image/png" }, body: Buffer.from("image") };
+    },
+  });
+
+  assert.equal(requestOptions.maxBytes, 2 * 1024 * 1024);
+});
+
 test("pinned media lookup follows the Node scalar and all-address callback contracts", async () => {
   const lookup = createPinnedLookup({ address: "93.184.216.34", family: 4 });
   const scalar = await new Promise((resolve, reject) => {
@@ -99,6 +267,23 @@ test("default media request hop uses the pinned lookup adapter", async (t) => {
 
   assert.equal(response.status, 200);
   assert.equal(response.body.toString(), "image");
+});
+
+test("media request hop rejects response bodies above its configured byte ceiling", async (t) => {
+  const origin = require("node:http").createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "image/png" });
+    res.end("oversized image");
+  });
+  origin.listen(0, "127.0.0.1");
+  t.after(() => origin.close());
+  await require("node:events").once(origin, "listening");
+  const { port } = origin.address();
+
+  await assert.rejects(() => requestMediaHop(
+    new URL(`http://public.example:${port}/image.png`),
+    { address: "127.0.0.1", family: 4 },
+    { maxBytes: 4 },
+  ), /too large/i);
 });
 
 test("media fetch rejects the full IPv6 link-local range returned by DNS", async () => {

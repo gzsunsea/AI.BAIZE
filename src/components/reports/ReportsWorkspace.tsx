@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, BookOpen, CalendarDays, Clock3, Download, Loader2, RefreshCw, Rss } from "lucide-react";
 import type { Item, Report } from "../../types";
-import { coverageLabel, reportToMarkdown } from "../../lib/experience.mts";
+import { coverageLabel, reportCoverImage, reportToMarkdown } from "../../lib/experience.mts";
 
 const periods: Array<{ key: Report["period"]; label: string; kicker: string }> = [
   { key: "daily", label: "日报", kicker: "DAY" },
@@ -15,6 +15,39 @@ async function getReport(period: Report["period"], date: string) {
   const response = await fetch(`/api/public/reports?${params}`);
   if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || "报告加载失败");
   return response.json() as Promise<Report>;
+}
+
+function mediaProxyUrl(src = "") {
+  return src ? `/api/media?url=${encodeURIComponent(src)}` : "";
+}
+
+function ReportCoverStory({ item, onOpen }: { item: Item; onOpen: (item: Item) => void }) {
+  const coverImage = reportCoverImage(item);
+
+  return (
+    <section className={`report-cover-story${coverImage ? "" : " without-image"}`} aria-labelledby="report-cover-story-title">
+      {coverImage && <figure className="report-cover-story-media">
+        <img
+          src={mediaProxyUrl(coverImage.src)}
+          alt={coverImage.asset.alt || item.title}
+          loading="lazy"
+          onError={(event) => {
+            event.currentTarget.hidden = true;
+            event.currentTarget.parentElement?.setAttribute("hidden", "");
+            event.currentTarget.closest(".report-cover-story")?.classList.add("without-image");
+          }}
+        />
+      </figure>}
+      <div className="report-cover-story-copy">
+        <span>本期代表稿 · {item.sourceName}</span>
+        <button id="report-cover-story-title" type="button" onClick={() => onOpen(item)}>
+          <strong>{item.title}</strong>
+          <p>{item.reason || item.summary}</p>
+          <small>打开原文与完整解读 →</small>
+        </button>
+      </div>
+    </section>
+  );
 }
 
 export function ReportsWorkspace({ onOpen }: { onOpen: (item: Item) => void }) {
@@ -90,6 +123,7 @@ export function ReportsWorkspace({ onOpen }: { onOpen: (item: Item) => void }) {
                 <p className="report-editorial-summary">{report.editorialSummary}</p>
                 <div className="report-actions"><button type="button" onClick={exportReport}><Download size={15} />导出本期</button><a href="/feed.xml" target="_blank" rel="noreferrer"><Rss size={15} />订阅 RSS</a></div>
               </header>
+              {report.coverStory && <ReportCoverStory item={report.coverStory} onOpen={onOpen} />}
               {report.themes.length > 0 && <section className="report-themes"><span>本期主题</span><div>{report.themes.map((theme) => <b key={theme.key}>{theme.label}<small>{theme.count}</small></b>)}</div></section>}
               {report.trendLines.length > 0 && <section className="report-trends" aria-labelledby="report-trends-title"><header><div><span>EDITORIAL THREADS</span><h3 id="report-trends-title">本期主线</h3></div><small>按出现频率、事件数量和证据强度整理</small></header><div className="report-trend-grid">{report.trendLines.map((line) => <article key={line.key}><div><strong>{line.label}</strong><b>{line.count} 条</b></div><p>{line.eventCount} 个事件 · {line.sourceCount} 个信源 · {line.evidenceLevel === "multi_source" ? "多源确认" : line.evidenceLevel === "first_party" ? "一手信源" : "仍需核验"}</p>{line.sampleItems[0] && <button type="button" onClick={() => onOpen(line.sampleItems[0])}>查看代表内容</button>}</article>)}</div></section>}
               {report.watchItems.length > 0 && <section className="report-watch" aria-labelledby="report-watch-title"><header><div><span>KEEP WATCHING</span><h3 id="report-watch-title">继续观察</h3></div><small>这些内容有价值，但证据还不够完整</small></header><div>{report.watchItems.map((item) => <button type="button" key={item.id} onClick={() => onOpen(item)}><span>{item.sourceName}</span><strong>{item.title}</strong><small>{item.evidenceMeta?.evidenceGaps?.join("；") || "请对照原文继续核验"}</small></button>)}</div></section>}
@@ -99,10 +133,20 @@ export function ReportsWorkspace({ onOpen }: { onOpen: (item: Item) => void }) {
                     <header><span>{String(sectionIndex + 1).padStart(2, "0")}</span><div><h3>{section.title}</h3><small>{section.items.length} STORIES</small></div><ArrowDown size={17} /></header>
                     <div className="report-story-list">
                       {section.items.map((item, itemIndex) => (
-                        <button type="button" key={item.id} onClick={() => onOpen(item)}>
-                          <span>{String(itemIndex + 1).padStart(2, "0")}</span>
-                          <div><small>{item.sourceName} · {item.channelLabel || item.categoryLabel || "资讯"} · {item.score}</small><strong>{item.title}</strong><p>{item.reason || item.summary}</p></div>
-                        </button>
+                        <article className="report-story-row" key={item.id}>
+                          <span className="report-story-index">{String(itemIndex + 1).padStart(2, "0")}</span>
+                          <div>
+                            <small>{item.sourceName} · {item.channelLabel || item.categoryLabel || "资讯"} · {item.score}</small>
+                            {item.related?.coverage && item.related.coverage.length > 1 && <div className="report-event-sources" aria-label="同一事件的其他来源">
+                              <span>{item.related.sources.length} 个信源</span>
+                              {item.related.coverage.map((source) => <a href={source.url} key={source.url} target="_blank" rel="noreferrer">{source.sourceName}</a>)}
+                            </div>}
+                            <button className="report-story-main" type="button" onClick={() => onOpen(item)}>
+                              <strong>{item.title}</strong>
+                              <p>{item.reason || item.summary}</p>
+                            </button>
+                          </div>
+                        </article>
                       ))}
                     </div>
                   </section>

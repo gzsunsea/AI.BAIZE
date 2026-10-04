@@ -13,6 +13,18 @@ test("source registry uses live DeepMind RSS and OpenRouter article list", () =>
   assert.equal(source("openrouter-announcements").url, "https://openrouter.ai/announcements");
 });
 
+test("AIHOT discovery sources use the canonical domain without changing their roles", () => {
+  const reference = source("aihot-public");
+  const xBridge = source("x-aihot-bridge");
+
+  assert.equal(reference.url, "https://aihot.news/");
+  assert.equal(reference.kind, "aihot");
+  assert.equal(reference.priorityTier, "reference");
+  assert.equal(xBridge.url, "https://aihot.news/");
+  assert.equal(xBridge.kind, "x_reference");
+  assert.equal(xBridge.priorityTier, "preferred_x");
+});
+
 test("source registry disables feeds with no reachable production endpoint", () => {
   for (const id of ["huggingface-blog", "xai-news", "x-ai-leaders", "dwarkesh-podcast", "gary-marcus"]) {
     const item = source(id);

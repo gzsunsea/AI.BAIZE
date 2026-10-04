@@ -257,10 +257,22 @@
 }
 .story-summary,
 .story-timeline,
+.story-related,
 .story-sources { display: grid; gap: var(--space-3); }
+.story-summary-attribution { margin-top: -8px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .story-summary h2,
 .story-timeline h2,
+.story-related h2,
 .story-sources h2 { margin: 0; font-family: ui-serif, "Songti SC", STSong, serif; font-size: 21px; }
+.story-related > header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.story-related > header span { padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 11px; }
+.story-related-item { display: grid; gap: 8px; padding: 12px; border: 1px dashed color-mix(in srgb, var(--accent) 40%, var(--border)); border-radius: var(--radius-md); background: color-mix(in srgb, var(--surface) 88%, var(--accent)); }
+.story-related-item > p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.story-related-item .story-item { border-left-color: var(--accent); }
+.story-sources ul { display: grid; gap: 8px; padding: 0; margin: 0; list-style: none; }
+.story-sources li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; padding: 10px 12px; border-left: 2px solid var(--border); background: var(--surface); }
+.story-sources li a { color: var(--accent); }
+.story-sources li span { color: var(--muted); font-size: 12px; }
 .story-item { display: grid; gap: 7px; padding: var(--space-4); border-left: 2px solid color-mix(in srgb, var(--editorial) 55%, var(--border)); background: var(--surface); }
 .story-item > div { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 11px; }
 .story-item-title { padding: 0; color: var(--text); font-size: 15px; font-weight: 750; line-height: 1.45; text-align: left; overflow-wrap: anywhere; }

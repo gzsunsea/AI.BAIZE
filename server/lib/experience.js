@@ -1,10 +1,44 @@
 const { isCuratedSourceAllowed, isPublicItem, isSelectedFeedEligible, selectedRankingScore } = require("./scoring");
-const { evidenceMeta } = require("./editorial");
+const { evidenceMeta, sourceIdentity } = require("./editorial");
+const { compareRelatedEvents } = require("./relatedEvents");
 
 function clusterItemIds(cluster = {}) {
   return (cluster.items || [])
     .map((item) => (typeof item === "string" ? item : item?.id))
     .filter(Boolean);
+}
+
+function isFirstPartyRepresentative(item = {}) {
+  return [item.priorityTier, item.sourceTier, item.tier, item.channel]
+    .some((value) => ["official_first_party", "first_party"].includes(String(value || "").toLowerCase()));
+}
+
+function compareRepresentatives(a = {}, b = {}) {
+  return Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
+    || Number(isFirstPartyRepresentative(b)) - Number(isFirstPartyRepresentative(a))
+    || selectedRankingScore(b) - selectedRankingScore(a)
+    || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime();
+}
+
+function relatedSourceNames(item = {}) {
+  return [...new Set([
+    item.sourceName,
+    ...(item.related?.sources || []),
+    ...(item.duplicateSources || []),
+    ...(item.related?.coverage || []).filter(isCuratedSourceAllowed).map((source) => source.sourceName),
+    ...(item.relatedCoverage || []).filter(isCuratedSourceAllowed).map((source) => source.sourceName),
+  ].map((source) => String(source || "").trim()).filter(Boolean))];
+}
+
+function relatedCoverageRecords(item = {}) {
+  const records = [...(item.related?.coverage || []), ...(item.relatedCoverage || [])].filter(isCuratedSourceAllowed);
+  const unique = new Map();
+  for (const source of records) {
+    if (!source?.url || !source?.sourceName) continue;
+    const key = source.url.trim();
+    if (!unique.has(key)) unique.set(key, source);
+  }
+  return [...unique.values()];
 }
 
 const HOT_TIER_WEIGHTS = {
@@ -69,10 +103,17 @@ function normalizedSourceIdentity(value = "") {
 }
 
 function sourceLedger(cluster = {}, relatedItems = [], representative = {}) {
+  const rejectedAliases = new Set((cluster.coverage || [])
+    .filter((source) => !isCuratedSourceAllowed(source))
+    .flatMap((source) => [source.sourceName, source.sourceId]
+      .map(normalizedSourceIdentity)
+      .filter(Boolean)));
+  const legacySource = (name) => !rejectedAliases.has(normalizedSourceIdentity(name));
   const entries = [
-    ...relatedItems.map((item) => ({ identity: item.sourceId || item.sourceName, name: item.sourceName || item.sourceId })),
-    ...(cluster.sources || []).map((name) => ({ identity: name, name })),
-    ...(representative.duplicateSources || []).map((name) => ({ identity: name, name })),
+    ...relatedItems.map((item) => ({ identity: sourceIdentity(item), name: item.sourceName || item.sourceId })),
+    ...(cluster.coverage || []).filter(isCuratedSourceAllowed).map((source) => ({ identity: sourceIdentity(source), name: source.sourceName || source.sourceId })),
+    ...(cluster.sources || []).filter(legacySource).map((name) => ({ identity: name, name })),
+    ...(representative.duplicateSources || []).filter(legacySource).map((name) => ({ identity: name, name })),
   ].filter((entry) => entry.identity && entry.name && !/^AIHOT(?:\s*公开页)?$/i.test(String(entry.name)));
   const byIdentity = new Map();
   for (const entry of entries) {
@@ -91,7 +132,7 @@ function buildEventLifecycle(items = [], now = Date.now(), persistedSources = []
   const firstSeenAt = new Date(Math.min(...dated.map(({ time }) => time))).toISOString();
   const lastUpdatedAt = new Date(Math.max(...dated.map(({ time }) => time))).toISOString();
   const sourceIds = new Set(dated
-    .map(({ item }) => normalizedSourceIdentity(item.sourceId || item.sourceName))
+    .map(({ item }) => sourceIdentity(item))
     .filter(Boolean));
   for (const source of persistedSources) {
     const identity = normalizedSourceIdentity(source);
@@ -223,14 +264,11 @@ function buildTodaySignals(state = {}, options = {}) {
         return Number.isFinite(published) && nowMs - published >= 0 && nowMs - published <= 36 * 60 * 60 * 1000;
       });
     if (!members.length) continue;
-    const representative = [...members].sort((a, b) => (
-      Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
-      || selectedRankingScore(b) - selectedRankingScore(a)
-      || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime()
-    ))[0];
+    const representative = [...members].sort(compareRepresentatives)[0];
+    const topRankingScore = Math.max(...members.map((member) => selectedRankingScore(member)));
     const identities = new Map();
     for (const member of members) {
-      const identity = String(member.sourceId || member.sourceName || "").trim().toLowerCase();
+      const identity = sourceIdentity(member);
       if (identity && !identities.has(identity)) identities.set(identity, member.sourceName || member.sourceId);
     }
     const latestAt = members.reduce((latest, item) => (
@@ -254,7 +292,7 @@ function buildTodaySignals(state = {}, options = {}) {
       _rank: todaySignalEvidenceWeight(evidence.evidenceLevel)
         + Math.min(16, identities.size * 5)
         + Math.max(0, Math.round(18 - ageHours / 2))
-        + selectedRankingScore(representative),
+        + topRankingScore,
     });
   }
 
@@ -288,21 +326,26 @@ function buildHotTopics(state = {}, options = {}) {
           const age = nowMs - new Date(item.publishedAt || 0).getTime();
           return age >= 0 && age <= 72 * 60 * 60 * 1000;
         });
-      const representative = [...relatedItems].sort((a, b) => (
-        Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
-        || (b.score || 0) - (a.score || 0)
-        || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime()
-      ))[0];
+      const representative = [...relatedItems].sort(compareRepresentatives)[0];
 
       if (!representative) return null;
       const sources = sourceLedger(cluster, relatedItems, representative);
       if (sources.length < 2) return null;
+      const coverage = new Map();
+      for (const record of [
+        ...(cluster.coverage || []).filter(isCuratedSourceAllowed),
+        ...relatedItems.flatMap(relatedCoverageRecords),
+        ...relatedItems.map((item) => ({ sourceName: item.sourceName, url: item.url, title: item.title, publishedAt: item.publishedAt })),
+      ]) {
+        if (record?.url && record?.sourceName && !coverage.has(record.url)) coverage.set(record.url, record);
+      }
 
       const topic = {
         id: cluster.id || representative.eventId || representative.id,
         title: representative.title,
         sourceCount: sources.length,
         sources: sources.slice(0, 6),
+        coverage: [...coverage.values()],
         topScore: Math.max(0, ...relatedItems.map((item) => Number(item.score || 0))),
         publishedAt: representative.publishedAt,
         latestAt: relatedItems.reduce((latest, item) => (
@@ -344,18 +387,41 @@ function buildHotTopics(state = {}, options = {}) {
 }
 
 function buildStory(state = {}, id, options = {}) {
-  const topics = buildHotTopics(state, { ...options, limit: Number.POSITIVE_INFINITY }).items;
+  const enrichItem = options.enrichItem || ((item) => item);
+  const topics = buildHotTopics(state, { ...options, enrichItem, limit: Number.POSITIVE_INFINITY }).items;
   const topic = topics.find((item) => item.id === id);
   if (!topic) return null;
   const timeline = [...(topic.relatedItems || [])].sort((a, b) => (
     new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime()
   ));
+  const nowMs = new Date(options.now || Date.now()).getTime();
+  const anchorIds = new Set(timeline.map((item) => item.id));
+  const anchorEventIds = new Set(timeline.map((item) => item.eventId).filter(Boolean));
+  const anchorSources = new Set(timeline.map(sourceIdentity).filter(Boolean));
+  const relatedCandidates = (state.items || [])
+    .filter((item) => !anchorIds.has(item.id) && !anchorEventIds.has(item.eventId))
+    .filter(isPublicItem)
+    .filter(isCuratedSourceAllowed)
+    .filter((item) => {
+      const age = nowMs - new Date(item.publishedAt || 0).getTime();
+      return Number.isFinite(age) && age >= 0 && age <= 72 * 60 * 60 * 1000;
+    })
+    .filter((item) => !anchorSources.has(sourceIdentity(item)))
+    .map((item) => ({
+      item,
+      match: timeline.map((anchor) => compareRelatedEvents(anchor, item)).find(Boolean),
+    }))
+    .filter(({ match }) => Boolean(match))
+    .sort((a, b) => new Date(b.item.publishedAt || 0).getTime() - new Date(a.item.publishedAt || 0).getTime())
+    .slice(0, 3)
+    .map(({ item, match }) => ({ item: enrichItem(item), eventType: match.eventType, reason: match.reason }));
   const { relatedItems, ...event } = topic;
   return {
     event,
     summary: topic.representative.editorialBrief?.fact || topic.representative.summary || topic.title,
     latestUpdates: timeline.slice(0, 3),
     timeline,
+    relatedCandidates,
     sources: topic.sources,
     rules: topic.rules || HOT_RULES,
   };
@@ -465,16 +531,32 @@ function mergeDigestSections(daily = [], itemLimit = Number.POSITIVE_INFINITY) {
         const key = reportItemKey(item);
         if (!key) continue;
         const current = selected.get(key);
-        const currentTime = new Date(current?.item?.publishedAt || current?.digestAt || 0).getTime();
-        const candidateTime = new Date(item.publishedAt || digest.generatedAt || 0).getTime();
-        if (!current || (item.score || 0) > (current.item.score || 0) || ((item.score || 0) === (current.item.score || 0) && candidateTime > currentTime)) {
-          selected.set(key, {
-            sectionKey: section.key || item.category || "industry",
-            sectionTitle: section.title || section.key || "行业动态",
-            item,
-            digestAt: digest.generatedAt,
-          });
-        }
+        const sources = new Set([
+          ...(current?.sources || []),
+          ...relatedSourceNames(item),
+        ]);
+        const coverage = new Map([
+          ...(current?.coverage || []).map((source) => [source.url, source]),
+          ...relatedCoverageRecords(item).map((source) => [source.url, source]),
+        ]);
+        const representative = !current || compareRepresentatives(item, current.item) < 0 ? item : current.item;
+        selected.set(key, {
+          sectionKey: current?.sectionKey || section.key || item.category || "industry",
+          sectionTitle: current?.sectionTitle || section.title || section.key || "行业动态",
+          item: {
+            ...representative,
+            related: {
+              ...(representative.related || {}),
+              count: Math.max(sources.size, Number(current?.item?.related?.count || 0), Number(representative.related?.count || 0)),
+              sources: [...sources],
+              coverage: [...coverage.values()],
+              topScore: Math.max(Number(representative.related?.topScore || 0), Number(current?.item?.related?.topScore || 0), Number(current?.item?.score || 0), Number(item.score || 0)),
+            },
+          },
+          sources: [...sources],
+          coverage: [...coverage.values()],
+          digestAt: digest.generatedAt,
+        });
       }
     }
   }
@@ -529,7 +611,7 @@ function reportTrendLines(items = []) {
   }
   return [...groups.values()]
     .map((group) => {
-      const sources = new Set(group.items.map((item) => String(item.sourceId || item.sourceName || "").trim().toLowerCase()).filter(Boolean));
+      const sources = new Set(group.items.flatMap(relatedSourceNames).map((source) => source.toLowerCase()));
       const eventKeys = new Set(group.items.map(reportItemKey).filter(Boolean));
       const evidenceLevel = group.items
         .map((item) => evidenceMeta(item, group.items).evidenceLevel)
@@ -623,6 +705,15 @@ function reportHeadline(period, storyCount) {
   return storyCount ? `${prefix}值得关注的 ${storyCount} 条 AI 动态` : "";
 }
 
+function reportCoverStory(sections = []) {
+  const candidates = sections.flatMap((section) => section.items || []);
+  if (!candidates.length) return null;
+  return [...candidates].sort((a, b) => (
+    compareRepresentatives(a, b)
+    || String(a.id || "").localeCompare(String(b.id || ""))
+  ))[0];
+}
+
 function buildReport(state = {}, options = {}) {
   const period = String(options.period || "daily");
   if (!REPORT_PERIODS.has(period)) throw badRequest("invalid period");
@@ -644,6 +735,7 @@ function buildReport(state = {}, options = {}) {
     range: { start: range.startKey, end: range.endKey },
     coverage: reportCoverage(period, range, daily, now),
     headline: reportHeadline(period, storyCount),
+    coverStory: reportCoverStory(sections),
     editorialSummary: reportEditorialSummary(period, storyCount, trendLines, watchItems),
     storyCount,
     estimatedReadingMinutes: Math.max(1, Math.ceil(storyCount / 5)),

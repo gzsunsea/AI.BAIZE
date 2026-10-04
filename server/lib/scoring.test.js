@@ -10,6 +10,7 @@ const {
   normalizeItem,
   selectedRankingScore,
 } = require("./scoring");
+const { compactDuplicates, titleFingerprint } = require("./dedupe");
 
 test("curated source policy excludes reference items from public curation", () => {
   assert.equal(isCuratedSourceAllowed({ priorityTier: "reference" }), false);
@@ -39,6 +40,42 @@ test("weak AI sports prediction stories are rejected", () => {
   const item = cnMediaItem("世界杯连续爆冷，12 家 AI 集体预测错误", "大模型竞猜冠军全部翻车");
 
   assert.equal(isNoiseCandidate(item), true);
+  assert.equal(isSelectedQualityCandidate(item), false);
+});
+
+test("AI training-copyright disclosures are not demoted as generic executive litigation", () => {
+  const item = {
+    title: "Authors Guild v. OpenAI 新文件披露高管早已知道大规模盗版书籍训练违法",
+    summary: "诉讼文件称 OpenAI 和 Microsoft 高管有意使用盗版书籍训练模型，并知道产品可能取代作家。",
+    sourceName: "Hacker News 热门（buzzing.cc 中文翻译）",
+    sourceKind: "hn",
+    priorityTier: "community_fallback",
+  };
+
+  assert.equal(isSelectedQualityCandidate(item), true);
+});
+
+test("ordinary commercial litigation about AI company executives remains weak industry news", () => {
+  const item = {
+    title: "OpenAI executives face a lawsuit over a commercial licensing dispute",
+    summary: "The complaint concerns sales contract fees and contains no copyright or model-training claims.",
+    sourceName: "Hacker News",
+    sourceKind: "hn",
+    priorityTier: "community_fallback",
+  };
+
+  assert.equal(isSelectedQualityCandidate(item), false);
+});
+
+test("explicit denials of copyrighted training use do not qualify as disclosures", () => {
+  const item = {
+    title: "OpenAI executives face a lawsuit over using pirated books to train models",
+    summary: "The company did not train on copyrighted books or use them for model training.",
+    sourceName: "Hacker News",
+    sourceKind: "hn",
+    priorityTier: "community_fallback",
+  };
+
   assert.equal(isSelectedQualityCandidate(item), false);
 });
 
@@ -175,6 +212,8 @@ test("selected ranking rewards independent confirmation when display scores tie"
   const mirrored = {
     title: "AI agent API migration timeline",
     summary: "A newsletter repost of the migration dates and API compatibility details.",
+    url: "https://mirror-weekly.example/ai-agent-api-migration",
+    titleFingerprint: titleFingerprint("AI agent API migration timeline"),
     sourceName: "Mirror Weekly",
     sourceKind: "rss",
     priorityTier: "expert_rss",
@@ -185,6 +224,11 @@ test("selected ranking rewards independent confirmation when display scores tie"
     ...mirrored,
     duplicateCount: 2,
     duplicateSources: ["OpenAI", "Simon Willison Blog"],
+    relatedCoverage: [
+      { sourceName: "Mirror Weekly", url: mirrored.url, title: mirrored.title, titleFingerprint: mirrored.titleFingerprint },
+      { sourceName: "OpenAI", url: "https://openai.com/index/agent-api-migration", title: "OpenAI publishes its new agent API migration schedule", titleFingerprint: titleFingerprint("OpenAI publishes its new agent API migration schedule") },
+      { sourceName: "Simon Willison Blog", url: "https://simonwillison.net/2026/sep/28/agent-api-migration/", title: "Notes on the migration timeline for OpenAI's new agent API", titleFingerprint: titleFingerprint("Notes on the migration timeline for OpenAI's new agent API") },
+    ],
   };
 
   assert.equal(mirrored.score, confirmed.score);
@@ -196,6 +240,8 @@ test("selected ranking ignores same-source duplicates and unproven duplicate cou
   const base = {
     title: "AI agent API migration timeline",
     summary: "A newsletter copy of the migration dates and API compatibility details.",
+    url: "https://mirror-weekly.example/ai-agent-api-migration",
+    titleFingerprint: titleFingerprint("AI agent API migration timeline"),
     sourceName: "Mirror Weekly",
     sourceKind: "rss",
     priorityTier: "expert_rss",
@@ -211,11 +257,111 @@ test("selected ranking ignores same-source duplicates and unproven duplicate cou
   const independentlyConfirmed = {
     ...sameSource,
     duplicateSources: [...sameSource.duplicateSources, "OpenAI"],
+    relatedCoverage: [
+      { sourceName: "Mirror Weekly", url: base.url, title: base.title, titleFingerprint: base.titleFingerprint },
+      { sourceName: "OpenAI", url: "https://openai.com/index/agent-api-migration", title: "OpenAI publishes its new agent API migration schedule", titleFingerprint: titleFingerprint("OpenAI publishes its new agent API migration schedule") },
+    ],
   };
 
   assert.equal(selectedRankingScore(unproven), selectedRankingScore(base));
   assert.equal(selectedRankingScore(sameSource), selectedRankingScore(base));
   assert.ok(selectedRankingScore(independentlyConfirmed) > selectedRankingScore(base));
+});
+
+test("selected ranking does not trust legacy duplicate source names without URL coverage", () => {
+  const base = {
+    title: "AI agent API migration timeline",
+    summary: "A newsletter copy of the migration dates and API compatibility details.",
+    url: "https://mirror-weekly.example/ai-agent-api-migration",
+    sourceName: "Mirror Weekly",
+    sourceKind: "rss",
+    priorityTier: "expert_rss",
+    publishedAt: new Date().toISOString(),
+    score: 80,
+  };
+  const legacyNamesOnly = {
+    ...base,
+    duplicateCount: 3,
+    duplicateSources: ["OpenAI", "Simon Willison Blog"],
+  };
+
+  assert.equal(selectedRankingScore(legacyNamesOnly), selectedRankingScore(base));
+});
+
+test("selected ranking does not treat different source names for the same canonical URL as confirmation", () => {
+  const base = {
+    title: "Authors Guild v. OpenAI filing discusses pirated books in model training",
+    summary: "A filing in the copyright lawsuit discusses books used to train AI models.",
+    url: "https://authorsguild.org/news/ag-v-openai-training/",
+    titleFingerprint: titleFingerprint("Authors Guild v. OpenAI filing discusses pirated books in model training"),
+    sourceName: "Hacker News",
+    sourceKind: "hn",
+    priorityTier: "community_fallback",
+    publishedAt: new Date().toISOString(),
+    score: 80,
+  };
+  const sameArticle = {
+    ...base,
+    duplicateSources: ["Authors Guild"],
+    relatedCoverage: [
+      { sourceName: "Hacker News", url: base.url, titleFingerprint: base.titleFingerprint },
+      { sourceName: "Authors Guild", url: "https://www.authorsguild.org/news/ag-v-openai-training/?utm_source=rss", titleFingerprint: base.titleFingerprint },
+    ],
+  };
+
+  assert.equal(selectedRankingScore(sameArticle), selectedRankingScore(base));
+});
+
+test("selected ranking rewards distinct source URLs when related coverage proves them", () => {
+  const base = {
+    title: "Authors Guild v. OpenAI filing discusses pirated books in model training",
+    summary: "A filing in the copyright lawsuit discusses books used to train AI models.",
+    url: "https://authorsguild.org/news/ag-v-openai-training/",
+    titleFingerprint: titleFingerprint("Authors Guild v. OpenAI filing discusses pirated books in model training"),
+    sourceName: "Hacker News",
+    sourceKind: "hn",
+    priorityTier: "community_fallback",
+    publishedAt: new Date().toISOString(),
+    score: 80,
+  };
+  const independentlyReported = {
+    ...base,
+    duplicateSources: ["Publishers Weekly"],
+    relatedCoverage: [
+      { sourceName: "Hacker News", url: base.url, title: base.title, titleFingerprint: base.titleFingerprint },
+      { sourceName: "Publishers Weekly", url: "https://www.publishersweekly.com/pw/by-topic/digital/copyright/article/101300.html", title: "Unsealed briefs detail OpenAI and Microsoft book-training copyright claims", titleFingerprint: titleFingerprint("Unsealed briefs detail OpenAI and Microsoft book-training copyright claims") },
+    ],
+  };
+
+  assert.ok(selectedRankingScore(independentlyReported) > selectedRankingScore(base));
+});
+
+test("selected ranking does not treat a same-headline repost at a different URL as independent reporting", () => {
+  const sourceA = {
+    id: "authors-guild",
+    title: "Authors Guild v. OpenAI filing discusses pirated books in model training",
+    summary: "A filing in the copyright lawsuit discusses books used to train AI models.",
+    url: "https://authorsguild.org/news/ag-v-openai-training/",
+    sourceName: "Authors Guild",
+    sourceKind: "rss",
+    priorityTier: "official_first_party",
+    publishedAt: new Date().toISOString(),
+    score: 80,
+  };
+  const sourceB = {
+    ...sourceA,
+    id: "partner-news",
+    title: "Authors Guild v OpenAI filing discusses pirated books in model training!",
+    url: "https://partner.example/openai-training-case",
+    sourceName: "Partner News",
+    priorityTier: "community_fallback",
+    score: 79,
+  };
+  const [reposted] = compactDuplicates([sourceA, sourceB]).items;
+  const singleArticle = { ...reposted, duplicateSources: [], relatedCoverage: [] };
+
+  assert.equal(reposted.relatedCoverage.length, 2);
+  assert.equal(selectedRankingScore(reposted), selectedRankingScore(singleArticle));
 });
 
 test("templated selected reasons are not treated as authoritative editorial reasons", () => {

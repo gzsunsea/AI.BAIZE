@@ -1,52 +1,5 @@
 const { makeId } = require("./scoring");
-
-const STOPWORDS = new Set([
-  "the",
-  "and",
-  "for",
-  "with",
-  "from",
-  "into",
-  "using",
-  "about",
-  "this",
-  "that",
-  "your",
-  "their",
-  "发布",
-  "推出",
-  "更新",
-  "正式",
-  "宣布",
-  "支持",
-  "通过",
-  "实现",
-]);
-
-function canonicalUrl(url = "") {
-  try {
-    const parsed = new URL(url);
-    parsed.hash = "";
-    for (const key of [...parsed.searchParams.keys()]) {
-      if (/^utm_|^spm$|^from$|^ref$|^fbclid$|^gclid$/i.test(key)) parsed.searchParams.delete(key);
-    }
-    parsed.hostname = parsed.hostname.replace(/^www\./, "");
-    return parsed.toString().replace(/\/$/, "");
-  } catch {
-    return String(url || "").trim();
-  }
-}
-
-function titleFingerprint(title = "") {
-  const normalized = String(title)
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .split(/\s+/)
-    .filter((word) => word.length > 1 && !STOPWORDS.has(word))
-    .slice(0, 14)
-    .join(" ");
-  return normalized || String(title).slice(0, 40).toLowerCase();
-}
+const { canonicalUrl, titleFingerprint } = require("./contentIdentity");
 
 function eventKey(item) {
   const tags = (item.tags || []).slice(0, 3).join("-");
@@ -63,6 +16,42 @@ function enrichDedupe(item) {
   };
 }
 
+function coverageRecord(item = {}) {
+  return {
+    id: item.id,
+    sourceId: item.sourceId,
+    sourceName: item.sourceName,
+    sourceKind: item.sourceKind,
+    priorityTier: item.priorityTier || item.sourceTier || item.tier,
+    title: item.title,
+    url: item.url,
+    publishedAt: item.publishedAt,
+  };
+}
+
+function mergeRelatedCoverage(...items) {
+  const coverage = new Map();
+  for (const item of items.flat()) {
+    if (!item) continue;
+    const record = item.url ? coverageRecord(item) : item;
+    const key = canonicalUrl(record.url) || `${record.sourceId || record.sourceName || "source"}:${record.title || ""}`;
+    if (!key || !record.sourceName || !record.url) continue;
+    if (!coverage.has(key)) coverage.set(key, record);
+  }
+  return [...coverage.values()];
+}
+
+function mergeDuplicateEvidence(winner, loser) {
+  winner.duplicateSources = [...new Set([...(winner.duplicateSources || []), loser.sourceName].filter(Boolean))];
+  winner.relatedCoverage = mergeRelatedCoverage(
+    winner.relatedCoverage || [],
+    coverageRecord(winner),
+    loser.relatedCoverage || [],
+    coverageRecord(loser),
+  );
+  winner.duplicateCount = (winner.duplicateCount || 0) + 1 + (loser.duplicateCount || 0);
+}
+
 function compactDuplicates(items) {
   const byCanonical = new Map();
   const duplicates = [];
@@ -75,8 +64,7 @@ function compactDuplicates(items) {
     }
     const winner = raw.score > prev.score ? raw : prev;
     const loser = winner === raw ? prev : raw;
-    winner.duplicateSources = [...new Set([...(winner.duplicateSources || []), loser.sourceName].filter(Boolean))];
-    winner.duplicateCount = (winner.duplicateCount || 0) + 1 + (loser.duplicateCount || 0);
+    mergeDuplicateEvidence(winner, loser);
     byCanonical.set(key, winner);
     duplicates.push(loser);
   }
@@ -91,8 +79,7 @@ function compactDuplicates(items) {
     }
     const winner = raw.score > prev.score ? raw : prev;
     const loser = winner === raw ? prev : raw;
-    winner.duplicateSources = [...new Set([...(winner.duplicateSources || []), loser.sourceName].filter(Boolean))];
-    winner.duplicateCount = (winner.duplicateCount || 0) + 1 + (loser.duplicateCount || 0);
+    mergeDuplicateEvidence(winner, loser);
     byTitle.set(key, winner);
     duplicates.push(loser);
   }
@@ -108,21 +95,24 @@ function eventClusters(items) {
         title: item.title,
         items: [],
         sources: new Set(),
+        coverage: [],
         topScore: 0,
         duplicateCount: 0,
       };
       duplicateCluster.items.push(item.id);
       duplicateCluster.sources.add(item.sourceName);
       for (const source of item.duplicateSources || []) duplicateCluster.sources.add(source);
+      duplicateCluster.coverage.push(...mergeRelatedCoverage(item.relatedCoverage || [], coverageRecord(item)));
       duplicateCluster.topScore = Math.max(duplicateCluster.topScore, item.score || 0);
       duplicateCluster.duplicateCount += item.duplicateCount || 0;
       clusters.set(duplicateCluster.id, duplicateCluster);
       continue;
     }
     const key = item.eventId || eventKey(item);
-    const cluster = clusters.get(key) || { id: key, title: item.title, items: [], sources: new Set(), topScore: 0 };
+    const cluster = clusters.get(key) || { id: key, title: item.title, items: [], sources: new Set(), coverage: [], topScore: 0 };
     cluster.items.push(item.id);
     cluster.sources.add(item.sourceName);
+    cluster.coverage.push(...mergeRelatedCoverage(item.relatedCoverage || [], coverageRecord(item)));
     cluster.topScore = Math.max(cluster.topScore, item.score || 0);
     clusters.set(key, cluster);
   }
@@ -130,6 +120,7 @@ function eventClusters(items) {
     .map((cluster) => ({
       ...cluster,
       sources: [...cluster.sources],
+      coverage: mergeRelatedCoverage(cluster.coverage),
       size: cluster.items.length,
     }))
     .filter((cluster) => cluster.size > 1 || cluster.sources.length > 1 || cluster.duplicateCount > 0)
@@ -139,6 +130,7 @@ function eventClusters(items) {
 module.exports = {
   canonicalUrl,
   compactDuplicates,
+  mergeRelatedCoverage,
   enrichDedupe,
   eventClusters,
   eventKey,

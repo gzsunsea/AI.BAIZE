@@ -38,6 +38,7 @@ export function StoryPage({ story, loading, error, notFound, backLabel, onBack, 
       <span>EVENT #{String(story.event.rank).padStart(2, "0")}</span>
       <h1 id="story-page-title">{story.event.title}</h1>
       <p>{story.summary}</p>
+      <small className="story-summary-attribution">单篇代表报道摘要 · 来源：{representative.sourceName || "未标注"}；请以时间线原文核验。</small>
       <div><b>热度 {story.event.heat}</b><b>{story.event.sourceCount} 个独立信源</b><b>{story.event.status === "new" ? "新出现" : "持续发酵"}</b></div>
     </header>
 
@@ -53,6 +54,18 @@ export function StoryPage({ story, loading, error, notFound, backLabel, onBack, 
       {story.timeline.length ? story.timeline.map((item) => <ItemLink key={item.id} item={item} onOpenItem={onOpenItem} />) : <p>暂未形成更多可核对的时间线节点。</p>}
     </section>
 
-    <section className="story-sources" aria-labelledby="story-sources-title"><h2 id="story-sources-title">确认信源</h2><p>{story.sources.join(" / ") || representative.sourceName}</p></section>
+    {story.relatedCandidates?.length ? <section className="story-related" aria-labelledby="story-related-title">
+      <header><h2 id="story-related-title">可能相关报道</h2><span>待核实 · 不计入已确认信源和热度</span></header>
+      {story.relatedCandidates.map((candidate) => <div className="story-related-item" key={candidate.item.id}>
+        <p>{candidate.reason}</p>
+        <ItemLink item={candidate.item} onOpenItem={onOpenItem} />
+      </div>)}
+    </section> : null}
+
+    <section className="story-sources" aria-labelledby="story-sources-title">
+      <h2 id="story-sources-title">确认信源</h2>
+      <p>{story.sources.join(" / ") || representative.sourceName}</p>
+      {story.event.coverage && story.event.coverage.length > 0 && <ul>{story.event.coverage.map((source) => <li key={source.url}><a href={source.url} target="_blank" rel="noreferrer">{source.sourceName}</a>{source.title && <span>{source.title}</span>}</li>)}</ul>}
+    </section>
   </article>;
 }

@@ -44,7 +44,12 @@ export type Item = {
     trendLabel?: string;
     editorNote?: string;
   };
-  related?: { count: number; sources: string[]; topScore: number };
+  related?: {
+    count: number;
+    sources: string[];
+    topScore: number;
+    coverage?: { id?: string; sourceName: string; sourceKind?: string; priorityTier?: string; title?: string; url: string; publishedAt?: string }[];
+  };
   editorialBrief?: { fact?: string; impact?: string; scenario?: string } | null;
   evidenceMeta?: EvidenceMeta;
   hidden?: boolean;
@@ -188,6 +193,7 @@ export type HotTopic = {
   ageHours?: number;
   sourceCount: number;
   sources: string[];
+  coverage?: { id?: string; sourceName: string; sourceKind?: string; priorityTier?: string; title?: string; url: string; publishedAt?: string }[];
   topScore: number;
   publishedAt: string;
   latestAt: string;
@@ -210,6 +216,7 @@ export type StoryDetail = {
   summary: string;
   latestUpdates: Item[];
   timeline: Item[];
+  relatedCandidates?: { item: Item; eventType: string; reason: string }[];
   sources: string[];
   lifecycle?: {
     state: "emerging" | "confirmed" | "developing" | "stale";
@@ -233,6 +240,7 @@ export type Report = {
   range: { start: string; end: string };
   coverage: { complete: boolean; days: number; requiredDays: number; start: string | null; end: string | null };
   headline: string;
+  coverStory?: Item | null;
   editorialSummary: string;
   storyCount: number;
   estimatedReadingMinutes: number;
