@@ -8,7 +8,7 @@ const { articleTitleFromHtml } = require('../server/lib/scrapers');
 const { titleFingerprint } = require('../server/lib/contentIdentity');
 async function fetchPage(url) {
   const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(15000), headers: { 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36', accept: 'text/html' } });
-  if (!response.ok) throw new Error('Article fetch failed');
+  if (!response.ok) throw Object.assign(new Error('Article fetch failed'), { code: `HTTP_${response.status}` });
   const reader = response.body.getReader();
   const chunks = [];
   let size = 0;
@@ -23,27 +23,53 @@ async function fetchPage(url) {
   } finally { await reader.cancel(); }
   return Buffer.concat(chunks).toString('utf8');
 }
-async function repair({ dbPath, apply = false, fetchPage: readPage = fetchPage }) {
+function publicFailure(id, code) {
+  return Object.assign(new Error(`${code}: ${id} (title evidence / Unexpected article location refused)`), { id, code });
+}
+async function inventory(dbPath, ids) {
   if (!dbPath) throw new Error('Explicit --db required');
   const file = path.resolve(dbPath);
   const original = await fs.readFile(file, 'utf8');
   const state = JSON.parse(original);
   if (!Array.isArray(state.items)) throw new Error('Invalid inventory');
+  const items = state.items.filter(item => item.sourceId === 'openrouter-announcements');
+  if (ids && (!ids.length || ids.some(id => !items.some(item => item.id === id)))) throw new Error('Unknown selected public ID');
+  return { file, original, state, items: ids ? items.filter(item => ids.includes(item.id)) : items };
+}
+async function inspect(item, readPage) {
+  if (!/^item-[a-z0-9]+$/i.test(item.id || '')) throw new Error('Invalid public ID');
+  let url;
+  try { url = new URL(item.url); } catch { return { id: item.id, status: 'INVALID_LOCATION' }; }
+  if (url.protocol !== 'https:' || url.hostname !== 'openrouter.ai' || url.port || url.username || url.password || !url.pathname.startsWith('/blog/')) return { id: item.id, status: 'UNEXPECTED_LOCATION' };
+  let html;
+  try { html = await readPage(url.href); } catch (error) {
+    const code = /^HTTP_[1-5][0-9]{2}$/.test(error.code || '') ? error.code : 'FETCH_FAILED';
+    return { id: item.id, status: code };
+  }
+  const title = articleTitleFromHtml(html);
+  if (!title) return { id: item.id, status: 'NO_TITLE_EVIDENCE' };
+  if (title === item.title) return { id: item.id, status: 'unchanged', title };
+  if (!String(item.title).startsWith(title)) return { id: item.id, status: 'UNPROVED_TITLE_DIFFERENCE', title };
+  return { id: item.id, status: 'repairable', title };
+}
+async function diagnose({ dbPath, ids, fetchPage: readPage = fetchPage }) {
+  const { items } = await inventory(dbPath, ids);
+  const result = [];
+  for (const item of items) result.push(await inspect(item, readPage));
+  return result;
+}
+async function repair({ dbPath, apply = false, ids, fetchPage: readPage = fetchPage }) {
+  const { file, original, state, items } = await inventory(dbPath, ids);
   const changes = [];
-  for (const item of state.items) {
-    if (item.sourceId !== 'openrouter-announcements') continue;
-    if (!/^item-[a-z0-9]+$/i.test(item.id || '')) throw new Error('Invalid public ID');
-    let url;
-    try { url = new URL(item.url); } catch { throw new Error('Invalid article location'); }
-    if (url.protocol !== 'https:' || url.hostname !== 'openrouter.ai' || url.port || url.username || url.password || !url.pathname.startsWith('/blog/')) throw new Error('Unexpected article location');
-    const title = articleTitleFromHtml(await readPage(url.href));
-    if (!title) throw new Error(`No unambiguous title evidence for ${item.id}`);
+  for (const item of items) {
+    const result = await inspect(item, readPage);
+    if (['unchanged', 'UNPROVED_TITLE_DIFFERENCE'].includes(result.status)) continue;
+    if (result.status !== 'repairable') throw publicFailure(item.id, result.status);
     // Exact publisher headline plus extra card text proves contamination; never slice or infer.
-    if (title === item.title || !String(item.title).startsWith(title)) continue;
-    item.title = title;
-    if (item.raw && typeof item.raw === 'object') item.raw.title = title;
-    if (Object.hasOwn(item, 'titleFingerprint')) item.titleFingerprint = titleFingerprint(title);
-    changes.push({ id: item.id, title });
+    item.title = result.title;
+    if (item.raw && typeof item.raw === 'object') item.raw.title = result.title;
+    if (Object.hasOwn(item, 'titleFingerprint')) item.titleFingerprint = titleFingerprint(result.title);
+    changes.push({ id: item.id, title: result.title });
   }
   if (apply && changes.length) {
     if (await fs.readFile(file, 'utf8') !== original) throw new Error('Database changed');
@@ -60,13 +86,21 @@ async function repair({ dbPath, apply = false, fetchPage: readPage = fetchPage }
 }
 if (require.main === module) {
   const args = process.argv.slice(2);
-  const index = args.indexOf('--db');
-  if (index < 0 || !args[index + 1] || args.some((arg, i) => arg !== '--apply' && arg !== '--db' && i !== index + 1)) {
-    console.error('Usage: node scripts/repair-openrouter-titles.js --db /path/db.json [--apply]');
+  const options = {};
+  let invalid = false;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--apply') options.apply = true;
+    else if (args[i] === '--diagnose') options.diagnose = true;
+    else if (args[i] === '--db' && args[i + 1]) options.dbPath = args[++i];
+    else if (args[i] === '--ids' && args[i + 1]) options.ids = args[++i].split(',');
+    else invalid = true;
+  }
+  if (invalid || !options.dbPath || (options.apply && options.diagnose)) {
+    console.error('Usage: node scripts/repair-openrouter-titles.js --db /path/db.json [--ids item-a,item-b] [--apply | --diagnose]');
     process.exitCode = 1;
-  } else repair({ dbPath: args[index + 1], apply: args.includes('--apply') }).then(changes => console.log(JSON.stringify(changes, null, 2))).catch(() => {
-    console.error('Repair refused; check input and original title evidence.');
+  } else (options.diagnose ? diagnose(options) : repair(options)).then(result => console.log(JSON.stringify(result, null, 2))).catch(error => {
+    console.error(JSON.stringify(error.id ? { id: error.id, status: error.code } : { status: 'REPAIR_REFUSED' }));
     process.exitCode = 1;
   });
 }
-module.exports = { repair, fetchPage };
+module.exports = { repair, fetchPage, diagnose };

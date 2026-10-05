@@ -65,3 +65,21 @@ test('repair proves shorter card pollution from an original title prefix, keepin
   ] }));
   assert.deepEqual(await repair({ dbPath, fetchPage: async () => '<h1>Actual title</h1>' }), [{ id: 'item-short', title: 'Actual title' }]);
 });
+
+test('diagnosis reports every public ID and selective repair excludes unconfirmed records', async t => {
+  const { repair, diagnose } = require('../../scripts/repair-openrouter-titles');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'title-repair-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const dbPath = path.join(dir, 'db.json');
+  const original = JSON.stringify({ items: [
+    { id: 'item-good', sourceId: 'openrouter-announcements', url: 'https://openrouter.ai/blog/good', title: 'Confirmed card text' },
+    { id: 'item-failed', sourceId: 'openrouter-announcements', url: 'https://openrouter.ai/blog/failed', title: 'Unconfirmed' },
+  ] });
+  await fs.writeFile(dbPath, original);
+  const fetchPage = async url => { if (url.endsWith('/failed')) { const error = new Error('secret URL must not appear'); error.code = 'HTTP_404'; throw error; } return '<h1>Confirmed</h1>'; };
+  assert.deepEqual(await diagnose({ dbPath, fetchPage }), [{ id: 'item-good', status: 'repairable', title: 'Confirmed' }, { id: 'item-failed', status: 'HTTP_404' }]);
+  await assert.rejects(repair({ dbPath, apply: true, fetchPage }), error => error.id === 'item-failed' && error.code === 'HTTP_404');
+  assert.equal(await fs.readFile(dbPath, 'utf8'), original);
+  assert.deepEqual(await repair({ dbPath, ids: ['item-good'], fetchPage }), [{ id: 'item-good', title: 'Confirmed' }]);
+  await assert.rejects(repair({ dbPath, ids: ['item-unknown'], fetchPage }), /Unknown/);
+});
