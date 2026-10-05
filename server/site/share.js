@@ -35,8 +35,18 @@ function displayDate(value) {
  const timestamp = valid ? Date.parse(valid) : NaN;
  return Number.isFinite(timestamp) ? new Intl.DateTimeFormat('zh-CN', {timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(timestamp)) : '';
 }
+// libvips/Pango keeps a process-wide font map. Register both weights in sequence
+// before parallel image requests, so a new registration cannot change an in-flight layout.
+let fontsReady;
+function prepareFonts() {
+ return fontsReady ||= (async () => {
+  for (const [fontfile, font] of [[FONT, 'Noto Sans SC 16'], [BOLD, 'Noto Sans SC Bold 16']]) {
+   await sharp({text:{text:'AI 白泽',font,fontfile,rgba:true}}).png().toBuffer();
+  }
+ })();
+}
 async function textLayer(text, {left,top,width,height,size=32,bold=false,color='#182630'}) {
- const input = await sharp({text:{text:`<span foreground="${color}">${escapeText(text || ' ')}</span>`,font:`Noto Sans SC ${bold?'Bold ':''}${size}`,fontfile:bold?BOLD:FONT,width,height,rgba:true,wrap:'word-char',align:'left'}}).png().toBuffer();
+ const input = await sharp({text:{text:`<span foreground="${color}">${escapeText(text || ' ')}</span>`,font:`Noto Sans SC ${bold?'Bold ':''}${size}`,width,height,rgba:true,wrap:'word-char',align:'left'}}).png().toBuffer();
  return {input,left,top};
 }
 async function render({title,summary,source,date,url,poster=false}) {
@@ -60,7 +70,7 @@ function createShareRouter({readState,publicItems,publicItemDetail,publicReport}
   res.set('X-Content-Type-Options','nosniff');
   if(active>=4)return res.status(503).set('Cache-Control','no-store').json({detail:'分享图片生成繁忙，请稍后重试。'});
   active++;
-  try {const png=await handler(req);if(!png)return res.status(404).set('Cache-Control','no-store').end();res.set('Cache-Control','public, max-age=300, must-revalidate').type('png').send(png);}
+  try {await prepareFonts();const png=await handler(req);if(!png)return res.status(404).set('Cache-Control','no-store').end();res.set('Cache-Control','public, max-age=300, must-revalidate').type('png').send(png);}
   catch{return res.status(503).set('Cache-Control','no-store').json({detail:'分享图片暂时无法生成。'});}
   finally{active--;}
  };
