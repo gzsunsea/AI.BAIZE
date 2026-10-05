@@ -107,6 +107,11 @@ function upsertItems(nextItems) {
     const prev = byKey.get(key);
     const incomingExplicitReason = explicitReasonFor(item.raw || item);
     const storedReason = isAutomaticReason(prev) ? "" : explicitReasonFor(prev);
+    const material = row => {
+      const raw=row?.raw||{},json=raw.rawJson||{};
+      return JSON.stringify([raw.title||row?.originalTitle||row?.title,raw.summary,raw.description,raw.story_text,raw.content,raw.content_text,json.text,json.full_text,json.content]);
+    };
+    const keepEditorial=Boolean(prev?.llmProvider)&&material(prev)===material(item);
     byKey.set(key, {
       ...prev,
       ...item,
@@ -117,6 +122,7 @@ function upsertItems(nextItems) {
       hidden: prev?.hidden ?? false,
       pinned: prev?.pinned ?? false,
       updatedAt: new Date().toISOString(),
+      ...(prev?.llmProvider ? keepEditorial ? {summary:prev.summary,reason:incomingExplicitReason||storedReason||prev.reason,llmProvider:prev.llmProvider,llmEnhancedAt:prev.llmEnhancedAt,editorialBrief:prev.editorialBrief||null} : {llmProvider:null,llmEnhancedAt:null,editorialBrief:null} : {}),
     });
   }
 

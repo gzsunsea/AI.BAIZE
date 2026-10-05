@@ -481,3 +481,9 @@ test('web-list preserves an evidenced long title when detail fetch fails', async
   const items = await scrapeSource({ id: 'openrouter-announcements', name: 'OpenRouter Announcements', kind: 'web_list', tier: 'first_party', enabled: true, url: 'https://openrouter.ai/announcements' });
   assert.equal(items[0].title, title);
 });
+
+test('web-list image extraction excludes navigation logos, related cards and tracking pixels',async(t)=>{
+ t.mock.method(global,'fetch',async url=>({ok:true,text:async()=>String(url).endsWith('/announcements')?'<a href="/blog/model"><h2>AI model architecture release</h2> <time>October 5, 2026</time></a>':'<h1>AI model architecture release</h1><meta property="og:image" content="/logo.png"><main><nav><img src="/navigation.png"></nav><article><img src="/tracking.gif" width="1" height="1"><img data-src="/model.png" alt="模型结构"><aside><img src="/related.png"></aside></article><img src="/unrelated.png"></main>'}));
+ const items=await scrapeSource({id:'official',name:'Official',kind:'web_list',enabled:true,tier:'first_party',url:'https://example.com/announcements'});
+ assert.deepEqual(items[0].media.map(m=>m.url),['https://example.com/model.png']);
+});

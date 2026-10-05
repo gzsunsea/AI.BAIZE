@@ -105,7 +105,7 @@ function absolutizeUrl(url = "", base = "") {
 }
 
 function isGenericMediaUrl(url = "") {
-  return /^https?:\/\/avatars\.githubusercontent\.com\//i.test(String(url));
+  try { return /^https?:\/\/avatars\.githubusercontent\.com\//i.test(String(url)) || /(?:^|[\/_-])(?:logo|avatar|favicon|tracking|pixel|default-og|og-default)(?:[\/_\.\-?]|$)/i.test(new URL(url,'https://media.invalid').pathname); } catch { return true; }
 }
 
 function compactMedia(media = []) {
@@ -116,9 +116,11 @@ function compactMedia(media = []) {
       thumbnail: asset.thumbnail || asset.url || "",
       type: asset.type || "image",
       alt: asset.alt || "",
+      sourceUrl: asset.sourceUrl || null,
+      origin: asset.origin || null,
     }))
     .filter((asset) => /^https?:\/\//i.test(asset.url))
-    .filter((asset) => !isGenericMediaUrl(asset.url))
+    .filter((asset) => !isGenericMediaUrl(asset.url) && !/^(?:bottom banner|logo|avatar|tracking pixel)$/i.test(asset.alt.trim()))
     .filter((asset) => {
       if (seen.has(asset.url)) return false;
       seen.add(asset.url);
@@ -187,10 +189,11 @@ function articleMediaFromHtml(html = "", base = "") {
   const media = [];
   const ogImage = $("meta[property='og:image']").attr("content") || $("meta[name='twitter:image']").attr("content");
   const ogVideo = $("meta[property='og:video']").attr("content") || $("meta[property='og:video:url']").attr("content");
-  if (ogImage) media.push({ url: absolutizeUrl(ogImage, base), type: "image" });
+  if (ogImage) media.push({ url: absolutizeUrl(ogImage, base), type: "image", alt: $("meta[property='og:image:alt']").attr('content') || '' });
   if (ogVideo) media.push({ url: absolutizeUrl(ogVideo, base), thumbnail: absolutizeUrl(ogImage, base), type: "video" });
-  $("article img, main img, .post-content img, .entry-content img").slice(0, 2).each((_, node) => {
-    const src = $(node).attr("src") || $(node).attr("data-src");
+  const images=$("article,.post-content,.entry-content").length?$("article img, .post-content img, .entry-content img"):$("main img");
+  images.filter((_,node)=>!$(node).closest('nav,aside,header,footer,[class*=related],[class*=recommend]').length && !(Number($(node).attr('width'))>0&&Number($(node).attr('width'))<=48) && !(Number($(node).attr('height'))>0&&Number($(node).attr('height'))<=48)).slice(0, 3).each((_, node) => {
+    const src = $(node).attr("data-src") || $(node).attr("data-original") || $(node).attr("src");
     if (src) media.push({ url: absolutizeUrl(src, base), type: "image", alt: $(node).attr("alt") || "" });
   });
   $("video, video source").slice(0, 1).each((_, node) => {
@@ -198,7 +201,7 @@ function articleMediaFromHtml(html = "", base = "") {
     const poster = $(node).attr("poster");
     if (src || poster) media.push({ url: absolutizeUrl(src || poster, base), thumbnail: absolutizeUrl(poster || ogImage || src, base), type: "video" });
   });
-  return compactMedia(media);
+  return compactMedia(media.map(asset=>({...asset,sourceUrl:base,origin:'article'})));
 }
 
 function mediaFromHtmlFragment(html = "", base = "") {
@@ -214,7 +217,7 @@ function mediaFromHtmlFragment(html = "", base = "") {
     const poster = $(node).attr("poster");
     if (src || poster) media.push({ url: absolutizeUrl(src || poster, base), thumbnail: absolutizeUrl(poster || src, base), type: "video" });
   });
-  return compactMedia(media);
+  return compactMedia(media.map(asset=>({...asset,sourceUrl:base,origin:'feed'})));
 }
 
 function articleTitleFromHtml(html = "") {

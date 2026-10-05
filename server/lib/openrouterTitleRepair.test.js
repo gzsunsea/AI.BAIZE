@@ -4,6 +4,14 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 
+test('a missing article can use an exact publisher listing heading but never arbitrary card text',async t=>{
+ const {repair}=require('../../scripts/repair-openrouter-titles');const dir=await fs.mkdtemp(path.join(os.tmpdir(),'title-list-evidence-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));const dbPath=path.join(dir,'db.json');
+ const original=JSON.stringify({items:[{id:'item-list',sourceId:'openrouter-announcements',url:'https://openrouter.ai/blog/missing',title:'Actual titleCard description'}]});await fs.writeFile(dbPath,original);
+ const read=async url=>{if(url.endsWith('/missing'))throw Object.assign(new Error('gone'),{code:'HTTP_404'});return '<a href="/blog/missing"><h2>Actual title</h2><p>Card description</p></a><a href="/blog/other"><h2>Unrelated title</h2></a>'};
+ assert.deepEqual(await repair({dbPath,fetchPage:read}),[{id:'item-list',title:'Actual title'}]);assert.equal(await fs.readFile(dbPath,'utf8'),original);
+ const unsafe=async url=>{if(url.endsWith('/missing'))throw Object.assign(new Error('gone'),{code:'HTTP_404'});return '<a href="/blog/missing">Actual titleCard description</a>'};await assert.rejects(repair({dbPath,fetchPage:unsafe}),e=>e.code==='HTTP_404');
+});
+
 test('repair defaults to preview, scopes OpenRouter, and backs up while preserving editorial state', async t => {
   const { repair } = require('../../scripts/repair-openrouter-titles');
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'title-repair-'));

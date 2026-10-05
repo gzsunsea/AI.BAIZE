@@ -41,13 +41,23 @@ async function inspect(item, readPage) {
   let url;
   try { url = new URL(item.url); } catch { return { id: item.id, status: 'INVALID_LOCATION' }; }
   if (url.protocol !== 'https:' || url.hostname !== 'openrouter.ai' || url.port || url.username || url.password || !url.pathname.startsWith('/blog/')) return { id: item.id, status: 'UNEXPECTED_LOCATION' };
-  let html;
+  let html, publisherTitle='';
   try { html = await readPage(url.href); } catch (error) {
     const code = /^HTTP_[1-5][0-9]{2}$/.test(error.code || '') ? error.code : 'FETCH_FAILED';
-    return { id: item.id, status: code };
+    if(code==='HTTP_404')try {
+      const listing=cheerio.load(await readPage('https://openrouter.ai/announcements')),titles=new Set();let ambiguous=false;
+      listing('a[href]').each((_,node)=>{
+        let target;try{target=new URL(listing(node).attr('href'),'https://openrouter.ai/announcements').href}catch{return;}
+        if(target!==url.href)return;
+        const headings=listing(node).find('h1,h2,h3,h4,h5,h6,[role="heading"]').toArray().map(h=>listing(h).text().replace(/\s+/g,' ').trim()).filter(Boolean);
+        if(headings.length!==1){ambiguous=true;return;}titles.add(headings[0]);
+      });
+      if(!ambiguous&&titles.size===1)publisherTitle=[...titles][0];
+    }catch{}
+    if(!publisherTitle)return { id: item.id, status: code };
   }
-  const $ = cheerio.load(html);
-  const headings = $('h1').toArray().map(node => $(node).text().replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const $ = cheerio.load(html||'');
+  const headings = publisherTitle?[publisherTitle]:$('h1').toArray().map(node => $(node).text().replace(/\s+/g, ' ').trim()).filter(Boolean);
   const title = headings.length === 1 ? headings[0] : '';
   if (!title) return { id: item.id, status: 'NO_TITLE_EVIDENCE' };
   if (title === item.title) return { id: item.id, status: 'unchanged', title };

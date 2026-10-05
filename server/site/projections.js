@@ -11,7 +11,8 @@ const ITEM_INDEX=Symbol('projection item index');
 function withItemIndex(state) { return {...state,[ITEM_INDEX]:new Map((state.items||[]).map(item=>[item.id,item]))}; }
 function firstParty(item) { return item.priorityTier === 'official_first_party'; }
 function media(item) {
- return (item.media || []).filter(m=>/^https?:\/\//.test(m.url||'') && (m.type||m.kind||'image').includes('image')).slice(0,4).map(m=>({kind:'image',url:`/api/media?url=${encodeURIComponent(m.thumbnail || m.url)}`,fullUrl:`/api/media?url=${encodeURIComponent(m.url)}`,width:null,height:null,alt:m.alt||null,poster:null}));
+ const isX=/^https?:\/\/(?:x|twitter)\.com\/[^/]+\/status\//i.test(item.url||'');
+ return (item.media || []).filter(m=>/^https?:\/\//.test(m.url||'') && (m.type||m.kind||'image')==='image' && (isX || (m.sourceUrl===item.url && ['article','feed'].includes(m.origin))) && !/^(?:bottom banner|logo|avatar|tracking pixel)$/i.test(String(m.alt||'').trim())).slice(0,4).map(m=>({kind:'image',url:`/api/media?url=${encodeURIComponent(m.thumbnail || m.url)}`,fullUrl:`/api/media?url=${encodeURIComponent(m.url)}`,width:null,height:null,alt:m.alt||null,poster:null}));
 }
 // Hydrate only metadata intentionally omitted by the legacy public serializer.
 function hydrate(item, state = {}) {
@@ -27,7 +28,7 @@ function projectItem(item, selected = new Set(), state = {}) {
  if (!timelineAt) return null;
  let category = CATEGORY[item.category || itemCategory(item)] || 'industry';
  if (category === 'opinion' && /教程|实践|tutorial|how.to/i.test([item.title,...(item.tags||[])].join(' '))) category='tip';
- return {id:String(item.id),title:text(decorated.title) || '',originalTitle:text(item.originalTitle),summary:text(decorated.summary)||null,reason:text(decorated.reason)||null,source:{name:text(item.sourceName)||'来源未注明'},links:{original:item.url},publishedAt,discoveredAt:dateOrNull(item.discoveredAt || item.createdAt),timelineAt,category,tags:item.tags||[],score:Number.isFinite(Number(item.score))?Number(item.score):null,selected:selected.has(item.id),channel:isX?'x':'news',story:null,x:isX?{authorName:text(item.author||item.sourceName)||isX[1],handle:isX[1],avatarUrl:null,media:media(item),quoted:null}:null};
+ return {id:String(item.id),title:text(decorated.title) || '',originalTitle:text(item.originalTitle),summary:text(decorated.summary)||null,media:media(item),reason:text(decorated.reason)||null,source:{name:text(item.sourceName)||'来源未注明'},links:{original:item.url},publishedAt,discoveredAt:dateOrNull(item.discoveredAt || item.createdAt),timelineAt,category,tags:item.tags||[],score:Number.isFinite(Number(item.score))?Number(item.score):null,selected:selected.has(item.id),channel:isX?'x':'news',story:null,x:isX?{authorName:text(item.author||item.sourceName)||isX[1],handle:isX[1],avatarUrl:null,media:media(item),quoted:null}:null};
 }
 function projectDetail(item,selected,state) {
  const view=projectItem(item,selected,state);

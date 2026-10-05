@@ -480,8 +480,8 @@ function ItemView({ item }: { item: SiteItemDetail }) {
             </section>
           )}
 
-          {item.reason && !summaryOnly && (
-            <section className="mt-6 border-t border-line pt-4 lg:hidden">
+          {item.reason && (
+            <section className={`mt-6 border-t border-line pt-4 ${summaryOnly ? '' : 'lg:hidden'}`}>
               <div className="mb-1 text-[12px] font-semibold text-ink-3">{ITEM_COPY.reasonLabel}</div>
               <p className="text-[15px] leading-[1.75] text-ink-2">{item.reason}</p>
             </section>
@@ -529,7 +529,7 @@ function ItemView({ item }: { item: SiteItemDetail }) {
             </section>
           )}
 
-          {isX && item.x!.media.length > 0 && <MediaGallery media={item.x!.media} postUrl={item.links.original} />}
+          {(isX ? item.x!.media : item.media)?.length ? <MediaGallery media={(isX ? item.x!.media : item.media)!} postUrl={item.links.original} /> : null}
           {isX && item.x!.quoted?.text && <QuotedPost quoted={item.x!.quoted} original={lang === "original"} />}
 
           <p className="mt-8 text-[13px] text-ink-4">

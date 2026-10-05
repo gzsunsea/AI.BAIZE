@@ -7,6 +7,48 @@ const test = require("node:test");
 const { normalizeItem } = require("./scoring");
 const { prepareVisionImages, sourceText } = require("./llmEnhancer");
 
+test('source text never reuses generated copy when raw evidence exists',()=>{
+ const input={title:'AI model update',summary:'事实摘要：反复生成的错误内容。影响判断：虚构影响。',llmProvider:'rules',raw:{title:'AI model update',summary:'The original release includes an API migration date.'}};
+ assert.doesNotMatch(sourceText(input),/反复生成|影响判断/);
+ assert.equal(sourceText(input).match(/AI model update/g).length,1);
+});
+test('rules fallback retains original excerpt without inventing impact or scenario',async(t)=>{
+ const previous=process.env.OLLAMA_DISABLED;t.after(()=>{if(previous===undefined)delete process.env.OLLAMA_DISABLED;else process.env.OLLAMA_DISABLED=previous});process.env.OLLAMA_DISABLED='1';
+ const {enhanceItem}=loadEnhancerFresh();
+ const result=await enhanceItem({title:'AI launch',summary:'事实摘要：旧稿污染',llmProvider:'rules',raw:{summary:'The API now supports web search.'}});
+ assert.match(result.summary,/原文摘录.*The API now supports web search/);
+ assert.doesNotMatch(result.summary,/旧稿污染|影响判断|场景价值|可能改变/);
+ assert.equal(result.editorialBrief,null);
+});
+test('non-Chinese model output cannot masquerade as a translated summary',async(t)=>{
+ t.mock.method(global,'fetch',async()=>({ok:true,json:async()=>({response:JSON.stringify({fact:'The API now supports web search.',reason:'原文给出了新接口的使用方式。'})})}));
+ const result=await loadEnhancerFresh().enhanceItem({title:'AI launch',raw:{summary:'The API now supports web search.'}});
+ assert.equal(result.provider,'rules');assert.match(result.summary,/原文摘录/);
+});
+test('model reasons containing prompt placeholders or summary boilerplate are rejected',async(t)=>{
+ let reason='适合某类读者对照原文中的某项资料，判断某个具体问题。';t.mock.method(global,'fetch',async()=>({ok:true,json:async()=>({response:JSON.stringify({fact:'官方说明了模型工具调用格式的转换方式。',reason})})}));const enhancer=loadEnhancerFresh(),input={title:'AI tools',raw:{summary:'The API normalizes tool-calling schemas across providers.'}};
+ assert.equal((await enhancer.enhanceItem(input)).provider,'rules');reason='该摘要提供了有关模型工具调用格式的详细信息。';assert.equal((await enhancer.enhanceItem(input)).provider,'rules');
+});
+test('accepted Chinese copy does not fabricate omitted impact fields or unsupported numbers',async(t)=>{
+ let answer={fact:'官方发布模型接口，并说明了新的网络检索接入方式。',reason:'适合开发者核对原文列出的网络检索调用方式。'};
+ t.mock.method(global,'fetch',async()=>({ok:true,json:async()=>({response:JSON.stringify(answer)})}));
+ const input={title:'AI API update',raw:{summary:'The AI API adds web search integration.'}};
+ const enhancer=loadEnhancerFresh();const good=await enhancer.enhanceItem(input);assert.equal(good.summary,answer.fact);assert.equal(good.editorialBrief.impact,null);assert.doesNotMatch(good.summary,/影响判断|场景价值/);
+ answer={...answer,fact:'官方发布模型接口，并声称速度提升了99倍。'};assert.equal((await enhancer.enhanceItem(input)).provider,'rules');
+});
+test('enhancement preserves concurrent feedback and refuses changed original evidence',async(t)=>{
+ const originalCwd=process.cwd();const dir=fs.mkdtempSync(path.join(os.tmpdir(),'aibaize-concurrent-enhance-'));t.after(()=>{process.chdir(originalCwd);fs.rmSync(dir,{recursive:true,force:true})});process.chdir(dir);fs.mkdirSync('data');
+ const item={id:'a',title:'AI API update',raw:{summary:'The AI API adds web search integration.'},priorityTier:'official_first_party',sourceName:'Official',url:'https://example.com/ai',publishedAt:new Date().toISOString()};const file=path.join(dir,'data/db.json');fs.writeFileSync(file,JSON.stringify({items:[item],sources:[],feedback:[],settings:{}}));
+ t.mock.method(global,'fetch',async()=>{const latest=JSON.parse(fs.readFileSync(file));latest.feedback.push({id:'new-feedback'});latest.items[0].raw.summary='The original source withdrew the API release.';fs.writeFileSync(file,JSON.stringify(latest));return {ok:true,json:async()=>({response:JSON.stringify({fact:'官方发布模型接口，并说明网络检索的调用方式。',reason:'适合开发者对照原文的网络检索调用说明。'})})}});
+ await loadEnhancerFresh().enhanceRecentItems({force:true});const latest=JSON.parse(fs.readFileSync(file));assert.equal(latest.feedback[0].id,'new-feedback');assert.equal(latest.items[0].llmEnhancedAt,undefined);assert.equal(latest.items[0].raw.summary,'The original source withdrew the API release.');
+});
+test('controlled repair only enhances explicitly selected IDs',async(t)=>{
+ const cwd=process.cwd(),dir=fs.mkdtempSync(path.join(os.tmpdir(),'aibaize-targeted-enhance-'));t.after(()=>{process.chdir(cwd);fs.rmSync(dir,{recursive:true,force:true})});process.chdir(dir);fs.mkdirSync('data');
+ const item={title:'AI API update',raw:{summary:'The AI API adds web search integration.'},preferred:true,url:'https://example.com/ai',publishedAt:new Date().toISOString()};const file=path.join(dir,'data/db.json');fs.writeFileSync(file,JSON.stringify({items:[{...item,id:'a'},{...item,id:'b'}],sources:[],settings:{}}));
+ t.mock.method(global,'fetch',async()=>({ok:true,json:async()=>({response:JSON.stringify({fact:'官方发布模型接口，并说明网络检索的调用方式。',reason:'适合开发者对照原文的网络检索调用说明。'})})}));
+ assert.equal((await loadEnhancerFresh().enhanceRecentItems({force:true,ids:['b']})).enhanced,1);const latest=JSON.parse(fs.readFileSync(file));assert.equal(latest.items[0].llmEnhancedAt,undefined);assert.ok(latest.items[1].llmEnhancedAt);
+});
+
 test("vision preparation requests one bounded image only for trusted sources", async (t) => {
   const originalVisionModel = process.env.OLLAMA_VISION_MODEL;
   t.after(() => {

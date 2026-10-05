@@ -2,6 +2,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const {createSiteRouter} = require('./router');
+test('news images retain their source association in public cards and summary details',async()=>{
+ const item={id:'photo',title:'AI model update',summary:'官方发布了新的模型接口。',reason:'原文提供了接口兼容范围和迁移步骤。',publishedAt:new Date().toISOString(),url:'https://example.com/blog/model',sourceName:'Official',media:[{url:'https://example.com/model.png',type:'image',alt:'模型架构图',sourceUrl:'https://example.com/blog/model',origin:'article'},{url:'https://example.com/movie.mp4',type:'video'},{url:'https://example.com/unknown-related.png',type:'image'}]};
+ const state={items:[item]};const app=express();app.use(createSiteRouter({readState:()=>state,publicItems:()=>state.items,publicHotTopics:()=>({items:[]})}));const server=app.listen(0);await new Promise(r=>server.once('listening',r));
+ try{const base=`http://127.0.0.1:${server.address().port}`;const cards=await(await fetch(base+'/api/site/timeline')).json();assert.equal(cards.cards[0].item.media.length,1);assert.match(cards.cards[0].item.media[0].url,/^\/api\/media\?url=/);assert.equal(cards.cards[0].item.media[0].alt,'模型架构图');const detail=await(await fetch(base+'/api/site/items/photo')).json();assert.deepEqual(detail.media,cards.cards[0].item.media);assert.equal(detail.reason,item.reason);assert.equal(detail.body,null);}finally{await new Promise(r=>server.close(r));}
+});
 test('health distinguishes disabled collection from a healthy page service', async()=>{
  const previous=process.env.COLLECT_ENABLED;
  const state={settings:{cron:'*/30 * * * *',refreshedAt:'2026-10-05T08:30:57.823Z'}};

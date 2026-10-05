@@ -80,7 +80,7 @@ export const FeedItem = memo(function FeedItem({ item, group, filters, read = fa
         </>
       )}
 
-      {isX && item.x!.media.length > 0 && <MediaThumbs media={item.x!.media} className="mt-2.5" />}
+      {(isX ? item.x!.media : item.media)?.length ? <MediaThumbs media={(isX ? item.x!.media : item.media)!} className="mt-2.5" /> : null}
       {isX && item.x!.quoted?.text && <QuotedLine quoted={item.x!.quoted} />}
 
       {(tags.length > 0 || (showTags && item.category)) && (

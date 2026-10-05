@@ -12,6 +12,13 @@ function loadStoreFresh() {
   delete require.cache[modulePath];
   return require("./store");
 }
+test('refresh preserves Chinese editorial copy only while original material remains unchanged',t=>{
+ const cwd=process.cwd(),dir=fs.mkdtempSync(path.join(os.tmpdir(),'aibaize-preserve-copy-'));t.after(()=>{process.chdir(cwd);fs.rmSync(dir,{recursive:true,force:true})});process.chdir(dir);
+ const incoming=normalizeItem({title:'OpenAI AI model API update',summary:'The OpenAI AI model API supports web search integration.',sourceName:'OpenAI',sourceKind:'rss',priorityTier:'official_first_party',url:'https://openai.com/index/ai-model',publishedAt:new Date().toISOString()});
+ const store=loadStoreFresh();store.writeState({items:[{...incoming,summary:'OpenAI 模型接口支持网络检索接入。',reason:'适合开发者对照原文的网络检索调用说明。',llmProvider:'ollama:test',llmEnhancedAt:'2026-10-05T00:00:00Z'}],sources:[],settings:{}});
+ store.upsertItems([incoming]);let current=store.readState().items[0];assert.equal(current.summary,'OpenAI 模型接口支持网络检索接入。');assert.equal(current.llmProvider,'ollama:test');
+ store.upsertItems([normalizeItem({...incoming.raw,summary:'The OpenAI AI model API withdrew web search integration.'})]);current=store.readState().items[0];assert.equal(current.llmProvider,null);assert.equal(current.id,incoming.id);assert.equal(current.publishedAt,incoming.publishedAt);
+});
 
 test("readState backfills legacy source metadata without overwriting stored display scores", (t) => {
   const originalCwd = process.cwd();
