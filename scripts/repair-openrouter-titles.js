@@ -4,7 +4,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { articleTitleFromHtml } = require('../server/lib/scrapers');
+const cheerio = require('cheerio');
 const { titleFingerprint } = require('../server/lib/contentIdentity');
 async function fetchPage(url) {
   const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(15000), headers: { 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36', accept: 'text/html' } });
@@ -46,7 +46,9 @@ async function inspect(item, readPage) {
     const code = /^HTTP_[1-5][0-9]{2}$/.test(error.code || '') ? error.code : 'FETCH_FAILED';
     return { id: item.id, status: code };
   }
-  const title = articleTitleFromHtml(html);
+  const $ = cheerio.load(html);
+  const headings = $('h1').toArray().map(node => $(node).text().replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const title = headings.length === 1 ? headings[0] : '';
   if (!title) return { id: item.id, status: 'NO_TITLE_EVIDENCE' };
   if (title === item.title) return { id: item.id, status: 'unchanged', title };
   if (!String(item.title).startsWith(title)) return { id: item.id, status: 'UNPROVED_TITLE_DIFFERENCE', title };
@@ -58,6 +60,23 @@ async function diagnose({ dbPath, ids, fetchPage: readPage = fetchPage }) {
   for (const item of items) result.push(await inspect(item, readPage));
   return result;
 }
+// Only publisher-proven complete title occurrences are substituted. Truncated
+// excerpts and independent editorial copy remain untouched; no summaries are generated.
+function repairStoredCopy(item, oldTitle, title) {
+  const fields = ['summary', 'reason', 'recommendation', 'aiSelectedReason', 'editorialJudgment'];
+  const replace = (object, keys) => {
+    if (!object || typeof object !== 'object') return;
+    for (const key of keys) {
+      if (typeof object[key] === 'string' && object[key].includes(oldTitle)) {
+        object[key] = object[key].split(oldTitle).join(title);
+      }
+    }
+  };
+  for (const object of [item, item.raw]) {
+    replace(object, fields);
+    replace(object?.editorialBrief, ['fact', 'impact', 'scenario', 'reason', 'recommendation']);
+  }
+}
 async function repair({ dbPath, apply = false, ids, fetchPage: readPage = fetchPage }) {
   const { file, original, state, items } = await inventory(dbPath, ids);
   const changes = [];
@@ -66,6 +85,7 @@ async function repair({ dbPath, apply = false, ids, fetchPage: readPage = fetchP
     if (['unchanged', 'UNPROVED_TITLE_DIFFERENCE'].includes(result.status)) continue;
     if (result.status !== 'repairable') throw publicFailure(item.id, result.status);
     // Exact publisher headline plus extra card text proves contamination; never slice or infer.
+    repairStoredCopy(item, item.title, result.title);
     item.title = result.title;
     if (item.raw && typeof item.raw === 'object') item.raw.title = result.title;
     if (Object.hasOwn(item, 'titleFingerprint')) item.titleFingerprint = titleFingerprint(result.title);

@@ -83,3 +83,42 @@ test('diagnosis reports every public ID and selective repair excludes unconfirme
   assert.deepEqual(await repair({ dbPath, ids: ['item-good'], fetchPage }), [{ id: 'item-good', title: 'Confirmed' }]);
   await assert.rejects(repair({ dbPath, ids: ['item-unknown'], fetchPage }), /Unknown/);
 });
+
+test('repair substitutes only exact polluted titles in stored copy without regenerating partial summaries', async t => {
+  const { repair } = require('../../scripts/repair-openrouter-titles');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'title-copy-repair-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const dbPath = path.join(dir, 'db.json');
+  const oldTitle = 'Actual launchCard text $&';
+  const item = { id:'item-copy', sourceId:'openrouter-announcements', url:'https://openrouter.ai/blog/copy', title:oldTitle,
+    reason:`推荐《${oldTitle}》，核验原文。${oldTitle}`, recommendation:`阅读 ${oldTitle}`, summary:'Actual launchCard tex',
+    aiSelectedReason:`依据 ${oldTitle}`, editorialJudgment:'独立编辑判断',
+    editorialBrief:{fact:`原文显示：${oldTitle}`,impact:'保留影响判断',scenario:`比较 ${oldTitle}`},
+    raw:{title:oldTitle,reason:`原始 ${oldTitle}`,recommendation:`参考 ${oldTitle}`,summary:'摘要保持',url:`https://example.test/${oldTitle}`},
+    tags:[oldTitle], hidden:true };
+  const untouched = {...item,id:'item-other',sourceId:'other'};
+  await fs.writeFile(dbPath,JSON.stringify({items:[item,untouched],dailyDigests:[{headline:oldTitle}]}));
+  await repair({dbPath,apply:true,fetchPage:async()=>'<h1>Actual launch</h1>'});
+  const state=JSON.parse(await fs.readFile(dbPath,'utf8')); const result=state.items[0];
+  assert.equal(result.reason,'推荐《Actual launch》，核验原文。Actual launch');
+  assert.equal(result.recommendation,'阅读 Actual launch');
+  assert.equal(result.aiSelectedReason,'依据 Actual launch');
+  assert.deepEqual(result.editorialBrief,{fact:'原文显示：Actual launch',impact:'保留影响判断',scenario:'比较 Actual launch'});
+  assert.equal(result.raw.reason,'原始 Actual launch'); assert.equal(result.raw.recommendation,'参考 Actual launch');
+  for(const key of ['summary','editorialJudgment','tags','hidden']) assert.deepEqual(result[key],item[key]);
+  assert.equal(result.raw.url,item.raw.url); assert.equal(result.raw.summary,item.raw.summary);
+  assert.deepEqual(state.items[1],untouched); assert.equal(state.dailyDigests[0].headline,oldTitle);
+});
+
+test('repair refuses OG-only or ambiguous H1 evidence before changing stored copy', async t => {
+  const { repair } = require('../../scripts/repair-openrouter-titles');
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'title-h1-repair-'));
+  t.after(()=>fs.rm(dir,{recursive:true,force:true}));
+  const dbPath=path.join(dir,'db.json');
+  const original=JSON.stringify({items:[{id:'item-h1',sourceId:'openrouter-announcements',url:'https://openrouter.ai/blog/h1',title:'Actual launchCard',reason:'Actual launchCard'}]});
+  await fs.writeFile(dbPath,original);
+  for(const html of ['<meta property="og:title" content="Actual launch">','<h1>Actual launch</h1><h1>Other</h1>']) {
+    await assert.rejects(repair({dbPath,apply:true,fetchPage:async()=>html}),error=>error.code==='NO_TITLE_EVIDENCE');
+    assert.equal(await fs.readFile(dbPath,'utf8'),original);
+  }
+});
