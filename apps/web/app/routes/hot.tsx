@@ -22,7 +22,7 @@ export async function loader({ request }: { request: Request }) {
 export function meta() {
   return pageMeta({
     title: withSubject("热点榜"),
-    description: `${subjectAfter("过去 48 小时", "圈")}讨论最多的 10 个事件：热度指数、趋势与组成热度的公开来源。`,
+    description: "过去 72 小时的 AI 事件榜：根据公开来源证据、新鲜度与代表内容精选分计算热度指数。",
     path: "/hot",
     image: "/og/pages/hot.png",
   });
@@ -42,7 +42,7 @@ const RANK_COLOR = ["text-rank-1", "text-rank-2", "text-rank-3"];
 const rankColor = (rank: number) => RANK_COLOR[rank - 1] ?? "text-rank-rest";
 const pad = (rank: number) => String(rank).padStart(2, "0");
 
-/** "某媒体、某账号 等 4 个来源 · 7 位参与者". */
+/** "某媒体、某账号 等 4 个来源 · 7 个来源参与". */
 function Voices({ e }: { e: HotEntryView }) {
   const names = e.sourceNames.slice(0, 2);
   return (
@@ -54,7 +54,7 @@ function Voices({ e }: { e: HotEntryView }) {
       </span>
       <span className="mx-1.5 text-line-strong">·</span>
       <span className="whitespace-nowrap">
-        <span className="num">{e.participantCount}</span> 位参与者
+        <span className="num">{e.participantCount}</span> 个来源参与
       </span>
     </span>
   );
@@ -174,7 +174,7 @@ function Runner({ e }: { e: HotEntryView }) {
           <Faces participants={e.participants} total={e.participantCount} size={20} />
           <span className="text-[12px] text-ink-4">
             <span className="whitespace-nowrap"><span className="num">{e.sourceCount}</span> 个来源</span> ·{" "}
-            <span className="whitespace-nowrap"><span className="num">{e.participantCount}</span> 位参与者</span>
+            <span className="whitespace-nowrap"><span className="num">{e.participantCount}</span> 个来源参与</span>
           </span>
         </div>
         <div className="flex items-end gap-3">
@@ -303,7 +303,7 @@ export default function HotPage() {
                 <h2 className="text-[15px] font-semibold text-ink">
                   继续看 <span className="num font-normal text-ink-4">No.{pad(others[0]!.rank)}–{pad(others[others.length - 1]!.rank)}</span>
                 </h2>
-                <span className="hidden text-[12px] text-ink-4 lg:block">参与者 · 24 小时走势 · 热度指数</span>
+                <span className="hidden text-[12px] text-ink-4 lg:block">来源证据 · 热度指数</span>
               </div>
               <ol className="card divide-y divide-line-soft overflow-hidden">
                 {others.map((e) => (
@@ -326,21 +326,12 @@ export default function HotPage() {
           </span>
         </summary>
         <div className="max-w-[760px] space-y-2 pb-2 pl-[21px] pt-2 leading-[1.75] text-ink-3">
-          <p>热度来自参与同一事件的独立账号与机构，重复采集只算一次，并按 24 小时半衰期衰减。它衡量讨论活跃程度，不是报道质量评分。</p>
-          <p>榜单统计过去 48 小时。趋势只比较持续覆盖的同一组信源；它反映我们的监测范围，不代表全网人数。缺少可比历史时，不展示趋势线。</p>
+          <p>热度综合信源层级权重（最多 30 分）、第二个及后续独立来源每个 8 分（最多 25 分）、新鲜度（20 分起，每 4 小时减 1 分，最低 0 分）和代表内容精选分的四分之一（最多 25 分）。它是本站的综合排序指数，不是全网讨论人数。</p>
+          <p>榜单统计过去 72 小时的公开报道证据。当前没有可比的历史趋势数据，因此不绘制趋势线，也不显示增长百分比。</p>
           <p>
-            信源名单只展示可公开阅读的报道来源；讨论参与者还包括只计入热度的账号与机构。同一机构的多个渠道可能合并计数，因此参与者不一定多于信源数。点击事件可查看各方报道与观点。
+            来源名单来自归入同一事件的公开报道，按来源身份去重；它反映本站已经采集到的证据范围。点击事件可查看相关报道和来源链接。
           </p>
-          <dl className="flex flex-wrap gap-x-5 gap-y-1.5 pt-1">
-            {Object.values(BADGES).map((b) => (
-              <div key={b.label} className="flex items-center gap-1.5">
-                <dt>
-                  <Badge tone={b.tone}>{b.label}</Badge>
-                </dt>
-                <dd>{b.hint}</dd>
-              </div>
-            ))}
-          </dl>
+
         </div>
       </details>
     </div>

@@ -46,7 +46,7 @@ const anchorHref = (id: string) => `${hrefOf(ANCHORS.get(id)!)}#${id}`;
 const RESOURCES: Array<[label: string, href: string, note: string]> = [
   ["llms.txt", "/llms.txt", "给大模型读的站点说明"],
   ["Agent 使用说明", "/api/v1/agent", `Agent 读了就能查${GUIDE_CLIENTS ? `，${GUIDE_CLIENTS} 用的也是它` : ""}`],
-  ["OpenAPI 3.1", "/openapi-v1.json", "本站公开接口的定义"],
+  ["接口定义", "/openapi.json", "本站当前公开接口的定义"],
   ...AGENT_PARTS.flatMap((p) => p.resources ?? []),
 ];
 
@@ -175,7 +175,6 @@ export default function AgentPage() {
             <span className={`size-1.5 rounded-full ${healthy ? "bg-ok" : "bg-hot"}`} aria-hidden="true" />
             {healthy ? "服务正常" : "服务异常"}
           </span>
-          <span className={chip}>版本 <span className="mono text-ink-2">{V}</span></span>
           <span className={chip}>匿名只读 · 无需 Key</span>
         </div>
       </header>
