@@ -217,6 +217,22 @@ function mediaFromHtmlFragment(html = "", base = "") {
   return compactMedia(media);
 }
 
+function articleTitleFromHtml(html = "") {
+  const $ = cheerio.load(html);
+  const headings = $("h1").toArray().map(node => $(node).text().replace(/\s+/g, " ").trim()).filter(Boolean);
+  if (headings.length === 1) return headings[0];
+  return ($("meta[property='og:title']").attr("content") || "").replace(/\s+/g, " ").trim();
+}
+
+function listingTitle($, node) {
+  const anchor = $(node);
+  const headings = anchor.find("h1,h2,h3,h4,h5,h6,[role='heading']").toArray();
+  if (headings.length === 1) return $(headings[0]).text().replace(/\s+/g, " ").trim();
+  // Plain text links are titles; structured cards require explicit title evidence.
+  if (!anchor.find("p,time,div,section,article").length && !headings.length) return anchor.text().replace(/\s+/g, " ").trim();
+  return "";
+}
+
 async function scrapeWebList(source) {
   const html = await fetchText(source.url, {}, fetchTimeout(source, 9000));
   const $ = cheerio.load(html);
@@ -234,25 +250,28 @@ async function scrapeWebList(source) {
     const publishedAt = extractPublishedAt(`${text} ${url}`);
     if (!publishedAt && source.tier === "first_party") return;
     seen.add(url);
-    candidates.push({ url, title: text, publishedAt });
+    candidates.push({ url, title: listingTitle($, node), publishedAt });
   });
   const items = [];
   for (const candidate of candidates.slice(0, source.limit || 18)) {
-    let summary = candidate.title;
+    let title = candidate.title;
+    let summary = title;
     let media = [];
     let publishedAt = candidate.publishedAt;
     try {
       const articleHtml = await fetchText(candidate.url, {}, Number(source.articleTimeoutMs || process.env.ARTICLE_FETCH_TIMEOUT_MS || 4500));
-      summary = articleSummaryFromHtml(articleHtml) || summary;
+      title = articleTitleFromHtml(articleHtml) || title;
+      summary = articleSummaryFromHtml(articleHtml) || title;
       media = articleMediaFromHtml(articleHtml, candidate.url);
       publishedAt = articlePublishedAtFromHtml(articleHtml) || publishedAt;
     } catch {
       summary = candidate.title;
     }
+    if (!title) continue;
     items.push(
       normalizeItem({
         url: candidate.url,
-        title: candidate.title,
+        title,
         summary,
         sourceName: source.name,
         sourceKind: "web_list",
@@ -626,5 +645,6 @@ async function scrapeSource(source) {
 }
 
 module.exports = {
+  articleTitleFromHtml,
   scrapeSource,
 };

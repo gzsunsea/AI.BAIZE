@@ -461,3 +461,23 @@ test("x reference bridge parses embedded initialItems from Next flight data", as
   assert.equal(items[0].title, "嵌入脚本里的 X 高价值线索");
   assert.equal(items[0].sourceKind, "x");
 });
+
+test("web-list cards use explicit headings and article titles without swallowing descriptions", async (t) => {
+  const pages = {
+    'https://openrouter.ai/announcements': `<a href="/blog/one"><h2>AI sandbox tools compared</h2><p>${'Long description '.repeat(45)}</p><time>October 5, 2026</time></a><a href="/blog/two"><div>${'Unstructured card text '.repeat(35)}</div><time>October 5, 2026</time></a><a href="/blog/three"><div>${'Unknown card text '.repeat(35)}</div><time>October 5, 2026</time></a>`,
+    'https://openrouter.ai/blog/one': '<h1>AI sandbox tools compared</h1>',
+    'https://openrouter.ai/blog/two': '<meta property="og:title" content="An independently authored model launch title">',
+  };
+  t.mock.method(global, 'fetch', async url => ({ ok: Object.hasOwn(pages, String(url)), status: 404, statusText: 'Missing', text: async () => pages[String(url)] || '' }));
+  const items = await scrapeSource({ id: 'openrouter-announcements', name: 'OpenRouter Announcements', kind: 'web_list', tier: 'first_party', enabled: true, url: 'https://openrouter.ai/announcements' });
+  assert.deepEqual(items.map(i => i.title), ['AI sandbox tools compared', 'An independently authored model launch title']);
+});
+
+test('web-list preserves an evidenced long title when detail fetch fails', async (t) => {
+  const title = 'An intentionally complete research title '.repeat(12).trim();
+  t.mock.method(global, 'fetch', async url => String(url).endsWith('/announcements')
+    ? { ok: true, text: async () => `<a href="/blog/long"><h2>${title}</h2><p>Separate excerpt.</p><time>October 5, 2026</time></a>` }
+    : { ok: false, status: 503, statusText: 'Unavailable' });
+  const items = await scrapeSource({ id: 'openrouter-announcements', name: 'OpenRouter Announcements', kind: 'web_list', tier: 'first_party', enabled: true, url: 'https://openrouter.ai/announcements' });
+  assert.equal(items[0].title, title);
+});
