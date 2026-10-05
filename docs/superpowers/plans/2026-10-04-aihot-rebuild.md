@@ -52,7 +52,7 @@
 - [x] Switch Nginx to verified new web; preserve old service as immediate rollback until live verification passes.
 - [x] Verify public pages/data/assets/admin boundaries over HTTPS.
 - [x] Delete old src/styles/entry/dist from active release and commit deletion only after new site verification; retain collector files used by new site and historical Git/rollback archives.
-- [ ] Push branch and create/attach PR or deliver verified remote commits; record deploy URL, validation results, diff audit and exact old UI deletion evidence.
+- [x] Push branch and create/attach PR or deliver verified remote commits; record deploy URL, validation results, diff audit and exact old UI deletion evidence. PR: https://github.com/gzsunsea/AI.BAIZE/pull/3.
 
 ### Final verification evidence (2026-10-05)
 
@@ -61,3 +61,4 @@
 - Candidate `/opt/aibaize-releases/rebuild-20261005` passed 302 tests and the 80-check smoke suite. Production `https://www.aibaize.cc` passed the same 80 checks after the final cleanup; health reports release `3309463`.
 - Nginx now proxies to `127.0.0.1:4300`; `aibaize-api` and `aibaize-web` are active. Legacy `aihot.service` is disabled/inactive. Old UI paths are absent from both the active release and `/opt/aihot`; rollback archives retain the prior code, database, and Nginx configuration.
 - The upstream AIHOT source audit covers 586 text files, 16 binary assets, and commit `309e32eb343a57d721525f04956887d3b9057fdf`; MIT, NOTICE, and font OFL notices are retained. AI.BAIZE logo bytes and verified ICP identity were preserved.
+- PR `#3` is attached to this task; it carries branch `rebuild/aihot-20261004` and the verified production cutover commits.
