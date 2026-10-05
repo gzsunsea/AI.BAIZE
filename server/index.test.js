@@ -248,7 +248,7 @@ test("MCP endpoint stays unavailable unless explicitly enabled", async (t) => {
   assert.deepEqual(await response.json(), { error: "not found" });
   assert.equal((await fetch(`${base}/api/stats`)).status, 200);
   assert.equal((await fetch(`${base}/feed.xml`)).status, 200);
-  assert.equal((await fetch(`${base}/`)).status, 200);
+  assert.equal((await fetch(`${base}/`)).status, 404);
   process.env.MCP_ENABLED = "1";
   const nonLiteral = await fetch(`${base}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   assert.equal(nonLiteral.status, 404);

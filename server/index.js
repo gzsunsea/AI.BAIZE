@@ -1569,10 +1569,8 @@ app.use(require('./site/router').createSiteRouter({
   readState: readAppState, publicItems, publicItemDetail, publicHotTopics, publicStoryDetail, publicReport,
 }));
 
-app.use(express.static(path.resolve(process.cwd(), "dist")));
-app.get(/.*/, (_req, res) => {
-  res.sendFile(path.resolve(process.cwd(), "dist", "index.html"));
-});
+// Reader pages are owned by the independent SSR web process.
+app.use((_req,res)=>res.status(404).json({error:"not found"}));
 
 function startServer() {
   if (process.env.COLLECT_ENABLED !== "false") cron.schedule(readState().settings.cron || "*/30 * * * *", () => {
