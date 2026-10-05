@@ -126,7 +126,7 @@ export default function AllPage() {
             layoutId="all-search-sort"
             label="搜索排序"
             active={f.tab}
-            items={(["time", "relevance"] as const).map((t) => ({ key: t, label: t === "time" ? "最新（标题与摘要）" : "全文相关", to: searchTabHref(t) }))}
+            items={(["time", "relevance"] as const).map((t) => ({ key: t, label: t === "time" ? "最新" : "相关度", to: searchTabHref(t) }))}
           />
           <span className="text-[12px] text-ink-4">
             找到 <span className="num">{data.total >= 2000 ? "2000+" : data.total}</span> 条 · 更新于 <span className="num">{updated}</span>
@@ -142,7 +142,7 @@ export default function AllPage() {
               action={
                 f.q && f.tab === "time" ? (
                   <Link to={searchTabHref("relevance")} className="text-[13px] font-medium text-accent hover:underline">
-                    试试“全文相关”，连正文一起搜
+                    试试“相关度”，按匹配程度排列
                   </Link>
                 ) : undefined
               }
