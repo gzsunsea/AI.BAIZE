@@ -503,7 +503,7 @@ function ItemView({ item }: { item: SiteItemDetail }) {
             </div>
           )}
 
-          {summaryOnly && <p className="mt-7 rounded-control bg-bg-sunk px-4 py-3 text-[13.5px] leading-relaxed text-ink-3">应来源方要求，这里只提供摘要与原文入口。完整内容请阅读原文。</p>}
+          {summaryOnly && <p className="mt-7 rounded-control bg-bg-sunk px-4 py-3 text-[13.5px] leading-relaxed text-ink-3">本站只提供摘要与原文入口。完整内容请阅读原文。</p>}
 
           {item.body && bodyHtml && (
             <section className="mt-9 border-t border-line pt-4 xl:mt-10">
