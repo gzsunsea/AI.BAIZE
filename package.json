@@ -1,14 +1,14 @@
 {
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
+    "dev": "npm run dev -w @aihot/web",
     "server": "node server/index.js",
     "start": "node server/index.js",
     "refresh": "node server/jobs/refresh.js",
     "cleanup:quality": "node server/jobs/cleanupQuality.js",
-    "test": "node --test server/*.test.js server/site/*.test.js server/lib/*.test.js src/lib/*.test.mts",
+    "test": "node --test server/*.test.js server/site/*.test.js server/lib/*.test.js",
     "typecheck": "npm run typecheck -w @aihot/web",
     "build": "npm run build -w @aihot/web",
-    "preview": "vite preview --host 0.0.0.0",
+    "preview": "npm run start:web",
     "test:web": "node --test apps/web/tests/*.test.ts",
     "start:web": "npm start -w @aihot/web"
   },

@@ -4,8 +4,8 @@ AI.BAIZE is a self-hosted AI intelligence dashboard inspired by AIHOT. It collec
 
 ## Features
 
-- React + Vite frontend with dark/light theme switching
-- Express backend serving API, admin routes, RSS feed, and static frontend
+- React Router SSR frontend in `apps/web/` with dark/light theme switching
+- Express collection/API service plus an HTTP site adapter; the web process owns page rendering
 - Scheduled collection from RSS, web pages, Hacker News, GitHub, arXiv, Dev.to, and X-related public signals
 - Local/free LLM enhancement through Ollama for Chinese editorial summaries
 - AI daily digest with model, product, education, culture, open-source, research, opinion, and industry sections
@@ -17,11 +17,12 @@ AI.BAIZE is a self-hosted AI intelligence dashboard inspired by AIHOT. It collec
 npm install
 cp .env.example .env
 npm run refresh
+npm run typecheck
 npm run build
-npm start
+npm start:web
 ```
 
-The app defaults to port `8080`.
+The API defaults to port `8080`; the SSR web process defaults to port `3000` and uses `API_BASE_URL`.
 
 ## Environment
 
@@ -44,7 +45,7 @@ The read-only MCP endpoint uses the official `@modelcontextprotocol/server` and 
 
 The endpoint exposes only five public read tools: `get_selected_feed`, `search_items`, `get_hot_topics`, `get_event_timeline`, and `get_digest` (daily/weekly/monthly). It has no ask, admin, feedback, configuration, source-health, or write tools. Item `take` is 1–30, hot-topic `take` is 1–10, search text is 1–120 characters over 1–30 days, selected-feed `since` cannot exceed a 30-day lookback, event IDs are 1–160 characters, and digest dates use `YYYY-MM-DD`. Request bodies and serialized tool results are each limited to 64 KiB. Run `npm test`, `npm run typecheck`, and `npm run build` for local verification. Production activation remains a separate security/deployment review; this implementation does not change production configuration or services. The Agent 接入 page documents the endpoint and its activation requirements.
 
-`ADMIN_TOKEN` must be changed in production. Runtime data is stored in `data/db.json` and is intentionally ignored by git.
+`ADMIN_TOKEN` must be changed in production. Runtime data is stored in `data/db.json` and is intentionally ignored by git. The old root Vite page is removed; the active UI is the SSR workspace under `apps/web`.
 
 ## Deployment
 
