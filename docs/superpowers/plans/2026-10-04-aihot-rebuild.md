@@ -41,16 +41,23 @@
 
 ### Task 4: Review and candidate deployment
 
-- [ ] Browser test responsive widths 375/390/640/768/960/1024/1440 and light/dark themes.
-- [ ] Exercise navigation/search/filter/load-more/collapse/bookmark/back/report/archive/original/share/feedback/admin flows.
-- [ ] Compare upstream/new screenshots with fixed data; record every meaningful difference.
-- [ ] Run complete tests/typecheck/build, dependency audit and independent review; resolve actionable findings.
-- [ ] Upload candidate to separate release directory and run loopback ports; check candidate before changing Nginx.
+- [x] Browser test responsive widths 375/390/640/768/960/1024/1440 and light/dark themes.
+- [x] Exercise navigation/search/filter/load-more/collapse/bookmark/back/report/archive/original/share/feedback/admin flows.
+- [x] Compare upstream/new screenshots with fixed data; record every meaningful difference.
+- [x] Run complete tests/typecheck/build, dependency audit and independent review; resolve actionable findings.
+- [x] Upload candidate to separate release directory and run loopback ports; check candidate before changing Nginx.
 
 ### Task 5: Switch and cleanup
 
-- [ ] Switch Nginx to verified new web; preserve old service as immediate rollback until live verification passes.
-- [ ] Verify public pages/data/assets/admin boundaries over HTTPS.
-- [ ] Delete old src/styles/entry/dist from active release and commit deletion only after new site verification; retain collector files used by new site and historical Git/rollback archives.
+- [x] Switch Nginx to verified new web; preserve old service as immediate rollback until live verification passes.
+- [x] Verify public pages/data/assets/admin boundaries over HTTPS.
+- [x] Delete old src/styles/entry/dist from active release and commit deletion only after new site verification; retain collector files used by new site and historical Git/rollback archives.
 - [ ] Push branch and create/attach PR or deliver verified remote commits; record deploy URL, validation results, diff audit and exact old UI deletion evidence.
 
+### Final verification evidence (2026-10-05)
+
+- Current branch `rebuild/aihot-20261004`, final cleanup commit `3309463`; rollback tag `rollback/pre-aihot-rebuild-20261004` remains at the pre-rebuild snapshot.
+- Local current tree: 302 backend/adapter tests and 33 web tests passed; typecheck and SSR production build passed. The pre-cleanup integration run was 341/341 before removing the legacy root UI tests.
+- Candidate `/opt/aibaize-releases/rebuild-20261005` passed 302 tests and the 80-check smoke suite. Production `https://www.aibaize.cc` passed the same 80 checks after the final cleanup; health reports release `3309463`.
+- Nginx now proxies to `127.0.0.1:4300`; `aibaize-api` and `aibaize-web` are active. Legacy `aihot.service` is disabled/inactive. Old UI paths are absent from both the active release and `/opt/aihot`; rollback archives retain the prior code, database, and Nginx configuration.
+- The upstream AIHOT source audit covers 586 text files, 16 binary assets, and commit `309e32eb343a57d721525f04956887d3b9057fdf`; MIT, NOTICE, and font OFL notices are retained. AI.BAIZE logo bytes and verified ICP identity were preserved.
