@@ -12,7 +12,7 @@ Incomplete: full source audit, admin/auth/feedback/static adapters, browser resp
 Independent frontend production build and typecheck pass. Current backend/adapters322 tests and web33 tests pass. Browser confirmed new admin login, desktop homepage, mobile390x844 homepage and first-party filter; real share PNG returned200.
 Production traffic still original8080. Candidate preparation starts in isolated release with separately verified Node24 Linux runtime; old UI remains until candidate/live validation.
 
-2026-10-05 16:05 CST checkpoint (not complete):
+2026-10-05 15:59 CST checkpoint (not complete):
 - User reaffirmed AI.BAIZE/repo scope. Current origin/main4ab9534 is ancestor of rebuild branch; remote main unchanged by this task.
 - New commits a67f60b summary-only facts, d56343f web-list title evidence+repair23 focused tests,2c12d82 truthful RSS/API/hot72h copy,61bd3b1+1ad9b33 HTTP smoke.
 - Candidate now2c12d82 (API4301/web4300, Node24); old aihot8080 stillactive and domain nginx unchanged. Latest Linux build+typecheck passed, web33/33; backend328/329 with one share PNG missing-date nondeterminism failure. Must resolve before switch.
