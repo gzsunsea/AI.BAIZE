@@ -150,15 +150,20 @@ function scoreBreakdown(item) {
   ];
 }
 
+function observedCount(value) {
+  if (!["number", "string"].includes(typeof value) || String(value).trim() === "") return null;
+  const count = Number(value);
+  return Number.isFinite(count) && count >= 0 ? count : null;
+}
 function mpMetrics(item) {
-  const base = Math.max(1000, item.score * 130);
-  const sourceBoost = sourceChannel(item) === "cn_media" ? 1.8 : 1;
-  const titleBoost = /爆|首|刚刚|重磅|全网|免费|教程|实测|开源/.test(item.title || "") ? 1.35 : 1;
-  const reads = Math.round(base * sourceBoost * titleBoost);
-  const likes = Math.round(reads * (0.025 + (item.score % 8) / 1000));
-  const shares = Math.round(reads * (0.012 + (item.score % 5) / 1000));
-  const abnormal = Number((reads / Math.max(3000, base * 0.75)).toFixed(2));
-  return { reads, likes, shares, abnormal };
+  const recorded = item.mpMetrics?.estimated === false || ['publisher','manual'].includes(item.metricsSource);
+  const manual = item.sourceKind === 'mp_manual' && observedCount(item.reads) > 0;
+  if (!recorded && !manual) return null;
+  const values = recorded && item.mpMetrics?.estimated === false ? item.mpMetrics : item;
+  const reads = observedCount(values.reads), likes = observedCount(values.likes), shares = observedCount(values.shares);
+  if ([reads, likes, shares].every(value => value === null)) return null;
+  const baseline = observedCount(item.accountBaseline);
+  return { estimated: false, reads, likes, shares, abnormal: reads !== null && baseline > 0 ? Number((reads / baseline).toFixed(2)) : null };
 }
 
 function enrichItem(item) {
@@ -180,7 +185,7 @@ function enrichItem(item) {
 // The public experience APIs must not expose fields used for moderation,
 // source management, ranking internals, or runtime bookkeeping.
 function serializePublicItem(item = {}) {
-  const publicItem = { ...item, reason: editorialReasonFor(item), evidenceMeta: item.evidenceMeta || evidenceMeta(item) };
+  const publicItem = { ...item, mpMetrics: mpMetrics(item), reason: editorialReasonFor(item), evidenceMeta: item.evidenceMeta || evidenceMeta(item) };
   const fields = [
     "id", "url", "title", "summary", "sourceName", "sourceKind", "author",
     "publishedAt", "score", "tags", "reason", "media", "channel", "channelLabel",
@@ -223,6 +228,7 @@ module.exports = {
   enrichItem,
   itemCategory,
   mpMetrics,
+  observedCount,
   scoreBreakdown,
   sourceIdentity,
   serializePublicItem,

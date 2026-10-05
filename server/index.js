@@ -4,7 +4,7 @@ const express = require("express");
 const cron = require("node-cron");
 const { readState, writeState } = require("./lib/store");
 const { refreshAll } = require("./jobs/refresh");
-const { attachRelated, categoryLabel, enrichItem, itemCategory, serializePublicItem, sourceChannel } = require("./lib/editorial");
+const { attachRelated, categoryLabel, enrichItem, itemCategory, mpMetrics, observedCount, serializePublicItem, sourceChannel } = require("./lib/editorial");
 const { enhanceRecentItems } = require("./lib/llmEnhancer");
 const {
   canAppearInSelectedFeed,
@@ -172,17 +172,7 @@ function isChineseMedia(item) {
 }
 
 function mpMetricsFromArticle(article) {
-  const reads = Number(article.reads || 0);
-  const likes = Number(article.likes || 0);
-  const shares = Number(article.shares || 0);
-  const baseline = Math.max(1000, Number(article.accountBaseline || 3000));
-  const estimated = reads || Math.round((article.score || 60) * baseline / 80);
-  return {
-    reads: estimated,
-    likes: likes || Math.round(estimated * 0.025),
-    shares: shares || Math.round(estimated * 0.012),
-    abnormal: Number((estimated / baseline).toFixed(2)),
-  };
+  return mpMetrics({...article, sourceKind: 'mp_manual'});
 }
 
 function mpAccountProfile(item) {
@@ -203,16 +193,8 @@ function mpAccountProfile(item) {
 }
 
 function mpMetricSource(item, metrics) {
-  if (item.sourceKind === "mp_manual" && Number(item.reads || 0) > 0) {
-    return { type: "manual_real", label: "后台补录/真实" };
-  }
-  if (item.sourceKind === "mp_manual") {
-    return { type: "manual_estimated", label: "后台补录/估算" };
-  }
-  if (metrics?.estimated === false) {
-    return { type: "real", label: "真实指标" };
-  }
-  return { type: "estimated", label: "系统估算" };
+  if (!metrics) return { type: 'unknown', label: '未记录指标' };
+  return item.sourceKind === 'mp_manual' ? { type: 'manual_real', label: '后台补录指标' } : { type: 'real', label: '来源已记录指标' };
 }
 
 function rewriteMpTitle(item) {
@@ -260,17 +242,17 @@ function mpTrendSignal(item) {
 }
 
 function mpQualityTier(item, metrics) {
-  const abnormal = metrics.abnormal || 1;
+  const abnormal = metrics?.abnormal ?? 0;
   const score = Number(item.score || 0);
   const edited = rewriteMpTitle(item) !== item.title;
-  if (abnormal >= 3.2 || metrics.reads >= 24000 || score >= 82) return { key: "s", label: "强烈关注", rank: 3 };
-  if (abnormal >= 2.2 || metrics.reads >= 15000 || score >= 72 || edited) return { key: "a", label: "值得跟进", rank: 2 };
+  if (abnormal >= 3.2 || metrics?.reads >= 24000 || score >= 82) return { key: "s", label: "强烈关注", rank: 3 };
+  if (abnormal >= 2.2 || metrics?.reads >= 15000 || score >= 72 || edited) return { key: "a", label: "值得跟进", rank: 2 };
   return { key: "b", label: "观察备用", rank: 1 };
 }
 
 function mpEditorNote(item, metrics, profile, signal, tier) {
   const title = item.mpTitle || item.title || "这条动态";
-  const metricLabel = metrics.abnormal >= 2.5 ? `热度约为账号基准的 ${metrics.abnormal.toFixed(2)} 倍` : "热度接近账号常态";
+  const metricLabel = metrics?.abnormal != null ? `已记录阅读量为已知账号基准的 ${metrics.abnormal.toFixed(2)} 倍` : "阅读热度未记录";
   const value = signal.key === "education"
     ? "适合关注 AI 在课堂、学习产品和教育服务中的落地机会。"
     : signal.key === "culture"
@@ -285,22 +267,15 @@ function mpEditorNote(item, metrics, profile, signal, tier) {
 
 function decorateMpItem(item) {
   const profile = mpAccountProfile(item);
-  const metrics = item.mpMetrics || mpMetricsFromArticle(item);
-  const weightedMetrics = {
-    ...metrics,
-    reads: Math.round((metrics.reads || 0) * profile.weight),
-    likes: Math.round((metrics.likes || 0) * profile.weight),
-    shares: Math.round((metrics.shares || 0) * profile.weight),
-    abnormal: Number(((metrics.abnormal || 1) * profile.weight).toFixed(2)),
-  };
-  const metricSource = mpMetricSource(item, weightedMetrics);
+  const recordedMetrics = mpMetrics(item);
+  const metricSource = mpMetricSource(item, recordedMetrics);
   const signal = mpTrendSignal(item);
-  const tier = mpQualityTier(item, weightedMetrics);
+  const tier = mpQualityTier(item, recordedMetrics);
   const mpTitle = rewriteMpTitle(item);
   return {
     ...item,
     mpTitle,
-    mpMetrics: weightedMetrics,
+    mpMetrics: recordedMetrics,
     mpMeta: {
       accountType: profile.type,
       accountLabel: profile.label,
@@ -313,7 +288,7 @@ function decorateMpItem(item) {
       qualityRank: tier.rank,
       trendKey: signal.key,
       trendLabel: signal.label,
-      editorNote: mpEditorNote({ ...item, mpTitle }, weightedMetrics, profile, signal, tier),
+      editorNote: mpEditorNote({ ...item, mpTitle }, recordedMetrics, profile, signal, tier),
     },
   };
 }
@@ -327,10 +302,10 @@ function normalizeMpArticle(article) {
     publishedAt: article.publishedAt || new Date().toISOString(),
     summary: String(article.summary || ""),
     original: Boolean(article.original),
-    accountBaseline: Number(article.accountBaseline || 3000),
-    reads: Number(article.reads || 0),
-    likes: Number(article.likes || 0),
-    shares: Number(article.shares || 0),
+    accountBaseline: observedCount(article.accountBaseline),
+    reads: observedCount(article.reads),
+    likes: observedCount(article.likes),
+    shares: observedCount(article.shares),
     score: Number(article.score || 60),
     tags: article.tags || [],
     createdAt: article.createdAt || new Date().toISOString(),
@@ -548,7 +523,7 @@ function itemsResponse(query, state = readState()) {
   const pageSize = Math.min(200, Math.max(10, Number(query.pageSize || 40)));
   const items = visibleItems(query, state);
   return {
-    items: attachRelated(items.slice((page - 1) * pageSize, page * pageSize).map(enrichItem), state.clusters || []),
+    items: attachRelated(items.slice((page - 1) * pageSize, page * pageSize).map(enrichItem), state.clusters || []).map(serializePublicItem),
     total: items.length,
     page,
     pageSize,
@@ -590,7 +565,7 @@ function publicItemDetail(state, id) {
 }
 
 app.get("/api/items", (req, res) => {
-  res.json(itemsResponse(req.query));
+  res.json(itemsResponse(req.query, readAppState()));
 });
 
 function publicItems(query, state = readAppState()) {
@@ -1033,8 +1008,28 @@ app.get("/api/public/trends", (req, res) => {
   }
 });
 
+function serializePublicDaily(digest, state) {
+  const current = new Map((state.items || []).filter(isPublicItem).map(item => [item.id, item]));
+  const project = rows => (rows || []).flatMap(row => {
+    const item = current.get(row.id);
+    return item ? [serializePublicItem(enrichItem(item))] : [];
+  });
+  const keys = ['id','generatedAt','headline','summary','fromSnapshot','virtual','issueKey','issueLabel','issueTime','excludedFromEarlierToday'];
+  const result = Object.fromEntries(keys.filter(key => digest[key] !== undefined).map(key => [key, digest[key]]));
+  result.items = project(digest.items);
+  result.sections = (digest.sections || []).map(section => ({key:section.key,title:section.title,items:project(section.items)}));
+  const oldCount = (digest.sections || []).reduce((n, section) => n + (section.items || []).length, 0);
+  const count = result.sections.reduce((n, section) => n + section.items.length, 0);
+  if (count < oldCount || result.items.length < (digest.items || []).length) {
+    result.headline = '日报内容汇总（部分内容已撤回）';
+    result.summary = null;
+  }
+  result.storyCount = count;
+  return result;
+}
+
 function currentDailyDigest(query = {}) {
-  const state = readState();
+  const state = readAppState();
   const todayKey = localDateKey();
   const latestSnapshot = state.dailyDigests?.find((digest) => localDateKey(digest.generatedAt) === todayKey);
   if (!query.q && latestSnapshot) {
@@ -1055,11 +1050,11 @@ function currentDailyDigest(query = {}) {
 }
 
 app.get("/api/daily", (req, res) => {
-  res.json(currentDailyDigest(req.query));
+  res.json(serializePublicDaily(currentDailyDigest(req.query), readAppState()));
 });
 
 app.get("/api/public/daily", (req, res) => {
-  res.json(currentDailyDigest(req.query));
+  res.json(serializePublicDaily(currentDailyDigest(req.query), readAppState()));
 });
 
 function buildDailyArchive(state, take = 7, now = new Date()) {
@@ -1103,9 +1098,9 @@ function buildDailyArchive(state, take = 7, now = new Date()) {
 }
 
 app.get("/api/public/dailies", (_req, res) => {
-  const state = readState();
+  const state = readAppState();
   const take = Math.min(30, Math.max(1, Number(_req.query.take || 7)));
-  res.json({ items: buildDailyArchive(state, take) });
+  res.json({ items: buildDailyArchive(state, take).map(digest => serializePublicDaily(digest, state)) });
 });
 
 app.post("/api/public/ask", publicWriteLimit, (req, res) => {
@@ -1139,9 +1134,9 @@ function generateDailyDigest() {
 }
 
 app.get("/api/stats", (_req, res) => {
-  const state = readState();
-  const items = state.items.filter((item) => !item.hidden);
-  const selected = visibleItems({ mode: "selected" });
+  const state = readAppState();
+  const items = state.items.filter(isPublicItem);
+  const selected = visibleItems({ mode: "selected" }, state);
   const tags = new Map();
   for (const item of items) {
     for (const tag of item.tags || []) tags.set(tag, (tags.get(tag) || 0) + 1);
@@ -1164,16 +1159,18 @@ app.get("/api/stats", (_req, res) => {
     tags: [...tags.entries()].sort((a, b) => b[1] - a[1]).map(([tag, count]) => ({ tag, count })),
     channels: [...channels.entries()].map(([channel, count]) => ({ channel, count })),
     sourceTiers: [...sourceTiers.entries()].map(([tier, count]) => ({ tier, count })),
-    clusters: state.clusters || [],
+    clusters: (state.clusters || []).flatMap(cluster => {
+      const members = items.filter(item => (cluster.items || []).some(member => (typeof member === 'string' ? member : member?.id) === item.id));
+      return members.length ? [{id:cluster.id,items:members.map(item => item.id),size:members.length,sources:[...new Set(members.map(item => item.sourceName))]}] : [];
+    }),
     healthySources: state.sources.filter((source) => source.health?.ok).length,
     failingSources: state.sources.filter((source) => source.health && !source.health.ok).length,
-    runs: state.runs || [],
   });
 });
 
 app.get("/api/mp", (req, res) => {
-  const state = readState();
-  const articles = buildMpItems(state, req.query);
+  const state = readAppState();
+  const articles = buildMpItems(state, req.query).filter(isPublicItem);
   const manualCount = state.mpArticles?.length || 0;
   const groups = articles.reduce((acc, item) => {
     const key = item.mpMeta?.accountType || "aggregator";
@@ -1200,17 +1197,17 @@ app.get("/api/mp", (req, res) => {
     return acc;
   }, new Map());
   res.json({
-    items: articles.slice(0, 300),
+    items: articles.slice(0, 300).map(serializePublicItem),
     groups: [...groups.values()].sort((a, b) => b.count - a.count),
     trends: [...trends.values()].sort((a, b) => b.count - a.count),
     tiers: [...tiers.values()].sort((a, b) => b.count - a.count),
-    note: `公众号爆文池：后台补录 ${manualCount} 条，实时中文动态 ${Math.max(0, articles.length - manualCount)} 条；已加入中文信源权重、账号类型分组和编辑标题。真实阅读优先展示，缺失指标标记为系统估算。`,
+    note: `公众号爆文池：后台补录 ${manualCount} 条，实时中文动态 ${Math.max(0, articles.length - manualCount)} 条；已加入中文信源权重、账号类型分组和编辑标题。仅展示已记录指标；缺失指标保持未知。`,
     refreshedAt: state.settings?.refreshedAt || null,
   });
 });
 
 app.get("/api/sources", (_req, res) => {
-  res.json(readState().sources);
+  res.json(readAppState().sources.map(source => ({id:source.id,name:source.name,kind:source.kind,enabled:source.enabled!==false})));
 });
 
 app.get("/feed.xml", (req, res) => {
