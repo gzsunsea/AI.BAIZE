@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 async function main(){
  const base=new URL(process.argv[2]||'http://127.0.0.1:3002');const results=[];
- const check=async(path,status=200,type)=>{const started=Date.now();const r=await fetch(new URL(path,base),{redirect:'manual',signal:AbortSignal.timeout(20000)});assert.equal(r.status,status,path);if(type)assert.ok((r.headers.get('content-type')||'').includes(type),path);const body=await r.text();results.push({path,status:r.status,milliseconds:Date.now()-started});return body;};
+ const check=async(path,status=200,type)=>{const started=Date.now();const r=await fetch(new URL(path,base),{redirect:'manual',signal:AbortSignal.timeout(20000)}).catch(error=>{throw new Error(`${path}: ${error.message}`)});assert.equal(r.status,status,path);if(type)assert.ok((r.headers.get('content-type')||'').includes(type),path);const body=await r.text();results.push({path,status:r.status,milliseconds:Date.now()-started});return body;};
  for(const path of ['/','/all','/hot','/daily','/weekly','/monthly','/daily/archive','/topics','/starred','/more','/agent','/about','/privacy','/terms','/changelog','/feedback','/admin/login']){const html=await check(path,200,'text/html');assert.ok(html.includes('AI.BAIZE'),path);}
  await check('/this-page-does-not-exist',404);await check('/api/admin/site-state',401,'json');
  const health=JSON.parse(await check('/api/health',200,'json'));assert.equal(health.ok,true);
