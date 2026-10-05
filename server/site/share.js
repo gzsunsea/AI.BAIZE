@@ -20,7 +20,7 @@ const PAGES = {
  monthly: ['月报', 'AI.BAIZE · 每月 AI 信息回顾'],
  topics: ['主题', 'AI.BAIZE · 按主题发现 AI 资讯'],
  about: ['关于 AI.BAIZE', '发现、阅读与分享 AI 信息'],
- agent: ['Agent 接入', 'AI.BAIZE · API、MCP 与 RSS'],
+ agent: ['Agent 接入', 'AI.BAIZE · RSS 与 API'],
  changelog: ['更新日志', 'AI.BAIZE · 产品更新记录'],
  feedback: ['意见反馈', 'AI.BAIZE · 分享你的建议'],
  terms: ['使用条款', 'AI.BAIZE'],
