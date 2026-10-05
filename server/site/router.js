@@ -49,7 +49,10 @@ function createSiteRouter(backend){
   items.sort((a,b)=>(q&&req.query.tab==='relevance'?rank(b)-rank(a):0)||Date.parse(b.timelineAt)-Date.parse(a.timelineAt)||a.id.localeCompare(b.id));
   return {items,filters:{channel,category,tag},q};
  }
- router.get('/api/health',(_req,res)=>res.json({ok:true,release:process.env.RELEASE_ID||'aibaize-rebuild-local'}));
+ router.get('/api/health',(_req,res)=>{
+  const settings=backend.readState().settings||{};
+  res.set('Cache-Control','no-store').json({ok:true,release:process.env.RELEASE_ID||'aibaize-rebuild-local',collection:{enabled:process.env.COLLECT_ENABLED!=='false',cron:settings.cron||'*/30 * * * *',refreshedAt:settings.refreshedAt||null}});
+ });
  router.get('/api/site/meta',(_req,res)=>res.json({changelogVersion:changelog.latestVersion}));
  router.get('/api/site/changelog',(_req,res)=>res.json(changelog));
  router.get('/api/site/contact',(_req,res)=>res.json({wechatQr:null,feishuQr:null,makerAvatar:null}));

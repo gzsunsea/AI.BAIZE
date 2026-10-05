@@ -2,6 +2,23 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const {createSiteRouter} = require('./router');
+test('health distinguishes disabled collection from a healthy page service', async()=>{
+ const previous=process.env.COLLECT_ENABLED;
+ const state={settings:{cron:'*/30 * * * *',refreshedAt:'2026-10-05T08:30:57.823Z'}};
+ const app=express();app.use(createSiteRouter({readState:()=>state}));
+ const server=app.listen(0);await new Promise(r=>server.once('listening',r));
+ try {
+  const url=`http://127.0.0.1:${server.address().port}/api/health`;
+  process.env.COLLECT_ENABLED='false';
+  const disabled=await(await fetch(url)).json();
+  assert.equal(disabled.ok,true);
+  assert.deepEqual(disabled.collection,{enabled:false,cron:'*/30 * * * *',refreshedAt:state.settings.refreshedAt});
+  process.env.COLLECT_ENABLED='true';
+  const enabled=await(await fetch(url)).json();assert.equal(enabled.collection.enabled,true);
+  delete process.env.COLLECT_ENABLED;
+  assert.equal((await(await fetch(url)).json()).collection.enabled,true);
+ }finally{if(previous===undefined)delete process.env.COLLECT_ENABLED;else process.env.COLLECT_ENABLED=previous;await new Promise(r=>server.close(r));}
+});
 test('site timeline exposes safe projections, validates cursors and keeps pagination stable', async()=>{
  const now = new Date().toISOString();
  const state={items:[{id:'a',title:'OpenAI 模型发布',summary:'摘要',url:'https://openai.com/a',publishedAt:now,score:90,sourceName:'OpenAI',raw:{secret:'private'}}],sources:[],daily:[]};
