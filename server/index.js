@@ -39,6 +39,9 @@ app.use("/mcp", (req, res, next) => {
 });
 app.use("/mcp", express.json({ limit: "64kb" }));
 app.use(express.json({ limit: "1mb" }));
+app.use(require('./site/auth').createSiteAuth({token:ADMIN_TOKEN,enabled:ADMIN_TOKEN!==DEFAULT_ADMIN_TOKEN}));
+app.use(require('./site/feedback').createFeedbackRouter({readState:readAppState,writeState,requireAdmin}));
+app.use(require('./site/share').createShareRouter({readState:readAppState,publicItems,publicItemDetail,publicReport}));
 
 app.use((_req, res, next) => {
   res.set("X-Content-Type-Options", "nosniff");
@@ -132,7 +135,7 @@ function requireAdmin(req, res, next) {
     res.status(503).json({ error: "Admin token is not configured" });
     return;
   }
-  if (!safeEqual(token, ADMIN_TOKEN)) {
+  if (!req.siteAdmin && !safeEqual(token, ADMIN_TOKEN)) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
@@ -1209,7 +1212,7 @@ app.get("/feed.xml", (req, res) => {
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
   <channel>
-    <title>AIHOT Clone</title>
+    <title>AI.BAIZE</title>
     <link>${xmlEscape(base)}</link>
     <description>AI 自动筛选的高价值动态</description>
     ${items
@@ -1232,7 +1235,7 @@ app.get("/openapi.json", (req, res) => {
   const base = publicBaseUrl(req);
   res.json({
     openapi: "3.1.0",
-    info: { title: "AIHOT Public API", version: "1.0.0" },
+    info: { title: "AI.BAIZE Public API", version: "1.0.0" },
     servers: [{ url: base }],
     paths: {
       "/api/public/items": {
@@ -1341,6 +1344,11 @@ function normalizeFeedback(body = {}, id = makeId(`${Date.now()}-${body.message 
 
 app.get("/api/admin/state", requireAdmin, (_req, res) => {
   res.json(readState());
+});
+
+app.get('/api/admin/site-state', requireAdmin, (_req,res)=>{
+  const state=readState();res.set('Cache-Control','no-store');
+  res.json({items:state.items.map(i=>({id:i.id,title:i.title,sourceName:i.sourceName,score:i.score,hidden:!!i.hidden,pinned:!!i.pinned,publishedAt:i.publishedAt})),sources:state.sources.map(s=>({id:s.id,name:s.name,kind:s.kind,url:s.url,enabled:s.enabled!==false,priorityTier:s.priorityTier,health:s.health})),feedback:state.feedback||[],runs:state.runs||[],mpArticles:state.mpArticles||[],settings:{cron:state.settings.cron,rules:{selectedThreshold:state.settings.rules?.selectedThreshold}},dailyCount:(state.dailyDigests||[]).length});
 });
 
 app.post("/api/feedback", publicWriteLimit, (req, res) => {
@@ -1557,19 +1565,23 @@ app.get("/api/media", async (req, res) => {
   }
 });
 
+app.use(require('./site/router').createSiteRouter({
+  readState: readAppState, publicItems, publicItemDetail, publicHotTopics, publicStoryDetail, publicReport,
+}));
+
 app.use(express.static(path.resolve(process.cwd(), "dist")));
 app.get(/.*/, (_req, res) => {
   res.sendFile(path.resolve(process.cwd(), "dist", "index.html"));
 });
 
 function startServer() {
-  cron.schedule(readState().settings.cron || "*/30 * * * *", () => {
+  if (process.env.COLLECT_ENABLED !== "false") cron.schedule(readState().settings.cron || "*/30 * * * *", () => {
     refreshAll().catch((error) => console.error("[refresh]", error));
   });
 
-  app.listen(PORT, () => {
-    console.log(`AIHOT clone listening on http://0.0.0.0:${PORT}`);
-    refreshAll().catch((error) => console.error("[initial refresh]", error));
+  app.listen(PORT, process.env.HOST || "0.0.0.0", () => {
+    console.log(`AI.BAIZE API listening on http://${process.env.HOST || "0.0.0.0"}:${PORT}`);
+    if (process.env.COLLECT_ENABLED !== "false") refreshAll().catch((error) => console.error("[initial refresh]", error));
   });
 }
 
