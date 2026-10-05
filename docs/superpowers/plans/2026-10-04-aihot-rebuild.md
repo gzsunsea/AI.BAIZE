@@ -20,24 +20,24 @@
 
 - [x] Snapshot existing modifications in Git and create isolated rebuild/aihot-20261004 worktree.
 - [x] Back up production code, database, service and Nginx separately.
-- [ ] Complete frontend audit, backend audit and deployment/license audit; record findings under docs/rebuild/.
-- [ ] Run baseline npm test and record failures if any; resolve relevant failures before release.
+- [x] Complete frontend audit, backend audit and deployment/license audit; record findings under docs/rebuild/.
+- [x] Run baseline npm test and record failures if any; resolve relevant failures before release.
 
 ### Task 2: New web workspace
 
-- [ ] Copy upstream web/contracts/industry/site and licenses with reference commit recorded.
-- [ ] Configure npm workspaces and Node runtime; build upstream web without importing old src/.
-- [ ] Replace site name, wordmark, icon, manifest, policy facts and changelog with actual AI.BAIZE values.
-- [ ] Remove upstream admin routes from initial web only if replaced by protected new management pages before release; unsupported functions cannot be silent placeholders.
-- [ ] Run web unit tests, typecheck and build.
+- [x] Copy upstream web/contracts/industry/site and licenses with reference commit recorded.
+- [x] Configure npm workspaces and Node runtime; build upstream web without importing old src/.
+- [x] Replace site name, wordmark, icon, manifest, policy facts and changelog with actual AI.BAIZE values.
+- [x] Remove upstream admin routes from initial web only if replaced by protected new management pages before release; unsupported functions cannot be silent placeholders.
+- [x] Run web unit tests, typecheck and build.
 
 ### Task 3: Site data adapter
 
-- [ ] Write HTTP contract tests for public visibility, filters, cursor/page validation, unavailable IDs, reports/archives, bookmarks availability, and admin authentication before adapter implementation.
-- [ ] Mount server/site/index.js before old static fallback; projections in server/site/projections.js implement packages/contracts/src/site.ts.
-- [ ] Provide real timeline/pool/detail/hot/story/topics/report/stat/meta/contact/changelog data from existing editorial and experience functions. Null means genuinely unavailable, never invented trend points.
-- [ ] Implement feedback and protected management adapters, policy/static/agent endpoints, and retain existing collector.
-- [ ] Run server tests and web runtime smoke against copied database; no live model calls from page rendering.
+- [x] Write HTTP contract tests for public visibility, filters, cursor/page validation, unavailable IDs, reports/archives, bookmarks availability, and admin authentication before adapter implementation.
+- [x] Mount server/site/router.js before the API 404 boundary; projections in server/site/projections.js implement packages/contracts/src/site.ts.
+- [x] Provide real timeline/pool/detail/hot/story/topics/report/stat/meta/contact/changelog data from existing editorial and experience functions. Null means genuinely unavailable, never invented trend points.
+- [x] Implement feedback and protected management adapters, policy/static/agent endpoints, and retain existing collector.
+- [x] Run server tests and web runtime smoke against copied database; no live model calls from page rendering.
 
 ### Task 4: Review and candidate deployment
 

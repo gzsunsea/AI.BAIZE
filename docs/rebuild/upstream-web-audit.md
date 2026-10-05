@@ -17,7 +17,7 @@ React 19.3, React Router 8.4 SSR, Tailwind 4.3.3, Vite 8.3.1 are the versions de
 
 Desktop sidebar is 180px at ≥961px; mobile shell applies ≤960px with 48px top bar, safe-area gutters, ≤640px content width, and persistent bottom tabs. Desktop main adds 28px horizontal padding; wide/list and reading widths are viewport-height-sensitive. Navigation covers 精选/全部/热点/日报/主题/收藏 plus Agent/About/Changelog/Feedback. Mobile 全部 belongs to 精选 tab; 我的 aggregates secondary destinations. Shared content retains originating tab/history labels; article pages replace tabs with reader toolbar (`root.tsx`, shell files).
 
-CSS beginning confirms warm light paper `#faf9f6`, dark `#13191c`, teal `#176b75` light accent / cyan `#12ccd8` dark accent, semantic colors and 5/8/10/12/14/16px radius scale; complete CSS audit remains pending. Theme control offers dark/system/light, applies before hydration via boot script, and uses document view-transition crossfade when supported. Reduced-motion handling exists in the inspected theme/navigation/reading code.
+The complete CSS source confirms warm light paper `#faf9f6`, dark `#13191c`, teal `#176b75` light accent / cyan `#12ccd8` dark accent, semantic colors and 5/8/10/12/14/16px radius scale; the completed per-file ledger below supersedes earlier partial reading notes. Theme control offers dark/system/light, applies before hydration via boot script, and uses document view-transition crossfade when supported. Reduced-motion handling exists in the inspected theme/navigation/reading code.
 
 ### Interactions
 
@@ -36,7 +36,7 @@ GET/HEAD public success responses can share cache; admin/actions/errors/Set-Cook
 | Caller | Endpoint | Expected imported contract / critical consumed fields |
 |---|---|---|
 | Root | `/api/site/meta` | SiteMeta, changelogVersion; optional module document headers |
-| Featured / paging | `/api/site/timeline` | TimelineResponse: cards(key,anchorAt,item,group), filters,nextCursor,dayCounts,hot?; filter/query serialization from seo.ts pending |
+| Featured / paging | `/api/site/timeline` | TimelineResponse: cards(key,anchorAt,item,group), filters,nextCursor,dayCounts,hot?; filter/query serialization from seo.ts inspected in the completed ledger |
 | All/search | `/api/site/pool` | PoolResponse: items,filters,total,page,pageCount,todayCount,freshness; page capped 50, q capped 200; relevance/time |
 | Duplicate reports | `/api/site/groups/:factId/reports` | GroupReportsResponse.reports; filter-aware, originalUrl and source |
 | Item | `/api/site/items/:id`, `/api/site/items/:id/original` | SiteItemDetail: source,body(zh/original/complete/zhKind),bodyLanguage,hasTranslation,outline,readingMode,indexable,links,group,relatedStories,story,x,topics,tags |
@@ -49,7 +49,7 @@ GET/HEAD public success responses can share cache; admin/actions/errors/Set-Cook
 | Topics | `/api/site/topics` | TopicsResponse(groups,topics) |
 | Topic | `/api/site/topics/:slug?page=N` | TopicPage(topic,items,page,pageCount,pageSize,modules); topic metrics/latest/brand/indexable |
 
-These are upstream TypeScript caller expectations, not evidence of compatibility with existing AI.BAIZE endpoints. Response validation is largely casting; an independent frontend must define an adapter or matching schema. Module payloads, HTML sanitization, SEO, poster service, feedback and agent contracts remain pending inspections.
+These are upstream TypeScript caller expectations, not evidence of compatibility with existing AI.BAIZE endpoints. Response validation is largely casting; an independent frontend must define an adapter or matching schema. Module payloads, HTML sanitization, SEO, poster service, feedback and agent contracts are covered by the completed ledger below and the companion backend/contracts audits.
 
 ## Open-source / live-site gaps and licensing
 
