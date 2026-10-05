@@ -5,14 +5,17 @@ const { decodeHTML } = require('entities');
 const text=value=>value==null?null:decodeHTML(String(value));
 const CATEGORY = { model:'ai-models', product:'ai-products', industry:'industry', research:'paper', opinion:'opinion', opensource:'ai-products', education:'industry', culture:'industry' };
 function dateOrNull(value) { return value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null; }
-function dayKey(value) { return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value)); }
+const dayFormatter=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'});
+function dayKey(value) { return dayFormatter.format(new Date(value)); }
+const ITEM_INDEX=Symbol('projection item index');
+function withItemIndex(state) { return {...state,[ITEM_INDEX]:new Map((state.items||[]).map(item=>[item.id,item]))}; }
 function firstParty(item) { return item.priorityTier === 'official_first_party'; }
 function media(item) {
  return (item.media || []).filter(m=>/^https?:\/\//.test(m.url||'') && (m.type||m.kind||'image').includes('image')).slice(0,4).map(m=>({kind:'image',url:`/api/media?url=${encodeURIComponent(m.thumbnail || m.url)}`,fullUrl:`/api/media?url=${encodeURIComponent(m.url)}`,width:null,height:null,alt:m.alt||null,poster:null}));
 }
 // Hydrate only metadata intentionally omitted by the legacy public serializer.
 function hydrate(item, state = {}) {
- const stored=(state.items||[]).find(row=>row.id===item.id);
+ const stored=state[ITEM_INDEX] ? state[ITEM_INDEX].get(item.id) : (state.items||[]).find(row=>row.id===item.id);
  return stored ? {...item, publishedAt:stored.publishedAt, discoveredAt:stored.discoveredAt, createdAt:stored.createdAt, originalTitle:stored.originalTitle, priorityTier:stored.priorityTier} : item;
 }
 function projectItem(item, selected = new Set(), state = {}) {
@@ -90,4 +93,4 @@ function projectReport(report,kind,key,index,state = {}) {
  const generatedAt=recorded||new Date().toISOString();
  return {kind,key,issueNumber:index[n]?.issueNumber||1,title:reduced?`${key} 内容汇总`:report.headline,generatedAt,generationKind:recorded?'recorded':'derived',lead:lead?{title:lead.title,leadParagraph:lead.summary||''}:null,leadItemId:lead?.itemId||null,overview:kind==='daily'||reduced?null:report.editorialSummary||null,highlights:shown.slice(0,4),sections,flashes:[],cover:null,metrics:{[kind==='daily'?'totalEvents':'totalStories']:shown.length,sourcesCount:new Set(shown.map(i=>i.sourceName)).size,firstPartyEvents:shown.filter(i=>i.firstParty).length,modelsReleased:shown.filter(i=>i.firstParty&&(available.get(i.itemId)?.tags||[]).includes('模型发布')).length},readingMinutes:Math.max(1,Math.ceil(shown.length/5)),prev:index[n+1]?.key||null,next:n>0?index[n-1]?.key:null};
 }
-module.exports={dateOrNull,dayKey,firstParty,projectItem,projectDetail,projectHot,projectStory,topicMatches,projectTopics,reportKey,reportAnchor,projectReport};
+module.exports={withItemIndex,dateOrNull,dayKey,firstParty,projectItem,projectDetail,projectHot,projectStory,topicMatches,projectTopics,reportKey,reportAnchor,projectReport};

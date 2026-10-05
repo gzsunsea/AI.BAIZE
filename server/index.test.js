@@ -841,3 +841,11 @@ test("public hot and story APIs exclude hidden and non-public cluster evidence",
   assert.equal((await fetch(`${base}/api/public/stories/event-hidden`)).status, 404);
   assert.equal((await fetch(`${base}/api/public/stories/event-invalid`)).status, 404);
 });
+test('virtual daily digest filters publication window before inspecting unrelated content',()=>{
+ let titleReads=0;
+ const outside={id:'outside',url:'https://openai.com/old',sourceName:'OpenAI',sourceKind:'rss',priorityTier:'official_first_party',summary:'A documented model release',publishedAt:'2026-09-01T00:00:00Z',score:95};
+ Object.defineProperty(outside,'title',{enumerable:true,get(){titleReads++;return 'OpenAI releases a new model';}});
+ const digest=buildDailyDigest({items:[outside],sources:[],dailyDigests:[],settings:{rules:{}}},{},{since:Date.parse('2026-10-01T00:00:00Z'),until:Date.parse('2026-10-02T00:00:00Z'),virtual:true});
+ assert.equal((digest.sections||[]).flatMap(section=>section.items).length,0);
+ assert.equal(titleReads,0,'out-of-window records must not repeatedly run content quality rules');
+});

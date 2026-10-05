@@ -716,7 +716,14 @@ function buildDailyDigest(state, query = {}, options = {}) {
   const until = Number(options.until || 0);
   const excludeKeys = options.excludeKeys || new Set();
   let excludedCount = 0;
-  const pool = state.items
+  // Virtual reports request one day at a time. Avoid repeatedly inspecting content from
+  // the rest of the period; keep exclusion-accounting order for ordinary incremental digests.
+  const inWindow = (item) => {
+    const published = new Date(item.publishedAt || 0).getTime();
+    return !(since && published < since) && !(until && published >= until);
+  };
+  const candidates = !excludeKeys.size && (since || until) ? state.items.filter(inWindow) : state.items;
+  const pool = candidates
     .filter((item) => !item.hidden)
     .filter((item) => isSelectedQualityCandidate(item))
     .filter((item) => isCuratedSourceAllowed(item))
