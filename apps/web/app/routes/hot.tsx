@@ -239,6 +239,8 @@ export default function HotPage() {
   const [lead, ...rest] = hot.entries;
   const runners = rest.slice(0, 2);
   const others = rest.slice(2);
+  const candidates = hot.candidates ?? [];
+  const counts = <>过去 {hot.windowHours} 小时 · 多来源事件 {hot.entries.length} 件{candidates.length > 0 && <> · 候选 {candidates.length} 条</>}</>;
   return (
     <div className="pb-10">
       <PhoneBar
@@ -246,7 +248,7 @@ export default function HotPage() {
         large
         sub={
           <>
-            过去 {hot.windowHours}{` 小时内的多来源事件：`}{hot.entries.length} 件
+            {counts}
             {hot.computedAt && (
               <>
                 {" · "}
@@ -271,16 +273,18 @@ export default function HotPage() {
             热度参考
           </div>
           <h1 className="mt-1.5 text-[24px] font-bold leading-[1.3] tracking-[-0.01em] text-ink lg:text-[26px]">{withSubject("热点榜")}</h1>
-          <p className="mt-1.5 text-[13.5px] text-ink-3">过去 {hot.windowHours}{` 小时内的多来源事件：`}{hot.entries.length} 件</p>
+          <p className="mt-1.5 text-[13.5px] text-ink-3">{counts}</p>
         </div>
         {hot.computedAt && (
           <p className="text-[12px] text-ink-4">
-            <span className="num">{monthDayTime(hot.computedAt)}</span> 更新 · 按讨论热度排序
+            <span className="num">{monthDayTime(hot.computedAt)}</span> 更新 · 多来源事件按综合热度排序
           </p>
         )}
       </header>
 
-      {!lead ? (
+      {!lead && candidates.length > 0 ? (
+        <p className="well rounded-panel px-4 py-3 text-[13px] leading-relaxed text-ink-3">尚未形成多来源热点，先看下方候选；它们仍需更多来源报道。</p>
+      ) : !lead ? (
         <div className="card rounded-sheet">
           <EmptyState title="暂时没有热点">还没有足够多来源共同讨论的事件。</EmptyState>
         </div>
@@ -315,6 +319,34 @@ export default function HotPage() {
         </>
       )}
 
+      {candidates.length > 0 && (
+        <section aria-label="热点候选" className="mt-6 lg:mt-7">
+          <div className="mb-3 space-y-1 px-1">
+            <h2 className="text-[16px] font-semibold text-ink">热点候选 <span className="num font-normal text-ink-4">{candidates.length}</span></h2>
+            <p className="text-[12.5px] leading-relaxed text-ink-4">单一来源 · 按综合精选排序 · 尚未形成多来源热点</p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            {candidates.map((item) => (
+              <article key={item.id} className="card card-hover group relative min-w-0 px-5 py-4">
+                <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-4">
+                  <span>{item.source.name}</span>
+                  <Badge tone="amber">单一来源</Badge>
+                  <span className="ml-auto whitespace-nowrap">精选分 <span className="mono text-[16px] font-semibold text-ink-2">{item.score ?? "—"}</span></span>
+                </div>
+                <h3 className="mt-2.5 text-[16px] font-[650] leading-[1.5] text-ink">
+                  <Link viewTransition to={`/items/${item.id}`} prefetch="intent" className="transition-colors after:absolute after:inset-0 after:content-[''] group-hover:text-accent">{item.title}</Link>
+                </h3>
+                {item.summary && <p className="mt-2 line-clamp-3 text-[13px] leading-[1.75] text-ink-3">{item.summary}</p>}
+                <div className="mt-3 flex items-center justify-between gap-3 text-[12px] text-ink-4">
+                  <time dateTime={item.publishedAt ?? undefined}>{monthDayTime(item.timelineAt)}</time>
+                  <span className="text-accent">查看摘要与来源 →</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
       <details id="hot-method" className="disclosure group/method mt-8 scroll-mt-[calc(var(--bar-h)+16px)] text-[12px] text-ink-4">
         <summary className="flex items-center gap-1.5 py-1 transition-colors hover:text-ink-2">
           <IconInfo size={15} />
@@ -328,6 +360,7 @@ export default function HotPage() {
         <div className="max-w-[760px] space-y-2 pb-2 pl-[21px] pt-2 leading-[1.75] text-ink-3">
           <p>热度综合信源层级权重（最多 30 分）、第二个及后续独立来源每个 8 分（最多 25 分）、新鲜度（20 分起，每 4 小时减 1 分，最低 0 分）和代表内容精选分的四分之一（最多 25 分）。它是本站的综合排序指数，不是全网讨论人数。</p>
           <p>榜单统计过去 72 小时的公开报道证据。当前没有可比的历史趋势数据，因此不绘制趋势线，也不显示增长百分比。</p>
+          <p>热点候选是达到精选门槛的单一来源内容，综合信源权重、内容与精选分排序；卡片上的精选分不代表讨论热度。候选不会计入多来源事件数量。</p>
           <p>
             来源名单来自归入同一事件的公开报道，按来源身份去重；它反映本站已经采集到的证据范围。点击事件可查看相关报道和来源链接。
           </p>

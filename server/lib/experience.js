@@ -1,6 +1,7 @@
 const { isCuratedSourceAllowed, isPublicItem, isSelectedFeedEligible, selectedRankingScore } = require("./scoring");
 const { evidenceMeta, sourceIdentity } = require("./editorial");
 const { compareRelatedEvents } = require("./relatedEvents");
+const { withAnnouncementClusters } = require("./dedupe");
 
 function clusterItemIds(cluster = {}) {
   return (cluster.items || [])
@@ -315,7 +316,11 @@ function buildHotTopics(state = {}, options = {}) {
   const limit = options.limit === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : Number(options.limit || 10);
   const itemsById = new Map((state.items || []).map((item) => [item.id, item]));
 
-  const items = (state.clusters || [])
+  const recentPublicItems = (state.items || []).filter(isPublicItem).filter(isCuratedSourceAllowed).filter(item => {
+    const age = nowMs - Date.parse(item.publishedAt);
+    return age >= 0 && age <= 72 * 36e5;
+  });
+  const items = withAnnouncementClusters(recentPublicItems, state.clusters || [])
     .map((cluster) => {
       const relatedItems = clusterItemIds(cluster)
         .map((id) => itemsById.get(id))
@@ -372,7 +377,7 @@ function buildHotTopics(state = {}, options = {}) {
     .slice(0, limit)
     .map((item, index) => ({ ...item, rank: index + 1 }));
 
-  const confirmedIds = new Set(items.flatMap((item) => [item.id, item.representative?.eventId, item.representative?.canonicalUrl, item.representative?.url]).filter(Boolean));
+  const confirmedIds = new Set(items.flatMap((item) => [item.id, ...item.relatedItems.flatMap(member => [member.id, member.eventId, member.canonicalUrl, member.url])]).filter(Boolean));
   const candidates = buildHotCandidates(state.items || [], confirmedIds, nowMs, threshold, enrichItem);
   const availability = items.length ? "confirmed" : candidates.length ? "candidate" : "empty";
 

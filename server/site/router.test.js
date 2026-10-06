@@ -2,6 +2,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const {createSiteRouter} = require('./router');
+test('hot page API retains single-source candidates and links them to article details without inventing heat',async()=>{
+ const candidate={id:'candidate',title:'OpenAI AI model update',summary:'模型接口更新。',publishedAt:new Date().toISOString(),url:'https://example.com/model',sourceName:'Official',score:90,raw:{secret:'private'}};
+ const state={items:[candidate]};const app=express();app.use(createSiteRouter({readState:()=>state,publicItems:()=>state.items,publicHotTopics:()=>({items:[],candidates:[candidate],availability:'candidate',windowHours:72})}));const server=app.listen(0);await new Promise(r=>server.once('listening',r));
+ try{const result=await(await fetch(`http://127.0.0.1:${server.address().port}/api/site/hot`)).json();assert.equal(result.availability,'candidate');assert.equal(result.entries.length,0);assert.equal(result.candidates[0].id,'candidate');assert.equal(result.candidates[0].source.name,'Official');assert.equal(result.candidates[0].score,90);assert.equal(result.candidates[0].raw,undefined);assert.equal(result.candidates[0].heat,undefined);}finally{await new Promise(r=>server.close(r));}
+});
 test('news images retain their source association in public cards and summary details',async()=>{
  const item={id:'photo',title:'AI model update',summary:'官方发布了新的模型接口。',reason:'原文提供了接口兼容范围和迁移步骤。',publishedAt:new Date().toISOString(),url:'https://example.com/blog/model',sourceName:'Official',media:[{url:'https://example.com/model.png',type:'image',alt:'模型架构图',sourceUrl:'https://example.com/blog/model',origin:'article'},{url:'https://example.com/movie.mp4',type:'video'},{url:'https://example.com/unknown-related.png',type:'image'}]};
  const state={items:[item]};const app=express();app.use(createSiteRouter({readState:()=>state,publicItems:()=>state.items,publicHotTopics:()=>({items:[]})}));const server=app.listen(0);await new Promise(r=>server.once('listening',r));

@@ -36,8 +36,10 @@ function projectDetail(item,selected,state) {
  // The old data store has no audited source full-text grant. Publish summary and original link only.
  return {...view,readingMode:'summary-only',author:item.author||null,body:null,outline:[],relatedStories:[],topics:topicMatches(item).map(t=>({slug:t.slug,name:t.name})),indexable:true,markdownAvailable:true,group:null,hasTranslation:false,bodyLanguage:'zh'};
 }
-function projectHot(result) {
- return {computedAt:result.generatedAt||null,windowHours:result.windowHours||72,entries:(result.items||[]).map(t=>({rank:t.rank,story:{publicId:t.id,title:t.title},heat:t.heat,trend:'unknown',trendPct:null,badges:[],participantCount:t.sourceCount,sourceCount:t.sourceCount,sourceNames:t.sources||[],participants:(t.sources||[]).map(name=>({name,kind:'editorial'})),spark:[],summary:t.summary||null,latest:t.relatedItems?.[0]?.title||null,cover:null}))};
+function projectHot(result,state = {}) {
+ const candidates=(result.candidates||[]).map(i=>projectItem(i,new Set([i.id]),state)).filter(Boolean);
+ const entries=(result.items||[]).map(t=>({rank:t.rank,story:{publicId:t.id,title:t.title},heat:t.heat,trend:'unknown',trendPct:null,badges:[],participantCount:t.sourceCount,sourceCount:t.sourceCount,sourceNames:t.sources||[],participants:(t.sources||[]).map(name=>({name,kind:'editorial'})),spark:[],summary:t.summary||null,latest:t.relatedItems?.[0]?.title||null,cover:null}));
+ return {computedAt:result.generatedAt||null,windowHours:result.windowHours||72,availability:entries.length?'confirmed':candidates.length?'candidate':'empty',entries,candidates};
 }
 function projectStory(story,selected = new Set(),state = {}) {
  const e=story.event,now=Date.now();

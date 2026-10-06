@@ -1,0 +1,152 @@
+{
+  "checkedAt": "2026-10-06T11:55:25.658Z",
+  "base": "http://127.0.0.1:4400/",
+  "passed": true,
+  "checks": 13,
+  "all": {
+    "total": 1675,
+    "firstPageCount": 40,
+    "sourceCounts": [
+      [
+        "IT之家 AI",
+        16
+      ],
+      [
+        "arXiv AI",
+        11
+      ],
+      [
+        "量子位",
+        2
+      ],
+      [
+        "Claude Code Releases",
+        2
+      ],
+      [
+        "MIT Technology Review AI",
+        2
+      ],
+      [
+        "GitHub Changelog",
+        1
+      ],
+      [
+        "极客公园",
+        1
+      ],
+      [
+        "Simon Willison",
+        1
+      ],
+      [
+        "GitHub Blog AI",
+        1
+      ],
+      [
+        "OpenAI News",
+        1
+      ],
+      [
+        "arXiv AI Education",
+        1
+      ],
+      [
+        "Cloudflare AI",
+        1
+      ]
+    ],
+    "chronological": true
+  },
+  "selected": {
+    "total": 60,
+    "sourceCounts": [
+      [
+        "GitHub Changelog",
+        12
+      ],
+      [
+        "Claude Code Releases",
+        10
+      ],
+      [
+        "OpenRouter Announcements",
+        8
+      ],
+      [
+        "OpenAI News",
+        5
+      ],
+      [
+        "Cloudflare AI",
+        3
+      ],
+      [
+        "MIT Technology Review AI",
+        3
+      ],
+      [
+        "The Decoder：AI News（RSS）",
+        3
+      ],
+      [
+        "Arena.ai",
+        2
+      ],
+      [
+        "GitHub Blog AI",
+        2
+      ],
+      [
+        "Apple Machine Learning Research",
+        2
+      ],
+      [
+        "OpenAI",
+        2
+      ],
+      [
+        "Simon Willison",
+        1
+      ],
+      [
+        "Sam Altman",
+        1
+      ],
+      [
+        "ClaudeDevs",
+        1
+      ],
+      [
+        "Simon Willison 博客",
+        1
+      ],
+      [
+        "SiliconFlow",
+        1
+      ],
+      [
+        "NVIDIA AI Blog",
+        1
+      ],
+      [
+        "BAIR Berkeley AI Research",
+        1
+      ],
+      [
+        "Greg Brockman",
+        1
+      ]
+    ],
+    "ithomeCount": 0,
+    "ithomeLimit": 5
+  },
+  "removedLensId": "item-1ff58ti",
+  "lensSearchResults": 0,
+  "preservedStrataIds": [
+    "item-1fg8u08"
+  ],
+  "preservedBiasFlowIds": [
+    "item-1wt8x79"
+  ]
+}

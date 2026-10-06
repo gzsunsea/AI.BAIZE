@@ -409,18 +409,9 @@ function visibleItems(query, state = readState()) {
   const compareByPublishedAt = (a, b) => new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime();
   const compareBySearch = (a, b) => searchRank(b) - searchRank(a) || compareByPublishedAt(a, b);
   if (mode !== "selected") {
-    const sorted = filtered.sort(sort === "relevance" ? compareBySearch : compareByPublishedAt);
-    if (mode !== "all") return sorted;
-    const caps = { hn: 20, github: 16, arxiv: 16, devto: 0 };
-    const counts = new Map();
-    return sorted.filter((item) => {
-      const cap = caps[item.sourceKind];
-      if (cap === undefined) return true;
-      const count = counts.get(item.sourceKind) || 0;
-      if (count >= cap) return false;
-      counts.set(item.sourceKind, count + 1);
-      return true;
-    });
+    // All coverage is the full qualified inventory in time order. Source diversity
+    // limits apply only to selected coverage; they must not hide valid reports here.
+    return filtered.sort(sort === "relevance" ? compareBySearch : compareByPublishedAt);
   }
   const selected = selectCuratedItems(filtered, state.settings?.rules);
   if (!q) return selected;

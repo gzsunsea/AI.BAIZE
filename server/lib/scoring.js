@@ -41,7 +41,7 @@ const AI_KEYWORDS = [
   "social signal",
 ];
 
-const CORE_AI_RE = /AIGC|AGI|artificial intelligence|machine learning|deep learning|neural network|\bLLMs?\b|large language model|generative AI|foundation model|frontier model|AI[-\s]?(?:agent|agents|model|models|tool|tools|app|apps|coding|developer|search|assistant|video|image|music|education|safety|alignment|workflow|inference|training|chip|compute|assisted|powered|generated|native|driven|mediated|enabled)|agentic|Claude Code|OpenAI|ChatGPT|GPT-\d|Anthropic|Claude|Gemini|DeepMind|Mistral|Llama|xAI|Grok|Hugging Face|Copilot|Codex|Cursor|OpenRouter|diffusion|stable diffusion|multimodal|inference|fine-?tuning|benchmark|eval|RAG|RLHF|transformer|embedding|vector database|大模型|基础模型|前沿模型|人工智能|智能体|智能代理|多模态|推理|训练|微调|评测|基准|向量数据库|检索增强|模型发布|开源模型|生成式\s*AI|生成式人工智能|文生图|文生视频|AI\s*编程|AI\s*应用|AI\s*模型|AI\s*工具|AI\s*助手|AI\s*搜索|AI\s*教育|AI\s*安全|AI\s*芯片|AI\s*算力|端到端自动驾驶|Robotaxi|FSD/i;
+const CORE_AI_RE = /AIGC|AGI|artificial intelligence|machine learning|deep learning|neural network|\bLLMs?\b|large language model|generative AI|foundation model|frontier model|AI[-\s]?(?:agent|agents|model|models|tool|tools|app|apps|coding|developer|search|assistant|video|image|music|education|safety|alignment|workflow|inference|training|chip|compute|assisted|powered|generated|native|driven|mediated|enabled)|agentic|Claude Code|OpenAI|ChatGPT|GPT-\d|Anthropic|Claude|Gemini|DeepMind|Mistral|Llama|xAI|Grok|Hugging Face|Copilot|Codex|Cursor|OpenRouter|diffusion|stable diffusion|multimodal|inference|fine-?tuning|benchmark|eval|\bRAG\b|RLHF|transformer|embedding|vector database|大模型|基础模型|前沿模型|人工智能|智能体|智能代理|多模态|推理|训练|微调|评测|基准|向量数据库|检索增强|模型发布|开源模型|生成式\s*AI|生成式人工智能|文生图|文生视频|AI\s*编程|AI\s*应用|AI\s*模型|AI\s*工具|AI\s*助手|AI\s*搜索|AI\s*教育|AI\s*安全|AI\s*芯片|AI\s*算力|端到端自动驾驶|Robotaxi|FSD/i;
 const AI_ENTITY_RE = /OpenAI|Anthropic|Claude|DeepMind|Google AI|Gemini|xAI|Grok|Mistral|Llama|Hugging Face|OpenRouter|Cursor|Copilot|Codex|Runway|Midjourney|Stability AI|Perplexity|DeepSeek|智谱|月之暗面|MiniMax|百川|通义|千问|豆包|讯飞星火|腾讯元宝|元宝|Kimi|商汤|阶跃星辰/i;
 const AI_INFRA_RE = /GPU|NPU|TPU|CUDA|ROCm|算力|AI\s*芯片|accelerator|inference|推理|训练|集群|数据中心|Stargate|星际之门|cloud|云平台|serverless|edge|边缘/i;
 const AI_INFRA_CONTEXT_RE = /LLM|大模型|AI\s*模型|foundation model|frontier model|agent|智能体|推理|训练|inference|training|fine-?tuning|serving|部署|GPU\s*memory|模型服务|AI\s*应用|AI\s*产品/i;
@@ -58,7 +58,7 @@ const CN_AUTO_COMMENTARY_NOISE_RE = /(?:对谈|专访|采访).*(?:蔚来|理想|
 const CN_DEVICE_PROMO_RE = /新机|机型|预装|无需更新系统|AIOS|努比亚|HMD|豆包手机|华为\s*Mate|iPhone|手机(?:终于|将|已|发布|上市|预装|支持|搭载)|AI\s*手机|App\s*获|鸿蒙版|官方降价|国行\s*Switch/i;
 const CN_MOBILE_CHIP_RE = /联发科|天玑|骁龙|移动平台|手机.*处理器|处理器.*手机|Gemini Nano|LLM Booster/i;
 const CN_CONSUMER_DEVICE_RE = /vivo|OPPO|荣耀|小米|红米|Redmi|华为|Mate|Pura|iPhone|摩托罗拉|Motorola|努比亚|HMD|联发科|天玑|骁龙|移动平台|处理器|智能手机|手机|平板|耳机|跑分|CPU|GHz|内存|Edge\s*\d|S60/i;
-const DEVICE_CORE_AI_RE = /端侧大模型|本地大模型|AI\s*(?:模型|Agent|智能体|编程|开发|推理|训练)|LLM|多模态模型|生成式\s*AI/i;
+const DEVICE_CORE_AI_RE = /大模型|AI\s*(?:模型|Agent|智能体|编程|开发|推理|训练)|LLM|多模态模型|生成式\s*AI/i;
 const REAL_AI_INFRA_RE = /(?:AI|大模型|LLM).*(?:训练|推理|算力|服务器|数据中心|集群|部署)|(?:GPU|NPU).*(?:训练|推理|大模型|服务器|数据中心|集群)/i;
 const DIGEST_OR_ROUNDUP_RE = /早报|晚报|日报|周报|一图看懂|汇总|合集|盘点|要闻|morning brief|daily brief|weekly roundup/i;
 const LOW_VALUE_PRESENTATION_RE = /图赏|开箱|外观赏析|真机照|壁纸|桌面美化|颜值体验|上手图集/i;
@@ -167,6 +167,10 @@ function itemText(item = {}) {
   return `${item.title || ""} ${item.summary || ""} ${(item.tags || []).join(" ")}`;
 }
 
+function contentText(item = {}) {
+  return `${item.title || ''} ${item.summary || ''}`;
+}
+
 function itemSourceText(item = {}) {
   return `${item.sourceName || ""} ${item.sourceKind || ""} ${item.priorityTier || ""} ${item.sourceTier || ""}`;
 }
@@ -184,14 +188,15 @@ function isBroadOfficialSource(item = {}) {
 }
 
 function isAiInfraCandidate(item = {}) {
-  const text = itemText(item);
+  const text = contentText(item);
   return AI_INFRA_RE.test(text) && AI_INFRA_CONTEXT_RE.test(text);
 }
 
 function isCoreAiCandidate(item = {}) {
-  const text = itemText(item);
+  // Inferred taxonomy is an output, never independent evidence of AI relevance.
+  const text = contentText(item);
   if (!text.trim()) return false;
-  if (CORE_AI_RE.test(text)) return true;
+  if (CORE_AI_RE.test(text) || /\bAI\b/i.test(text)) return true;
   if (EDUCATION_CULTURE_RE.test(text)) return true;
   if (CN_AUTO_CORE_AI_TITLE_RE.test(item.title || "")) return true;
   return isAiInfraCandidate(item);
@@ -447,19 +452,17 @@ function isQualityCandidate(item) {
   // Judge AI relevance from the source; a translation can omit discovery keywords.
   // Keep existing noise checks scoped to the display excerpt (full papers can contain
   // incidental words such as LIBERO-Plus that collide with promotion filters).
-  let evidenceItem = item;
-  if (item.llmProvider) {
-    const raw = item.raw || {}, json = raw.rawJson || {};
-    const original = [raw.summary, raw.description, raw.story_text, raw.content, raw.content_text, json.text, json.full_text, json.content]
-      .filter(value => typeof value === 'string' && value.trim()).join(' ');
-    if (original) evidenceItem = { ...item, summary: original };
-  }
-  const hasCoreAi = isCoreAiCandidate(item) || isCoreAiCandidate(evidenceItem);
+  const raw = item.raw || {}, json = raw.rawJson || {};
+  const original = [raw.summary, raw.description, raw.story_text, raw.content, raw.content_text, json.text, json.full_text, json.content]
+    .filter(value => typeof value === 'string' && value.trim()).join(' ');
+  const sourcePresent = Boolean(original || raw.title || item.originalTitle);
+  const evidenceItem = { ...item, title: raw.title || item.originalTitle || item.title, summary: sourcePresent ? original : item.summary, tags: [] };
+  const hasCoreAi = isCoreAiCandidate(evidenceItem);
   if (isCommunitySource(item) && !hasCoreAi) return false;
   if (isChineseMediaSource(item) && !hasCoreAi) return false;
   if (isBroadOfficialSource(item) && !hasCoreAi) return false;
   if (hasCoreAi) return true;
-  return (AI_ENTITY_RE.test(itemText(item)) || AI_ENTITY_RE.test(itemText(evidenceItem))) && !isWeakIndustryCandidate(item);
+  return AI_ENTITY_RE.test(contentText(evidenceItem)) && !isWeakIndustryCandidate(item);
 }
 
 function normalizeItem(raw) {

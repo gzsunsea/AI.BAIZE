@@ -204,6 +204,9 @@ export interface HotResponse {
   computedAt: string | null;
   windowHours: number;
   entries: HotEntryView[];
+  availability: "confirmed" | "candidate" | "empty";
+  /** Selected single-source reports; article scores are not discussion heat. */
+  candidates: ItemSummary[];
 }
 
 export interface HeatPoint {

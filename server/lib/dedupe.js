@@ -6,6 +6,56 @@ function eventKey(item) {
   return makeId(`${titleFingerprint(item.title)}:${tags}`);
 }
 
+// Conservative, source-text anchors for announcements with translated headlines.
+// A common company/model mention alone is never enough to merge reports.
+function announcementAnchor(item = {}) {
+  const title = String(item.raw?.title || item.originalTitle || item.title || '').normalize('NFKC');
+  if (/[;；]|\bdaily\s+(?:brief|roundup|digest)\b|日报|早报/iu.test(title)) return null;
+  const sourceText = `${title}\n${item.raw?.summary || ''}`;
+  if (!/\bOpenAI\b/iu.test(sourceText)) return null;
+  if (/(?:\bEU\b|European Union|欧盟)/iu.test(title)
+    && /text\s+(?:provenance|watermark)|文本.{0,30}水印/iu.test(title)
+    && /watermark|水印/iu.test(sourceText)) return 'openai:eu:text-watermark';
+  const duration = title.match(/(\d+)\s*(?:天|[- ]day)/iu)?.[1];
+  if (duration && /\bOpenAI\b/iu.test(title) && /reset|重置/iu.test(title)
+    && /(?:plan|pledge|promise|improv|feature|计划|承诺|改进|功能)/iu.test(title)) return `openai:product-improvement-reset:${duration}days`;
+  return null;
+}
+
+function anchoredEventClusters(items = []) {
+  const groups = new Map();
+  for (const item of [...items].sort((a,b) => Date.parse(a.publishedAt)-Date.parse(b.publishedAt))) {
+    const anchor = announcementAnchor(item), at = Date.parse(item.publishedAt);
+    if (!anchor || !Number.isFinite(at)) continue;
+    const windows = groups.get(anchor) || [];
+    let group = windows.at(-1);
+    if (!group || at - group.startedAt > 72 * 36e5) {
+      group = { id: makeId(`announcement:${anchor}:${new Date(at).toISOString().slice(0,10)}`), startedAt: at, members: [] };
+      windows.push(group);
+      groups.set(anchor, windows);
+    }
+    group.members.push(item);
+  }
+  return [...groups.values()].flat().filter(g => g.members.length > 1).map(g => ({
+    id: g.id, title: g.members[0].title, items: g.members.map(i => i.id),
+    sources: [...new Set(g.members.flatMap(i => [i.sourceName, ...(i.duplicateSources || [])]).filter(Boolean))],
+    coverage: mergeRelatedCoverage(g.members.flatMap(i => [...(i.relatedCoverage || []), coverageRecord(i)])),
+    topScore: Math.max(...g.members.map(i => Number(i.score || 0))), size: g.members.length,
+    matchMethod: 'announcement_anchor',
+  }));
+}
+
+function withAnnouncementClusters(items, clusters = []) {
+  const anchored = anchoredEventClusters(items);
+  const assigned = new Set(anchored.flatMap(c => c.items));
+  // Preserve the existing event id when a persisted group expands with another report.
+  for (const cluster of anchored) {
+    const previous = clusters.find(c => (c.items || []).length && c.items.every(id => cluster.items.includes(id)));
+    if (previous) cluster.id = previous.id;
+  }
+  return [...clusters.filter(c => c.matchMethod !== 'announcement_anchor' && !(c.items || []).some(id => assigned.has(id))), ...anchored];
+}
+
 function enrichDedupe(item) {
   const canonical = canonicalUrl(item.url);
   return {
@@ -116,7 +166,7 @@ function eventClusters(items) {
     cluster.topScore = Math.max(cluster.topScore, item.score || 0);
     clusters.set(key, cluster);
   }
-  return [...clusters.values()]
+  const exact = [...clusters.values()]
     .map((cluster) => ({
       ...cluster,
       sources: [...cluster.sources],
@@ -125,6 +175,7 @@ function eventClusters(items) {
     }))
     .filter((cluster) => cluster.size > 1 || cluster.sources.length > 1 || cluster.duplicateCount > 0)
     .sort((a, b) => b.topScore - a.topScore);
+  return withAnnouncementClusters(items, exact).sort((a,b) => b.topScore-a.topScore);
 }
 
 module.exports = {
@@ -135,4 +186,5 @@ module.exports = {
   eventClusters,
   eventKey,
   titleFingerprint,
+  withAnnouncementClusters,
 };

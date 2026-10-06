@@ -81,7 +81,7 @@ function createSiteRouter(backend){
   const state=readState();const item=publicItem(state,req.params.id);
   if(!item)return res.status(404).json({error:'内容不可用'});const detail=p.projectDetail(item,selected(state),state);if(!detail)return res.status(404).json({error:'内容日期不可用'});res.json(detail);
  });
- router.get('/api/site/hot',(_req,res)=>res.json(p.projectHot(backend.publicHotTopics(readState()))));
+ router.get('/api/site/hot',(_req,res)=>{const state=readState();res.json(p.projectHot(backend.publicHotTopics(state),state));});
  router.get('/api/site/stories/:id/followups',(req,res)=>{
   const state=readState();if(!backend.publicStoryDetail(state,req.params.id))return res.status(404).json({error:'事件不可用'});res.json({items:[],more:false});
  });
