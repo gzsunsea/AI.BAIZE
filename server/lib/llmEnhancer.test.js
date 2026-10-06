@@ -41,7 +41,9 @@ test('a missing model reason cannot discard a valid Chinese fact',async(t)=>{
 test('text summarization focuses on the original rather than editorial instructions and image captions',async(t)=>{
  let request;t.mock.method(global,'fetch',async(_url,options)=>{request=JSON.parse(options.body);return {ok:true,json:async()=>({response:JSON.stringify({fact:'原文比较了工作流编排、模型路由与供应商路由。'})})}});
  await loadEnhancerFresh().enhanceItem({title:'Routing layers',raw:{summary:'Compare orchestration, model routing, and provider routing.'},media:[{type:'image',alt:'Diagram caption that must not dominate the text summary.'}]});
- assert.match(request.prompt,/Compare orchestration/);assert.doesNotMatch(request.prompt,/Diagram caption|某类读者|具体阅读价值/);assert.deepEqual(request.format.required,['fact']);
+ assert.match(request.prompt,/Compare orchestration/);assert.doesNotMatch(request.prompt,/Diagram caption|某类读者|具体阅读价值|Routing layers/);assert.deepEqual(request.format.required,['fact']);
+ assert.equal(request.options.num_thread,1);assert.equal(request.options.num_ctx,2048);
+ assert.equal(request.think,false);
 });
 
 test('a rejected fact records the failure cause and attempted model',async(t)=>{
@@ -50,11 +52,47 @@ test('a rejected fact records the failure cause and attempted model',async(t)=>{
  assert.equal(result.provider,'rules');assert.equal(result.failureCode,'non_chinese_fact');assert.ok(result.attemptedModel);
 });
 
+test('numeric validation compares quantities rather than matching digit substrings',async(t)=>{
+ let fact='超过230万批次的中位周转时间为7分钟。';
+ t.mock.method(global,'fetch',async()=>({ok:true,json:async()=>({response:JSON.stringify({fact})})}));
+ const enhancer=loadEnhancerFresh(),input={title:'Batch API',raw:{summary:'Median turnaround across 230k+ beta batches was 7 minutes.'}};
+ const rejected=await enhancer.enhanceItem(input);assert.equal(rejected.provider,'rules');assert.equal(rejected.failureCode,'unsupported_numeric_claim');
+ fact='超过23万批次的中位周转时间为7分钟。';assert.match((await enhancer.enhanceItem(input)).provider,/^ollama:/);
+ fact='超过230,000批次的中位周转时间为7分钟。';assert.match((await enhancer.enhanceItem(input)).provider,/^ollama:/);
+ fact='超过23批次的中位周转时间为7分钟。';assert.equal((await enhancer.enhanceItem(input)).provider,'rules');
+});
+
+test('translation preserves protected source numbers and rejects invented placeholders or magnitude units',async(t)=>{
+ let fact='超过__NUM_0__批次的中位周转时间为__NUM_1__分钟。',request;
+ t.mock.method(global,'fetch',async(_url,options)=>{request=JSON.parse(options.body);return {ok:true,json:async()=>({response:JSON.stringify({fact})})}});
+ const enhancer=loadEnhancerFresh(),input={title:'Batch API',raw:{summary:'Median turnaround across 230k+ beta batches was 7 minutes.'}};
+ const result=await enhancer.enhanceItem(input);assert.match(result.provider,/^ollama:/);assert.equal(result.summary,'超过230k+批次的中位周转时间为7分钟。');
+ assert.match(request.prompt,/across __NUM_0__ beta batches was __NUM_1__ minutes/);
+ fact='超过__NUM_9__批次的中位周转时间为7分钟。';assert.equal((await enhancer.enhanceItem(input)).provider,'rules');
+ fact='超过__NUM_0__万批次的中位周转时间为7分钟。';assert.equal((await enhancer.enhanceItem(input)).provider,'rules');
+});
+
+test('a translation cannot reverse a cannot-merge condition with a double negative',async(t)=>{
+ let fact='设置评估检查，以防止使智能体变差的改动无法合并。',request;
+ t.mock.method(global,'fetch',async(_url,options)=>{request=JSON.parse(options.body);return {ok:true,json:async()=>({response:JSON.stringify({fact})})}});
+ const input={title:'CI eval gate',raw:{summary:'Make the eval a required GitHub status check so a prompt change that makes your agent worse cannot merge.'}},enhancer=loadEnhancerFresh();
+ const failed=await enhancer.enhanceItem(input);assert.equal(failed.provider,'rules');assert.equal(failed.failureCode,'changed_negation');assert.equal(request.think,true);
+ fact='将评估设为GitHub必需状态检查，使导致智能体表现下降的提示词改动不能合并。';assert.match((await enhancer.enhanceItem(input)).provider,/^ollama:/);
+});
+
 test('Chinese source summaries remain available when the model is unavailable',async(t)=>{
  const original=process.env.OLLAMA_DISABLED;t.after(()=>{if(original===undefined)delete process.env.OLLAMA_DISABLED;else process.env.OLLAMA_DISABLED=original});process.env.OLLAMA_DISABLED='1';
  const summary='OpenRouter 发布异步批量请求接口，并列出支持的模型、请求格式和结果获取方式。';
  const result=await loadEnhancerFresh().enhanceItem({title:'Batch API',summary:'原文摘录（自动中文摘要暂不可用）：旧稿',llmProvider:'rules',raw:{summary}});
  assert.equal(result.summary,summary);assert.equal(result.provider,'source');assert.equal(result.failureCode,undefined);
+});
+
+test('mixed AIHOT excerpts reuse the supplied Chinese translation when the model is unavailable',async(t)=>{
+ const previous=process.env.OLLAMA_DISABLED;t.after(()=>{if(previous===undefined)delete process.env.OLLAMA_DISABLED;else process.env.OLLAMA_DISABLED=previous});process.env.OLLAMA_DISABLED='1';
+ const english='The official announcement describes the model update and gives developers the product link. '.repeat(4);
+ const chinese='官方说明了此次模型更新的主要变化，开发者可通过原文提供的产品入口核对适用场景。';
+ const result=await loadEnhancerFresh().enhanceItem({title:'AI update',sourceKind:'aihot',llmProvider:'rules',raw:{summary:english+'译'+chinese+'使用入口：https://example.com/model'+english}});
+ assert.equal(result.provider,'source');assert.equal(result.summary,chinese);
 });
 
 test('a new configured model retries rules results without the old cooldown',async(t)=>{
