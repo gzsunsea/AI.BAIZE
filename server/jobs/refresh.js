@@ -1,11 +1,12 @@
 const { readState, recordRun, updateSourceHealth, upsertItems } = require("../lib/store");
 const { enhanceRecentItems } = require("../lib/llmEnhancer");
 const { scrapeSource } = require("../lib/scrapers");
-const { isQualityCandidate } = require("../lib/scoring");
+const { isOriginalHttpUrl, isQualityCandidate } = require("../lib/scoring");
 
 const priorityRank = { preferred_x: 0, official_first_party: 1, expert_rss: 2, cn_media: 3, reference: 4, community_fallback: 5 };
 let refreshInFlight = false;
 let enhancementInFlight = false;
+let enhancementTimer = null;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -14,6 +15,7 @@ function sleep(ms) {
 function sourceTimeout(source) {
   const defaultMs = source.priorityTier === "community_fallback" ? 9000 : source.kind === "web_list" ? 14000 : 12000;
   const configured = Number(source.timeoutMs || process.env.SOURCE_TIMEOUT_MS || defaultMs);
+  if (source.priorityTier === "preferred_x") return configured;
   if (source.health && !source.health.ok) return Math.min(configured, Number(process.env.DEGRADED_SOURCE_TIMEOUT_MS || 8000));
   return configured;
 }
@@ -85,7 +87,7 @@ async function scrapeOneSource(source) {
   try {
     const retries = sourceRetries(source);
     const scraped = await scrapeWithRetry(source, retries);
-    const cleanItems = scraped.items.filter((item) => item.url && item.url !== "#" && item.title && item.title !== "未命名动态" && isQualityCandidate(item));
+    const cleanItems = scraped.items.filter((item) => isOriginalHttpUrl(item.url) && item.title && item.title !== "未命名动态" && isQualityCandidate(item));
     return {
       items: cleanItems,
       health: {
@@ -118,10 +120,11 @@ async function scrapeOneSource(source) {
 
 function scheduleEnhancement(limit = Number(process.env.LLM_ENHANCE_LIMIT || 40)) {
   if (process.env.LLM_ENHANCE_ASYNC === "0" || enhancementInFlight) return { scheduled: false, reason: enhancementInFlight ? "enhancement_in_progress" : "disabled" };
+  if (enhancementTimer) { clearTimeout(enhancementTimer); enhancementTimer = null; }
   enhancementInFlight = true;
   enhanceRecentItems({ limit })
     .then((enhanced) => {
-      recordRun({ ok: true, type: "enhance", enhanced });
+      recordRun({ ok: enhanced.failed === 0, type: "enhance", enhanced });
     })
     .catch((error) => {
       recordRun({ ok: false, type: "enhance", enhanced: { enhanced: 0, provider: "none" }, errors: [{ source: "llmEnhancer", message: error.message }] });
@@ -129,6 +132,11 @@ function scheduleEnhancement(limit = Number(process.env.LLM_ENHANCE_LIMIT || 40)
     })
     .finally(() => {
       enhancementInFlight = false;
+      if (process.env.LLM_ENHANCE_ASYNC !== '0') {
+        const interval = Math.max(1000, Number(process.env.LLM_ENHANCE_INTERVAL_MS || 60000));
+        enhancementTimer = setTimeout(() => { enhancementTimer = null; scheduleEnhancement(limit); }, interval);
+        enhancementTimer.unref?.();
+      }
     });
   return { scheduled: true, limit };
 }

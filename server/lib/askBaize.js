@@ -1,5 +1,5 @@
 const { enrichItem, itemCategory, sourceChannel } = require("./editorial");
-const { isSelectedQualityCandidate } = require("./scoring");
+const { isSelectedFeedEligible } = require("./scoring");
 
 const STOP_WORDS = new Set([
   "ai", "的", "了", "和", "与", "是", "在", "有", "什么", "最近", "当前", "一下",
@@ -35,8 +35,9 @@ function retrievalScore(item, queryTokens, focusId) {
 
 function retrieveItems(state, { question = "", itemId = "", limit = 8, diversify = false } = {}) {
   const queryTokens = tokens(question);
+  const selectedThreshold = Number(state.settings?.rules?.selectedThreshold || 72);
   const ranked = (state.items || [])
-    .filter((item) => !item.hidden && isSelectedQualityCandidate(item))
+    .filter((item) => isSelectedFeedEligible(item, selectedThreshold))
     .map((item) => ({ item, rank: retrievalScore(item, queryTokens, itemId) }))
     .filter(({ item, rank }) => item.id === itemId || !queryTokens.length || rank >= 20)
     .sort((a, b) => b.rank - a.rank || new Date(b.item.publishedAt || 0) - new Date(a.item.publishedAt || 0));
@@ -76,6 +77,7 @@ function sourceType(item) {
   if (item.priorityTier === "community_fallback") return "社区/研究";
   const channel = sourceChannel(item);
   if (channel === "first_party") return "一手官方";
+  if (channel === "expert_analysis") return "专家分析";
   if (channel === "social") return "专家/X 线索";
   if (channel === "community") return "社区/研究";
   if (channel === "cn_media") return "中文媒体";
@@ -174,7 +176,7 @@ function answerQuestion(state, input = {}) {
   return {
     command,
     answer,
-    grounded: true,
+    grounded: items.length > 0,
     citations: items.map((item, index) => ({
       id: item.id,
       index: index + 1,

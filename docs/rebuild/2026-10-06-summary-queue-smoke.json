@@ -1,0 +1,410 @@
+{
+  "checkedAt": "2026-10-06T08:22:13.487Z",
+  "base": "https://www.aibaize.cc/",
+  "release": "20261006-summary-queue",
+  "checks": 80,
+  "assets": 37,
+  "passed": true,
+  "results": [
+    {
+      "path": "/",
+      "status": 200,
+      "milliseconds": 2402
+    },
+    {
+      "path": "/all",
+      "status": 200,
+      "milliseconds": 1184
+    },
+    {
+      "path": "/hot",
+      "status": 200,
+      "milliseconds": 138
+    },
+    {
+      "path": "/daily",
+      "status": 200,
+      "milliseconds": 1449
+    },
+    {
+      "path": "/weekly",
+      "status": 200,
+      "milliseconds": 1221
+    },
+    {
+      "path": "/monthly",
+      "status": 200,
+      "milliseconds": 1099
+    },
+    {
+      "path": "/daily/archive",
+      "status": 200,
+      "milliseconds": 247
+    },
+    {
+      "path": "/topics",
+      "status": 200,
+      "milliseconds": 716
+    },
+    {
+      "path": "/starred",
+      "status": 200,
+      "milliseconds": 22
+    },
+    {
+      "path": "/more",
+      "status": 200,
+      "milliseconds": 20
+    },
+    {
+      "path": "/agent",
+      "status": 200,
+      "milliseconds": 138
+    },
+    {
+      "path": "/about",
+      "status": 200,
+      "milliseconds": 655
+    },
+    {
+      "path": "/privacy",
+      "status": 200,
+      "milliseconds": 13
+    },
+    {
+      "path": "/terms",
+      "status": 200,
+      "milliseconds": 10
+    },
+    {
+      "path": "/changelog",
+      "status": 200,
+      "milliseconds": 12
+    },
+    {
+      "path": "/feedback",
+      "status": 200,
+      "milliseconds": 12
+    },
+    {
+      "path": "/admin/login",
+      "status": 200,
+      "milliseconds": 11
+    },
+    {
+      "path": "/this-page-does-not-exist",
+      "status": 404,
+      "milliseconds": 9
+    },
+    {
+      "path": "/api/admin/site-state",
+      "status": 401,
+      "milliseconds": 8
+    },
+    {
+      "path": "/api/health",
+      "status": 200,
+      "milliseconds": 344
+    },
+    {
+      "path": "/api/site/timeline",
+      "status": 200,
+      "milliseconds": 378
+    },
+    {
+      "path": "/items/item-1fg8u08",
+      "status": 200,
+      "milliseconds": 240
+    },
+    {
+      "path": "/items/item-1fg8u08/markdown",
+      "status": 200,
+      "milliseconds": 226
+    },
+    {
+      "path": "/og/posters/item-1fg8u08.png",
+      "status": 200,
+      "milliseconds": 422
+    },
+    {
+      "path": "/api/site/pool?q=OpenAI&tab=relevance",
+      "status": 200,
+      "milliseconds": 590
+    },
+    {
+      "path": "/api/site/hot",
+      "status": 200,
+      "milliseconds": 131
+    },
+    {
+      "path": "/api/site/topics",
+      "status": 200,
+      "milliseconds": 651
+    },
+    {
+      "path": "/api/site/reports/daily/latest-page",
+      "status": 200,
+      "milliseconds": 240
+    },
+    {
+      "path": "/api/site/reports/weekly/latest-page",
+      "status": 200,
+      "milliseconds": 229
+    },
+    {
+      "path": "/api/site/reports/monthly/latest-page",
+      "status": 200,
+      "milliseconds": 232
+    },
+    {
+      "path": "/api/site/items/not-existing",
+      "status": 404,
+      "milliseconds": 121
+    },
+    {
+      "path": "/api/site/timeline?cursor=broken",
+      "status": 400,
+      "milliseconds": 366
+    },
+    {
+      "path": "/logo.svg",
+      "status": 200,
+      "milliseconds": 12
+    },
+    {
+      "path": "/robots.txt",
+      "status": 200,
+      "milliseconds": 10
+    },
+    {
+      "path": "/manifest.webmanifest",
+      "status": 200,
+      "milliseconds": 10
+    },
+    {
+      "path": "/sitemap.xml",
+      "status": 200,
+      "milliseconds": 344
+    },
+    {
+      "path": "/llms.txt",
+      "status": 200,
+      "milliseconds": 7
+    },
+    {
+      "path": "/openapi.json",
+      "status": 200,
+      "milliseconds": 11
+    },
+    {
+      "path": "/feed.xml",
+      "status": 200,
+      "milliseconds": 269
+    },
+    {
+      "path": "/feed/daily.xml",
+      "status": 200,
+      "milliseconds": 265
+    },
+    {
+      "path": "/feed/weekly.xml",
+      "status": 200,
+      "milliseconds": 235
+    },
+    {
+      "path": "/feed/monthly.xml",
+      "status": 200,
+      "milliseconds": 251
+    },
+    {
+      "path": "/",
+      "status": 200,
+      "milliseconds": 389
+    },
+    {
+      "path": "/assets/manifest-1902ba8a.js",
+      "status": 200,
+      "milliseconds": 7
+    },
+    {
+      "path": "/assets/entry.client-BUE_LKoJ.js",
+      "status": 200,
+      "milliseconds": 26
+    },
+    {
+      "path": "/assets/components-D0VJsCfe.js",
+      "status": 200,
+      "milliseconds": 7
+    },
+    {
+      "path": "/assets/hooks-DTt0LJM7.js",
+      "status": 200,
+      "milliseconds": 10
+    },
+    {
+      "path": "/assets/index-dlPyGTWR.js",
+      "status": 200,
+      "milliseconds": 7
+    },
+    {
+      "path": "/assets/errorBoundaries-Cj8Z4F_B.js",
+      "status": 200,
+      "milliseconds": 10
+    },
+    {
+      "path": "/assets/root-CsF8YjhK.js",
+      "status": 200,
+      "milliseconds": 7
+    },
+    {
+      "path": "/assets/lib-D8FJwJsN.js",
+      "status": 200,
+      "milliseconds": 10
+    },
+    {
+      "path": "/assets/site-CoXgHrBz.js",
+      "status": 200,
+      "milliseconds": 7
+    },
+    {
+      "path": "/assets/Logo-CwUxCorV.js",
+      "status": 200,
+      "milliseconds": 9
+    },
+    {
+      "path": "/assets/Sidebar-Cm2tQszo.js",
+      "status": 200,
+      "milliseconds": 8
+    },
+    {
+      "path": "/assets/screens-DNRj3OjL.js",
+      "status": 200,
+      "milliseconds": 10
+    },
+    {
+      "path": "/assets/seo-BJFlwvkF.js",
+      "status": 200,
+      "milliseconds": 7
+    },
+    {
+      "path": "/assets/SearchOverlay-mDc18E-j.js",
+      "status": 200,
+      "milliseconds": 10
+    },
+    {
+      "path": "/assets/Chrome-B6C2mFx1.js",
+      "status": 200,
+      "milliseconds": 7
+    },
+    {
+      "path": "/assets/Controls-CXmiIEzA.js",
+      "status": 200,
+      "milliseconds": 10
+    },
+    {
+      "path": "/assets/hydration-BezdswLz.js",
+      "status": 200,
+      "milliseconds": 6
+    },
+    {
+      "path": "/assets/site-modules-B05QWI8X.js",
+      "status": 200,
+      "milliseconds": 11
+    },
+    {
+      "path": "/assets/icons-fER799Tl.js",
+      "status": 200,
+      "milliseconds": 7
+    },
+    {
+      "path": "/assets/modal-H_-Qecle.js",
+      "status": 200,
+      "milliseconds": 10
+    },
+    {
+      "path": "/assets/home-C9gHOpa-.js",
+      "status": 200,
+      "milliseconds": 7
+    },
+    {
+      "path": "/assets/Timeline-C6HQh3hT.js",
+      "status": 200,
+      "milliseconds": 11
+    },
+    {
+      "path": "/assets/Faces-DOxUQtr8.js",
+      "status": 200,
+      "milliseconds": 7
+    },
+    {
+      "path": "/assets/Filters-BL7SnkQ3.js",
+      "status": 200,
+      "milliseconds": 9
+    },
+    {
+      "path": "/assets/Presence-DWVk3ZSw.js",
+      "status": 200,
+      "milliseconds": 7
+    },
+    {
+      "path": "/assets/IntentLink-Du2yy8KB.js",
+      "status": 200,
+      "milliseconds": 9
+    },
+    {
+      "path": "/assets/Badge-WyVkNXtb.js",
+      "status": 200,
+      "milliseconds": 7
+    },
+    {
+      "path": "/assets/QuotedPost-BM3xLM5v.js",
+      "status": 200,
+      "milliseconds": 10
+    },
+    {
+      "path": "/assets/SourceAvatar-C6XpkwE1.js",
+      "status": 200,
+      "milliseconds": 6
+    },
+    {
+      "path": "/assets/format-Dn0FuDDn.js",
+      "status": 200,
+      "milliseconds": 10
+    },
+    {
+      "path": "/assets/Sheet-4VnOp2cI.js",
+      "status": 200,
+      "milliseconds": 7
+    },
+    {
+      "path": "/assets/restore-3axvcNHM.js",
+      "status": 200,
+      "milliseconds": 10
+    },
+    {
+      "path": "/assets/preview-DEPrU6zK.js",
+      "status": 200,
+      "milliseconds": 6
+    },
+    {
+      "path": "/assets/Page-DxoLprZM.js",
+      "status": 200,
+      "milliseconds": 10
+    },
+    {
+      "path": "/assets/Tabs-DWtGYPFT.js",
+      "status": 200,
+      "milliseconds": 7
+    },
+    {
+      "path": "/assets/PhoneBar-C7v3M9V1.js",
+      "status": 200,
+      "milliseconds": 10
+    },
+    {
+      "path": "/assets/root-lpA51vUl.css",
+      "status": 200,
+      "milliseconds": 11
+    }
+  ]
+}

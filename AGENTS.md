@@ -13,8 +13,8 @@ The current optimization focus is source quality. Earlier versions overexposed H
 
 ## Architecture
 
-- Frontend: React + Vite in `src/`, built to `dist/`.
-- Backend: Express in `server/index.js`, serving API, admin routes, RSS, skill metadata, and static frontend.
+- Frontend: React Router SSR in `apps/web/`, built to `apps/web/build/` and served by `apps/web/server.ts`.
+- Backend: Express in `server/index.js`, serving collection/API, admin, RSS, and public compatibility endpoints; page rendering is owned by the SSR web process.
 - Refresh job: `server/jobs/refresh.js`.
 - Source definitions: `server/lib/sources.js`.
 - Scrapers: `server/lib/scrapers.js`.
@@ -49,18 +49,17 @@ Important quality rules:
 Production target is documented in `DEPLOY.md`:
 
 - Server: `101.96.213.103`
-- App directory: `/opt/aihot`
-- Service: `aihot.service`
-- Port: `8080`
-- Nginx reverse proxy: `/etc/nginx/conf.d/aihot.conf`
+- Active release: `/opt/aibaize-releases/rebuild-20261005`
+- Services: `aibaize-api.service` (4301) and `aibaize-web.service` (4300)
+- Nginx reverse proxy: `/etc/nginx/sites-available/aihot`, currently proxying the SSR web service
 
 Before deploying:
 
 1. Run `npm run build`.
 2. Prefer syncing code and built assets while preserving production runtime data unless the user explicitly asks to replace it.
-3. Do not overwrite production `data/db.json` casually.
-4. Restart `aihot`.
-5. Verify `/api/stats`, `/api/public/items?mode=selected`, `/api/public/daily`, the homepage, and admin source filters.
+3. Do not overwrite production `data/db.json` casually; create a private rollback copy before any controlled title repair or release handoff.
+4. Restart `aibaize-api` and `aibaize-web` only after the candidate build is verified.
+5. Verify HTTPS `/api/health`, public pages, `/api/public/items?mode=selected`, `/api/public/daily`, and admin boundaries.
 
 ## Operational Notes
 
@@ -68,4 +67,3 @@ Before deploying:
 - `data/db.json` is runtime state and may contain source health, item inventory, daily digests, feedback, and manual MP articles.
 - Refresh can be slow because free public RSS/web/X mirrors are unreliable.
 - Some source failures are expected and acceptable if the selected feed still meets quality distribution targets.
-

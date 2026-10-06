@@ -1,0 +1,61 @@
+{
+  "checkedAt": "2026-10-06T08:22:00.837Z",
+  "release": "20261006-summary-queue",
+  "collection": {
+    "enabled": true,
+    "cron": "*/30 * * * *",
+    "refreshedAt": "2026-10-06T08:21:27.175Z"
+  },
+  "controlledDetailChecks": 9,
+  "items": [
+    {
+      "id": "item-1wt8x79",
+      "url": "https://www.aibaize.cc/items/item-1wt8x79",
+      "passed": true
+    },
+    {
+      "id": "item-1wt8vpv",
+      "url": "https://www.aibaize.cc/items/item-1wt8vpv",
+      "passed": true
+    },
+    {
+      "id": "item-1wt8uz6",
+      "url": "https://www.aibaize.cc/items/item-1wt8uz6",
+      "passed": true
+    },
+    {
+      "id": "item-1wt88qc",
+      "url": "https://www.aibaize.cc/items/item-1wt88qc",
+      "passed": true
+    },
+    {
+      "id": "item-1wt85rk",
+      "url": "https://www.aibaize.cc/items/item-1wt85rk",
+      "passed": true
+    },
+    {
+      "id": "item-1wt9h80",
+      "url": "https://www.aibaize.cc/items/item-1wt9h80",
+      "passed": true
+    },
+    {
+      "id": "item-1wt7pga",
+      "url": "https://www.aibaize.cc/items/item-1wt7pga",
+      "passed": true
+    },
+    {
+      "id": "item-rlkcwf",
+      "url": "https://www.aibaize.cc/items/item-rlkcwf",
+      "passed": true
+    },
+    {
+      "id": "item-qpkrcx",
+      "url": "https://www.aibaize.cc/items/item-qpkrcx",
+      "passed": true
+    }
+  ],
+  "firstPageItems": 40,
+  "firstPageFallbacks": [],
+  "todayCount": 26,
+  "passed": true
+}

@@ -25,10 +25,11 @@ test("infers comparison and timeline commands", () => {
 });
 
 test("answers with bounded source citations", () => {
+  const publishedAt = new Date().toISOString();
   const state = {
     items: [
-      item("official", "OpenAI", "OpenAI 发布新模型", "2026-06-22T01:00:00.000Z"),
-      item("expert", "Simon Willison", "新模型的开发者影响", "2026-06-22T02:00:00.000Z", "expert_rss"),
+      item("official", "OpenAI", "OpenAI 发布新模型", publishedAt),
+      item("expert", "Simon Willison", "Simon Willison 分析 OpenAI 新模型 Agent API 对开发者影响", publishedAt, "expert_rss"),
     ],
   };
   const result = answerQuestion(state, { question: "比较新模型的影响", command: "compare" });
@@ -38,4 +39,32 @@ test("answers with bounded source citations", () => {
   assert.equal(result.citations.length, 2);
   assert.match(result.answer, /OpenAI/);
   assert.match(result.answer, /Simon Willison/);
+});
+
+test("Ask Baize grounds only in items that pass the complete selected boundary", () => {
+  const state = {
+    settings: { rules: { selectedThreshold: 72 } },
+    items: [
+      item("eligible", "OpenAI", "OpenAI 发布 AI agent API", new Date().toISOString()),
+      { ...item("low", "Low Score", "Low score AI model note", new Date().toISOString()), score: 10 },
+      { ...item("invalid", "Invalid URL", "Invalid AI model note", new Date().toISOString()), url: "#" },
+      { ...item("hidden", "Hidden", "Hidden AI model note", new Date().toISOString()), hidden: true },
+      {
+        ...item("legacy-reference", "AIHOT 公开页", "AIHOT mirrored AI model note", new Date().toISOString()),
+        sourceKind: "aihot",
+        sourceId: "aihot-public",
+        priorityTier: "",
+        sourceTier: "reference",
+      },
+    ],
+  };
+
+  const result = answerQuestion(state, { question: "AI 模型" });
+
+  assert.deepEqual(result.citations.map((citation) => citation.id), ["eligible"]);
+  assert.equal(result.grounded, true);
+
+  const empty = answerQuestion({ settings: state.settings, items: state.items.slice(1) }, { question: "AI 模型" });
+  assert.equal(empty.grounded, false);
+  assert.deepEqual(empty.citations, []);
 });
