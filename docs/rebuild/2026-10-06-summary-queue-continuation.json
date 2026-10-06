@@ -1,0 +1,22 @@
+{
+  "observedAt": "2026-10-06T08:29:50.706Z",
+  "lastCollectionAt": "2026-10-06T08:21:27.175Z",
+  "completedBatch": {
+    "at": "2026-10-06T08:27:00.863Z",
+    "enhanced": 17,
+    "failed": 3,
+    "applied": 20,
+    "failures": {
+      "model_timeout": 1,
+      "unsupported_numeric_claim": 1,
+      "invalid_number_placeholder": 1
+    }
+  },
+  "nextBatchCheckpoint": {
+    "id": "item-1fzztzl",
+    "provider": "ollama:qwen3:1.7b",
+    "at": "2026-10-06T08:29:47.048Z"
+  },
+  "independentContinuationObserved": true,
+  "evidence": "Server state read at observedAt; later checkpoints appeared after the completed batch, with collection timestamp still unchanged. Failed checks were recorded separately, not counted as successful summaries."
+}
