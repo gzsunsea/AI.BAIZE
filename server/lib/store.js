@@ -122,7 +122,7 @@ function upsertItems(nextItems) {
       hidden: prev?.hidden ?? false,
       pinned: prev?.pinned ?? false,
       updatedAt: new Date().toISOString(),
-      ...(prev?.llmProvider ? keepEditorial ? {summary:prev.summary,reason:incomingExplicitReason||storedReason||prev.reason,llmProvider:prev.llmProvider,llmEnhancedAt:prev.llmEnhancedAt,editorialBrief:prev.editorialBrief||null} : {llmProvider:null,llmEnhancedAt:null,editorialBrief:null} : {}),
+      ...(prev?.llmProvider ? keepEditorial ? {summary:prev.summary,reason:incomingExplicitReason||storedReason||prev.reason,llmProvider:prev.llmProvider,llmEnhancedAt:prev.llmEnhancedAt,editorialBrief:prev.editorialBrief||null} : {llmProvider:null,llmEnhancedAt:null,llmAttemptedModel:null,llmFailure:null,llmFailureCount:0,editorialBrief:null} : {}),
     });
   }
 

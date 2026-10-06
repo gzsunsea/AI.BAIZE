@@ -1,0 +1,81 @@
+{
+  "release": "20261006-summary-queue",
+  "scope": "Screenshot articles and remaining English entries for 2026-10-06; not a full historical editorial audit",
+  "controlledRepairs": 9,
+  "sourceReviewedCorrections": 8,
+  "rawDraftsStoredPrivately": true,
+  "items": [
+    {
+      "id": "item-1wt8x79",
+      "sourceUrl": "https://arxiv.org/abs/2610.06846v1",
+      "summary": "BiasFlow用于监测类别与属性的质心对齐、类别内质心分离和特征投影敏感性，并可与类别条件质心对齐惩罚BFR结合。原文明确指出，IBMI受类别与属性的相关性混杂影响，不能作为因果性特征依赖的度量。",
+      "provider": "ollama:qwen3:1.7b:reviewed",
+      "copyCorrected": true,
+      "review": "Source-grounded terminology and factual copy correction; model draft retained."
+    },
+    {
+      "id": "item-1wt8vpv",
+      "sourceUrl": "https://arxiv.org/abs/2610.06844v1",
+      "summary": "研究训练轻量级瓶颈网络，将MM-DiT的中间上下文token映射到冻结LLM的输入空间，使其直接回答正在生成图像的相关问题。读取器发现，这些token包含场景的全局语义：提示词未明确指定的属性在去噪早期已可读取，更细致的信息则逐渐显现。",
+      "provider": "ollama:qwen3:1.7b:reviewed",
+      "copyCorrected": true,
+      "review": "Source-grounded terminology and factual copy correction; model draft retained."
+    },
+    {
+      "id": "item-1wt8uz6",
+      "sourceUrl": "https://arxiv.org/abs/2610.06843v1",
+      "summary": "我们引入递归视频上下文学习（RV-ICL），一种无需训练的方法，将演示转化为代理导航的层次结构，而非接收的提示。该层次结构由演示的子事件构成，如抓取和释放。层次结构从整体任务的关键帧逐渐细化至阶段、时刻和短片段，并通过只读工具暴露。",
+      "provider": "ollama:qwen3:1.7b",
+      "copyCorrected": false,
+      "review": "Checked against original abstract; no copy change."
+    },
+    {
+      "id": "item-1wt88qc",
+      "sourceUrl": "https://arxiv.org/abs/2610.06834v1",
+      "summary": "研究提出在中间时刻直接初始化MCGDiff：近似求解器先对条件约束较弱的干净空间后验采样，再通过高斯桥将样本映射到倾斜目标分布，仅运行余下的SMC步骤。原文说明，这以牺牲渐近一致性换取有限粒子数下的表现。",
+      "provider": "ollama:qwen3:1.7b:reviewed",
+      "copyCorrected": true,
+      "review": "Source-grounded terminology and factual copy correction; model draft retained."
+    },
+    {
+      "id": "item-1wt85rk",
+      "sourceUrl": "https://arxiv.org/abs/2610.06830v1",
+      "summary": "MemPilot通过强化学习优化多步骤LLM策略，在检索与当前查询无关的既有记忆、按当前查询整理原始多模态历史之间进行选择。策略同时控制证据量、整理指令、模型选择和视觉访问，以调节性能、成本与延迟。",
+      "provider": "ollama:qwen3:1.7b:reviewed",
+      "copyCorrected": true,
+      "review": "Source-grounded terminology and factual copy correction; model draft retained."
+    },
+    {
+      "id": "item-1wt9h80",
+      "sourceUrl": "https://arxiv.org/abs/2610.06852v1",
+      "summary": "研究将流程图重排分为解析、样式和布局三个阶段，每个阶段由主智能体与评审器结合确定性约束检查和视觉语言模型反馈，核对图的连接关系。输出为可在draw.io编辑的mxGraph XML。论文报告，在100张流程图、五种宽高比的测试中，内容保真度为68.6%，此前方法为11.2%至41.4%。",
+      "provider": "ollama:qwen3:1.7b:reviewed",
+      "copyCorrected": true,
+      "review": "Source-grounded terminology and factual copy correction; model draft retained."
+    },
+    {
+      "id": "item-1wt7pga",
+      "sourceUrl": "https://arxiv.org/abs/2610.06829v1",
+      "summary": "CLIFT以保形自验证改进网页智能体的训练与测试时扩展。训练阶段，智能体回答关于自身执行轨迹的验证问题，认证器保留与训练时评判器一致的证据并构造奖励。测试阶段复用认证问题库，通过多次执行与保守多数表决选择轨迹，无需再调用外部评判器。",
+      "provider": "ollama:qwen3:1.7b:reviewed",
+      "copyCorrected": true,
+      "review": "Source-grounded terminology and factual copy correction; model draft retained."
+    },
+    {
+      "id": "item-rlkcwf",
+      "sourceUrl": "https://simonwillison.net/2026/Oct/5/felix-rieseberg/",
+      "summary": "Felix Rieseberg说明，旧版Cowork在云端运行模型推理，却在用户电脑的虚拟机中执行工具调用；新版将推理和虚拟机都移到云端，每个会话拥有独立沙箱。需要访问用户设备文件时，由桌面应用执行相应的文件访问工具调用。",
+      "provider": "ollama:qwen3:1.7b:reviewed",
+      "copyCorrected": true,
+      "review": "Source-grounded terminology and factual copy correction; model draft retained."
+    },
+    {
+      "id": "item-qpkrcx",
+      "sourceUrl": "https://github.com/anthropics/claude-code/releases/tag/v2.1.290",
+      "summary": "Claude Code v2.1.290为模组的turn.step钩子结果新增serverToolUses，记录API自行执行的工具调用及其ID、名称、输入、开始与结束时间。插件钩子的tool.check事件新增agentId，可区分子智能体与主会话的权限检查；模组的tool.check还新增ceiling，用于表示组织要求的工具批准权限。",
+      "provider": "ollama:qwen3:1.7b:reviewed",
+      "copyCorrected": true,
+      "review": "Existing automatic draft corrected against the release notes; kept original draft."
+    }
+  ]
+}

@@ -6,6 +6,7 @@ const { isOriginalHttpUrl, isQualityCandidate } = require("../lib/scoring");
 const priorityRank = { preferred_x: 0, official_first_party: 1, expert_rss: 2, cn_media: 3, reference: 4, community_fallback: 5 };
 let refreshInFlight = false;
 let enhancementInFlight = false;
+let enhancementTimer = null;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -119,6 +120,7 @@ async function scrapeOneSource(source) {
 
 function scheduleEnhancement(limit = Number(process.env.LLM_ENHANCE_LIMIT || 40)) {
   if (process.env.LLM_ENHANCE_ASYNC === "0" || enhancementInFlight) return { scheduled: false, reason: enhancementInFlight ? "enhancement_in_progress" : "disabled" };
+  if (enhancementTimer) { clearTimeout(enhancementTimer); enhancementTimer = null; }
   enhancementInFlight = true;
   enhanceRecentItems({ limit })
     .then((enhanced) => {
@@ -130,6 +132,11 @@ function scheduleEnhancement(limit = Number(process.env.LLM_ENHANCE_LIMIT || 40)
     })
     .finally(() => {
       enhancementInFlight = false;
+      if (process.env.LLM_ENHANCE_ASYNC !== '0') {
+        const interval = Math.max(1000, Number(process.env.LLM_ENHANCE_INTERVAL_MS || 60000));
+        enhancementTimer = setTimeout(() => { enhancementTimer = null; scheduleEnhancement(limit); }, interval);
+        enhancementTimer.unref?.();
+      }
     });
   return { scheduled: true, limit };
 }

@@ -15,9 +15,9 @@ function loadStoreFresh() {
 test('refresh preserves Chinese editorial copy only while original material remains unchanged',t=>{
  const cwd=process.cwd(),dir=fs.mkdtempSync(path.join(os.tmpdir(),'aibaize-preserve-copy-'));t.after(()=>{process.chdir(cwd);fs.rmSync(dir,{recursive:true,force:true})});process.chdir(dir);
  const incoming=normalizeItem({title:'OpenAI AI model API update',summary:'The OpenAI AI model API supports web search integration.',sourceName:'OpenAI',sourceKind:'rss',priorityTier:'official_first_party',url:'https://openai.com/index/ai-model',publishedAt:new Date().toISOString()});
- const store=loadStoreFresh();store.writeState({items:[{...incoming,summary:'OpenAI 模型接口支持网络检索接入。',reason:'适合开发者对照原文的网络检索调用说明。',llmProvider:'ollama:test',llmEnhancedAt:'2026-10-05T00:00:00Z'}],sources:[],settings:{}});
+ const store=loadStoreFresh();store.writeState({items:[{...incoming,summary:'OpenAI 模型接口支持网络检索接入。',reason:'适合开发者对照原文的网络检索调用说明。',llmProvider:'ollama:test',llmEnhancedAt:'2026-10-05T00:00:00Z',llmAttemptedModel:'old-model',llmFailure:'model_timeout',llmFailureCount:4}],sources:[],settings:{}});
  store.upsertItems([incoming]);let current=store.readState().items[0];assert.equal(current.summary,'OpenAI 模型接口支持网络检索接入。');assert.equal(current.llmProvider,'ollama:test');
- store.upsertItems([normalizeItem({...incoming.raw,summary:'The OpenAI AI model API withdrew web search integration.'})]);current=store.readState().items[0];assert.equal(current.llmProvider,null);assert.equal(current.id,incoming.id);assert.equal(current.publishedAt,incoming.publishedAt);
+ store.upsertItems([normalizeItem({...incoming.raw,summary:'The OpenAI AI model API withdrew web search integration.'})]);current=store.readState().items[0];assert.equal(current.llmProvider,null);assert.equal(current.id,incoming.id);assert.equal(current.publishedAt,incoming.publishedAt);assert.equal(current.llmAttemptedModel,null);assert.equal(current.llmFailure,null);assert.equal(current.llmFailureCount,0);
 });
 
 test("readState backfills legacy source metadata without overwriting stored display scores", (t) => {
@@ -163,4 +163,14 @@ test("readState gives legacy template reasons a neutral fallback without rewriti
   assert.notEqual(item.reason, genericReason);
   assert.match(item.reason, /OpenAI|migration timeline/);
   assert.equal(persisted.reason, genericReason);
+});
+
+test('collection retains research relevance after its English evidence becomes a Chinese summary', (t) => {
+ const cwd = process.cwd(), dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aibaize-relevance-translation-'));
+ t.after(() => { process.chdir(cwd); fs.rmSync(dir, { recursive: true, force: true }); }); process.chdir(dir);
+ const incoming = normalizeItem({ title: 'BiasFlow: Geometric Monitoring and Backbone Regularization for Spurious Feature Reliance', summary: 'We introduce a toolkit for monitoring class-attribute centroid alignment. Across small-scale benchmarks the method improves mean worst-group accuracy on ImageNet.', tags: ['论文/研究'], sourceKind: 'arxiv', sourceName: 'arXiv AI', priorityTier: 'community_fallback', url: 'https://arxiv.org/abs/2610.06846v1', publishedAt: '2026-10-06T01:59:00Z' });
+ const store = loadStoreFresh(); store.writeState({ items: [{ ...incoming, summary: 'BiasFlow用于监测类别与属性的质心对齐及特征投影敏感性。', llmProvider: 'ollama:qwen3:1.7b:reviewed' }], sources: [], settings: {} });
+ store.upsertItems([incoming]);
+ assert.equal(store.readState().items.length, 1); assert.equal(store.readState().items[0].id, incoming.id);
+ assert.equal(store.readState().items[0].summary, 'BiasFlow用于监测类别与属性的质心对齐及特征投影敏感性。');
 });

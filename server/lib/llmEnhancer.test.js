@@ -360,3 +360,82 @@ test("rules enhancement preserves authoritative reasons and replaces only automa
   assert.notEqual(byId.get("automatic").reason, automaticReason);
   assert.equal(byId.get("automatic").llmProvider, "rules");
 });
+
+test('timeouts are classified by AbortError rather than its numeric DOMException code', async (t) => {
+ t.mock.method(global, 'fetch', async () => { throw new DOMException('aborted', 'AbortError'); });
+ const result = await loadEnhancerFresh().enhanceItem({ title: 'AI tools', raw: { summary: 'The API normalizes tool schemas.' } });
+ assert.equal(result.failureCode, 'model_timeout');
+});
+
+test('latest all-feed articles get slots alongside preferred articles and older retries', async (t) => {
+ const cwd = process.cwd(), dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aibaize-fair-queue-'));
+ t.after(() => { process.chdir(cwd); fs.rmSync(dir, { recursive: true, force: true }); });
+ process.chdir(dir); fs.mkdirSync('data');
+ const base = { title: 'AI tools', raw: { summary: 'The API normalizes tool schemas.' } };
+ const items = Array.from({ length: 10 }, (_, i) => ({ ...base, id: 'preferred-' + i, preferred: true, score: 99, publishedAt: '2026-10-05T00:00:00Z' }));
+ items.push({ ...base, id: 'latest-all', score: 50, publishedAt: '2026-10-06T00:00:00Z' });
+ items.push({ ...base, id: 'retry', llmProvider: 'rules', llmEnhancedAt: '2026-01-01T00:00:00Z', llmAttemptedModel: 'qwen3:1.7b' });
+ const file = path.join(dir, 'data/db.json'); fs.writeFileSync(file, JSON.stringify({ items, sources: [], settings: {} }));
+ t.mock.method(global, 'fetch', async () => ({ ok: true, json: async () => ({ response: JSON.stringify({ fact: '官方说明了模型工具调用格式的转换方式。' }) }) }));
+ await loadEnhancerFresh().enhanceRecentItems({ limit: 3 });
+ const enhanced = JSON.parse(fs.readFileSync(file)).items.filter(item => item.llmProvider?.startsWith('ollama:'));
+ assert.ok(enhanced.some(item => item.id === 'latest-all'));
+ assert.ok(enhanced.some(item => item.id === 'retry'));
+ assert.ok(enhanced.some(item => item.id.startsWith('preferred-')));
+});
+
+test('each completed summary is visible before the next model request finishes', async (t) => {
+ const cwd = process.cwd(), dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aibaize-live-summary-'));
+ const previousConcurrency = process.env.LLM_ENHANCE_CONCURRENCY;
+ t.after(() => { process.chdir(cwd); if (previousConcurrency === undefined) delete process.env.LLM_ENHANCE_CONCURRENCY; else process.env.LLM_ENHANCE_CONCURRENCY = previousConcurrency; fs.rmSync(dir, { recursive: true, force: true }); });
+ process.env.LLM_ENHANCE_CONCURRENCY = '1'; process.chdir(dir); fs.mkdirSync('data');
+ const base = { title: 'AI tools', raw: { summary: 'The API normalizes tool schemas.' } };
+ const file = path.join(dir, 'data/db.json'); fs.writeFileSync(file, JSON.stringify({ items: [{ ...base, id: 'a' }, { ...base, id: 'b' }], sources: [], feedback: [], settings: {} }));
+ let calls = 0;
+ t.mock.method(global, 'fetch', async () => {
+  if (++calls === 2) {
+   const current = JSON.parse(fs.readFileSync(file));
+   assert.ok(current.items[0].llmProvider?.startsWith('ollama:'));
+   current.feedback.push({ id: 'during-next-request' }); fs.writeFileSync(file, JSON.stringify(current));
+  }
+  return { ok: true, json: async () => ({ response: JSON.stringify({ fact: '官方说明了模型工具调用格式的转换方式。' }) }) };
+ });
+ const result = await loadEnhancerFresh().enhanceRecentItems();
+ assert.equal(calls, 2); assert.equal(result.enhanced, 2); assert.equal(JSON.parse(fs.readFileSync(file)).feedback[0].id, 'during-next-request');
+});
+
+test('old small-model title translations are upgraded instead of being skipped forever', async (t) => {
+ const cwd = process.cwd(), dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aibaize-upgrade-summary-'));
+ t.after(() => { process.chdir(cwd); fs.rmSync(dir, { recursive: true, force: true }); });
+ process.chdir(dir); fs.mkdirSync('data');
+ const file = path.join(dir, 'data/db.json'); fs.writeFileSync(file, JSON.stringify({ items: [{ id: 'old', title: 'AI tools', summary: '学习读取上下文标签', llmProvider: 'ollama:qwen2.5:0.5b', raw: { summary: 'The API normalizes tool schemas.' } }], sources: [], settings: {} }));
+ t.mock.method(global, 'fetch', async () => ({ ok: true, json: async () => ({ response: JSON.stringify({ fact: '官方说明了模型工具调用格式的转换方式。' }) }) }));
+ assert.equal((await loadEnhancerFresh().enhanceRecentItems()).enhanced, 1);
+});
+
+test('long research abstracts send complete method sentences without cutting mid-sentence', async (t) => {
+ let request;
+ t.mock.method(global, 'fetch', async (_url, options) => { request = JSON.parse(options.body); return { ok: true, json: async () => ({ response: JSON.stringify({ fact: '研究提出按需读取演示视频层级的方法。' }) }) }; });
+ const background = 'Existing models have difficulty retaining the fine-grained visual details needed for execution. '.repeat(12);
+ const method = 'We introduce Recursive Video In-Context Learning, a training-free method that exposes demonstration sub-events through read-only tools. Its levels grow finer from task keyframes to phases, moments and short clips.';
+ await loadEnhancerFresh().enhanceItem({ title: 'Robot learning', sourceName: 'arXiv AI', sourceKind: 'arxiv', raw: { summary: background + method } });
+ assert.match(request.prompt, /We introduce Recursive Video/); assert.match(request.prompt, /short clips\.$/);
+ assert.doesNotMatch(request.prompt, /Existing models/);
+});
+
+test('research sentence selection preserves decimals and complete clauses', async (t) => {
+ let request;
+ t.mock.method(global, 'fetch', async (_url, options) => { request = JSON.parse(options.body); return { ok: true, json: async () => ({ response: JSON.stringify({ fact: '研究提出新的方法，并报告原文中的对照结果。' }) }) }; });
+ await loadEnhancerFresh().enhanceItem({ title: 'Robot learning', sourceKind: 'arxiv', raw: { summary: 'We introduce a robot learning method. Success grows from 92.6% to 96.5% under the tested protocol. The method needs one demonstration per task.' } });
+ assert.match(request.prompt, /from __NUM_0__ to __NUM_1__/);
+ assert.match(request.prompt, /one demonstration per task\.$/);
+});
+
+test('repeated failures back off instead of consuming every background batch', async (t) => {
+ const cwd = process.cwd(), dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aibaize-retry-backoff-'));
+ t.after(() => { process.chdir(cwd); fs.rmSync(dir, { recursive: true, force: true }); });
+ process.chdir(dir); fs.mkdirSync('data');
+ fs.writeFileSync('data/db.json', JSON.stringify({ items: [{ id: 'twice-failed', title: 'AI tools', preferred: true, llmProvider: 'rules', llmAttemptedModel: 'qwen3:1.7b', llmFailureCount: 2, llmEnhancedAt: new Date(Date.now() - 40 * 60000).toISOString(), raw: { summary: 'The API normalizes tool schemas.' } }], sources: [], settings: {} }));
+ t.mock.method(global, 'fetch', async () => ({ ok: true, json: async () => ({ response: JSON.stringify({ fact: '官方说明了模型工具调用格式的转换方式。' }) }) }));
+ assert.equal((await loadEnhancerFresh().enhanceRecentItems()).applied, 0);
+});

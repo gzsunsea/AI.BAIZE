@@ -444,12 +444,22 @@ function isAutomaticReason(item = {}) {
 function isQualityCandidate(item) {
   if (!item || isNoiseCandidate(item)) return false;
   if (isWeakIndustryCandidate(item)) return false;
-  const hasCoreAi = isCoreAiCandidate(item);
+  // Judge AI relevance from the source; a translation can omit discovery keywords.
+  // Keep existing noise checks scoped to the display excerpt (full papers can contain
+  // incidental words such as LIBERO-Plus that collide with promotion filters).
+  let evidenceItem = item;
+  if (item.llmProvider) {
+    const raw = item.raw || {}, json = raw.rawJson || {};
+    const original = [raw.summary, raw.description, raw.story_text, raw.content, raw.content_text, json.text, json.full_text, json.content]
+      .filter(value => typeof value === 'string' && value.trim()).join(' ');
+    if (original) evidenceItem = { ...item, summary: original };
+  }
+  const hasCoreAi = isCoreAiCandidate(item) || isCoreAiCandidate(evidenceItem);
   if (isCommunitySource(item) && !hasCoreAi) return false;
   if (isChineseMediaSource(item) && !hasCoreAi) return false;
   if (isBroadOfficialSource(item) && !hasCoreAi) return false;
   if (hasCoreAi) return true;
-  return AI_ENTITY_RE.test(itemText(item)) && !isWeakIndustryCandidate(item);
+  return (AI_ENTITY_RE.test(itemText(item)) || AI_ENTITY_RE.test(itemText(evidenceItem))) && !isWeakIndustryCandidate(item);
 }
 
 function normalizeItem(raw) {
