@@ -25,9 +25,52 @@ test('non-Chinese model output cannot masquerade as a translated summary',async(
  const result=await loadEnhancerFresh().enhanceItem({title:'AI launch',raw:{summary:'The API now supports web search.'}});
  assert.equal(result.provider,'rules');assert.match(result.summary,/原文摘录/);
 });
-test('model reasons containing prompt placeholders or summary boilerplate are rejected',async(t)=>{
+test('invalid model reasons cannot discard a valid Chinese fact',async(t)=>{
  let reason='适合某类读者对照原文中的某项资料，判断某个具体问题。';t.mock.method(global,'fetch',async()=>({ok:true,json:async()=>({response:JSON.stringify({fact:'官方说明了模型工具调用格式的转换方式。',reason})})}));const enhancer=loadEnhancerFresh(),input={title:'AI tools',raw:{summary:'The API normalizes tool-calling schemas across providers.'}};
- assert.equal((await enhancer.enhanceItem(input)).provider,'rules');reason='该摘要提供了有关模型工具调用格式的详细信息。';assert.equal((await enhancer.enhanceItem(input)).provider,'rules');
+ const first=await enhancer.enhanceItem(input);assert.match(first.provider,/^ollama:/);assert.equal(first.summary,'官方说明了模型工具调用格式的转换方式。');assert.doesNotMatch(first.reason,/某类读者|某项资料|某个具体问题/);
+ reason='该摘要提供了有关模型工具调用格式的详细信息。';const second=await enhancer.enhanceItem(input);assert.match(second.provider,/^ollama:/);assert.doesNotMatch(second.reason,/该摘要提供了/);
+ reason='具体阅读价值';assert.notEqual((await enhancer.enhanceItem(input)).reason,reason);
+});
+
+test('a missing model reason cannot discard a valid Chinese fact',async(t)=>{
+ t.mock.method(global,'fetch',async()=>({ok:true,json:async()=>({response:JSON.stringify({fact:'官方说明了模型工具调用格式的转换方式。'})})}));
+ const result=await loadEnhancerFresh().enhanceItem({title:'AI tools',sourceName:'Official',raw:{summary:'The API normalizes tool-calling schemas across providers.'}});
+ assert.match(result.provider,/^ollama:/);assert.equal(result.summary,'官方说明了模型工具调用格式的转换方式。');assert.match(result.reason,/原文/);
+});
+
+test('text summarization focuses on the original rather than editorial instructions and image captions',async(t)=>{
+ let request;t.mock.method(global,'fetch',async(_url,options)=>{request=JSON.parse(options.body);return {ok:true,json:async()=>({response:JSON.stringify({fact:'原文比较了工作流编排、模型路由与供应商路由。'})})}});
+ await loadEnhancerFresh().enhanceItem({title:'Routing layers',raw:{summary:'Compare orchestration, model routing, and provider routing.'},media:[{type:'image',alt:'Diagram caption that must not dominate the text summary.'}]});
+ assert.match(request.prompt,/Compare orchestration/);assert.doesNotMatch(request.prompt,/Diagram caption|某类读者|具体阅读价值/);assert.deepEqual(request.format.required,['fact']);
+});
+
+test('a rejected fact records the failure cause and attempted model',async(t)=>{
+ t.mock.method(global,'fetch',async()=>({ok:true,json:async()=>({response:JSON.stringify({fact:'The API normalizes tool schemas.',reason:'适合开发者核对工具调用格式。'})})}));
+ const result=await loadEnhancerFresh().enhanceItem({title:'AI tools',raw:{summary:'The API normalizes tool schemas.'}});
+ assert.equal(result.provider,'rules');assert.equal(result.failureCode,'non_chinese_fact');assert.ok(result.attemptedModel);
+});
+
+test('Chinese source summaries remain available when the model is unavailable',async(t)=>{
+ const original=process.env.OLLAMA_DISABLED;t.after(()=>{if(original===undefined)delete process.env.OLLAMA_DISABLED;else process.env.OLLAMA_DISABLED=original});process.env.OLLAMA_DISABLED='1';
+ const summary='OpenRouter 发布异步批量请求接口，并列出支持的模型、请求格式和结果获取方式。';
+ const result=await loadEnhancerFresh().enhanceItem({title:'Batch API',summary:'原文摘录（自动中文摘要暂不可用）：旧稿',llmProvider:'rules',raw:{summary}});
+ assert.equal(result.summary,summary);assert.equal(result.provider,'source');assert.equal(result.failureCode,undefined);
+});
+
+test('a new configured model retries rules results without the old cooldown',async(t)=>{
+ const cwd=process.cwd(),dir=fs.mkdtempSync(path.join(os.tmpdir(),'aibaize-model-retry-'));
+ t.after(()=>{process.chdir(cwd);fs.rmSync(dir,{recursive:true,force:true})});process.chdir(dir);fs.mkdirSync('data');
+ const file=path.join(dir,'data/db.json');fs.writeFileSync(file,JSON.stringify({items:[{id:'retry',title:'AI tools',preferred:true,llmProvider:'rules',llmAttemptedModel:'old-model',llmEnhancedAt:new Date().toISOString(),raw:{summary:'The API normalizes tool schemas.'}}],sources:[],settings:{}}));
+ t.mock.method(global,'fetch',async()=>({ok:true,json:async()=>({response:JSON.stringify({fact:'官方说明了模型工具调用格式的转换方式。',reason:'适合开发者核对工具调用格式。'})})}));
+ const result=await loadEnhancerFresh().enhanceRecentItems();assert.equal(result.enhanced,1);assert.equal(result.failed,0);assert.match(JSON.parse(fs.readFileSync(file)).items[0].llmProvider,/^ollama:/);
+});
+
+test('enhancement reports successful summaries separately from fallback failures',async(t)=>{
+ const cwd=process.cwd(),dir=fs.mkdtempSync(path.join(os.tmpdir(),'aibaize-enhance-counts-'));
+ t.after(()=>{process.chdir(cwd);fs.rmSync(dir,{recursive:true,force:true})});process.chdir(dir);fs.mkdirSync('data');
+ fs.writeFileSync(path.join(dir,'data/db.json'),JSON.stringify({items:[{id:'good',title:'Good AI tools',preferred:true,raw:{summary:'Good AI tools normalize tool schemas.'}},{id:'bad',title:'Bad AI tools',preferred:true,raw:{summary:'Bad AI tools normalize tool schemas.'}}],sources:[],settings:{}}));
+ t.mock.method(global,'fetch',async(_url,options)=>({ok:true,json:async()=>({response:JSON.stringify({fact:JSON.parse(options.body).prompt.includes('Bad AI tools')?'English output without translation':'官方说明了模型工具调用格式的转换方式。',reason:'适合开发者核对工具调用格式。'})})}));
+ const result=await loadEnhancerFresh().enhanceRecentItems();assert.equal(result.enhanced,1);assert.equal(result.failed,1);assert.equal(result.applied,2);assert.equal(result.failures.non_chinese_fact,1);
 });
 test('accepted Chinese copy does not fabricate omitted impact fields or unsupported numbers',async(t)=>{
  let answer={fact:'官方发布模型接口，并说明了新的网络检索接入方式。',reason:'适合开发者核对原文列出的网络检索调用方式。'};

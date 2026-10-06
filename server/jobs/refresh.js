@@ -122,7 +122,7 @@ function scheduleEnhancement(limit = Number(process.env.LLM_ENHANCE_LIMIT || 40)
   enhancementInFlight = true;
   enhanceRecentItems({ limit })
     .then((enhanced) => {
-      recordRun({ ok: true, type: "enhance", enhanced });
+      recordRun({ ok: enhanced.failed === 0, type: "enhance", enhanced });
     })
     .catch((error) => {
       recordRun({ ok: false, type: "enhance", enhanced: { enhanced: 0, provider: "none" }, errors: [{ source: "llmEnhancer", message: error.message }] });
